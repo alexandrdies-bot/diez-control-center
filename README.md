@@ -77,6 +77,10 @@ D:\_ProjectHome\diez-control-center
   outputs
 ```
 
+## Работа с Codex
+
+Правила работы с Codex описаны в [`docs/CODEX_WORKFLOW.md`](docs/CODEX_WORKFLOW.md).
+
 ## Границы текущего каркаса
 
 На этом этапе проект содержит только начальную структуру и документацию.
