@@ -151,6 +151,130 @@ app.get<{ Params: { id: string } }>("/materials/:id/pricing-inputs", async (requ
   );
 });
 
+app.get("/materials/specs/roll", async () => {
+  return queryDatabase<{
+    id: number;
+    material_id: number;
+    material_name: string;
+    material_type: string;
+    usage_role: string | null;
+    alternative_for_series: string | null;
+    series_name: string | null;
+    color_name: string | null;
+    color_code: string | null;
+    roll_width_m: string;
+    roll_length_m: string;
+    roll_area_m2: string;
+  }>(
+    `
+      select
+        s.id,
+        s.material_id,
+        m.name as material_name,
+        s.material_type,
+        s.usage_role,
+        s.alternative_for_series,
+        s.series_name,
+        s.color_name,
+        s.color_code,
+        s.roll_width_m::text as roll_width_m,
+        s.roll_length_m::text as roll_length_m,
+        s.roll_area_m2::text as roll_area_m2
+      from app.material_roll_specs s
+      join app.materials m on m.id = s.material_id
+      order by s.material_type, s.series_name, s.color_name, m.name
+    `
+  );
+});
+
+app.get("/materials/specs/sheet", async () => {
+  return queryDatabase<{
+    id: number;
+    material_id: number;
+    material_name: string;
+    material_type: string;
+    brand_or_series: string | null;
+    color_name: string | null;
+    thickness_mm: string;
+    sheet_width_mm: string;
+    sheet_height_mm: string;
+    working_area_m2: string;
+  }>(
+    `
+      select
+        s.id,
+        s.material_id,
+        m.name as material_name,
+        s.material_type,
+        s.brand_or_series,
+        s.color_name,
+        s.thickness_mm::text as thickness_mm,
+        s.sheet_width_mm::text as sheet_width_mm,
+        s.sheet_height_mm::text as sheet_height_mm,
+        s.working_area_m2::text as working_area_m2
+      from app.material_sheet_specs s
+      join app.materials m on m.id = s.material_id
+      order by s.material_type, s.brand_or_series, s.thickness_mm, m.name
+    `
+  );
+});
+
+app.get("/materials/specs/liquid", async () => {
+  return queryDatabase<{
+    id: number;
+    material_id: number;
+    material_name: string;
+    material_type: string;
+    technology: string | null;
+    brand_or_series: string | null;
+    color_name: string | null;
+    color_code: string | null;
+    volume_l: string;
+  }>(
+    `
+      select
+        s.id,
+        s.material_id,
+        m.name as material_name,
+        s.material_type,
+        s.technology,
+        s.brand_or_series,
+        s.color_name,
+        s.color_code,
+        s.volume_l::text as volume_l
+      from app.material_liquid_specs s
+      join app.materials m on m.id = s.material_id
+      order by s.technology, s.brand_or_series, s.color_name, m.name
+    `
+  );
+});
+
+app.get("/materials/specs/bulk", async () => {
+  return queryDatabase<{
+    id: number;
+    material_id: number;
+    material_name: string;
+    material_type: string;
+    technology: string | null;
+    brand_or_series: string | null;
+    weight_kg: string;
+  }>(
+    `
+      select
+        s.id,
+        s.material_id,
+        m.name as material_name,
+        s.material_type,
+        s.technology,
+        s.brand_or_series,
+        s.weight_kg::text as weight_kg
+      from app.material_bulk_specs s
+      join app.materials m on m.id = s.material_id
+      order by s.technology, s.brand_or_series, m.name
+    `
+  );
+});
+
 try {
   await app.listen({
     host: apiHost,
