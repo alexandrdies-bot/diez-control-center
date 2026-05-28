@@ -66,3 +66,25 @@ p {
 .status-row strong {
   color: #9fffbf;
 }
+
+.api-panel {
+  margin-top: 28px;
+  padding: 20px;
+  border-radius: 20px;
+  background: rgba(0, 0, 0, 0.24);
+}
+
+.api-panel h2 {
+  margin: 0 0 12px;
+  font-size: 18px;
+}
+
+.api-panel pre {
+  margin: 0;
+  overflow: auto;
+  color: #9fffbf;
+}
+
+.error-text {
+  color: #ff9f9f;
+}
