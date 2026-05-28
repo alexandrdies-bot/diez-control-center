@@ -4,8 +4,8 @@
   "private": true,
   "description": "Desktop control center for Diez Image ecosystem",
   "scripts": {
-    "dev": "echo \"No app created yet\"",
-    "check": "echo \"No checks configured yet\""
+    "dev": "pnpm --filter @diez/api dev",
+    "check": "pnpm --filter @diez/api check"
   },
   "workspaces": [
     "apps/*",
