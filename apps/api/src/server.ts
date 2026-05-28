@@ -97,6 +97,60 @@ app.get("/materials", async () => {
   );
 });
 
+app.get<{ Params: { id: string } }>("/materials/:id/pricing-inputs", async (request, reply) => {
+  const materialId = Number(request.params.id);
+
+  if (!Number.isInteger(materialId) || materialId <= 0) {
+    return reply.code(400).send({
+      ok: false,
+      reason: "INVALID_MATERIAL_ID"
+    });
+  }
+
+  return queryDatabase<{
+    id: number;
+    material_id: number;
+    supplier_name: string | null;
+    purchase_unit_id: number;
+    purchase_unit_code: string;
+    calculation_unit_id: number;
+    calculation_unit_code: string;
+    purchase_price_minor: number;
+    markup_percent: string;
+    delivery_price_minor: number;
+    work_amount: string;
+    currency_code: string;
+    source_note: string | null;
+    valid_from: string;
+    valid_to: string | null;
+  }>(
+    `
+      select
+        mpi.id,
+        mpi.material_id,
+        mpi.supplier_name,
+        mpi.purchase_unit_id,
+        pu.code as purchase_unit_code,
+        mpi.calculation_unit_id,
+        cu.code as calculation_unit_code,
+        mpi.purchase_price_minor,
+        mpi.markup_percent::text as markup_percent,
+        mpi.delivery_price_minor,
+        mpi.work_amount::text as work_amount,
+        mpi.currency_code,
+        mpi.source_note,
+        mpi.valid_from::text as valid_from,
+        mpi.valid_to::text as valid_to
+      from app.material_pricing_inputs mpi
+      join app.units pu on pu.id = mpi.purchase_unit_id
+      join app.units cu on cu.id = mpi.calculation_unit_id
+      where mpi.material_id = $1
+      order by mpi.valid_to nulls first, mpi.valid_from desc
+    `,
+    [materialId]
+  );
+});
+
 try {
   await app.listen({
     host: apiHost,
