@@ -302,6 +302,44 @@ app.get("/light-letter-specs", async () => {
   );
 });
 
+app.get("/products", async () => {
+  return queryDatabase<{
+    id: number;
+    sku: string;
+    name: string;
+    description: string | null;
+    is_active: boolean;
+    category_id: number | null;
+    category_name: string | null;
+    unit_id: number;
+    unit_code: string;
+    price_minor: number | null;
+    currency_code: string | null;
+  }>(
+    `
+      select
+        p.id,
+        p.sku,
+        p.name,
+        p.description,
+        p.is_active,
+        p.category_id,
+        c.name as category_name,
+        p.unit_id,
+        u.code as unit_code,
+        pp.price_minor,
+        pp.currency_code
+      from app.products p
+      left join app.product_categories c on c.id = p.category_id
+      join app.units u on u.id = p.unit_id
+      left join app.product_prices pp
+        on pp.product_id = p.id
+       and pp.valid_to is null
+      order by c.name nulls last, p.name
+    `
+  );
+});
+
 try {
   await app.listen({
     host: apiHost,
