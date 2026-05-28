@@ -1,0 +1,13 @@
+﻿node_modules/
+dist/
+build/
+.turbo/
+.vite/
+.env
+.env.*
+!.env.example
+outputs/*
+!outputs/.gitkeep
+.DS_Store
+Thumbs.db
+*.log
