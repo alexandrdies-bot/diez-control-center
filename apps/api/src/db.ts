@@ -23,10 +23,23 @@ export async function checkDatabaseConnection() {
     };
   }
 
-  const result = await dbPool.query<{ now: string }>("select now()::text as now");
+  try {
+    const result = await dbPool.query<{ now: string }>("select now()::text as now");
 
-  return {
-    ok: true,
-    now: result.rows[0]?.now ?? null
-  };
+    return {
+      ok: true,
+      now: result.rows[0]?.now ?? null
+    };
+  } catch (error) {
+    const errorCode =
+      error instanceof Error && "code" in error
+        ? String(error.code)
+        : "UNKNOWN";
+
+    return {
+      ok: false,
+      reason: "DATABASE_CONNECTION_FAILED",
+      code: errorCode
+    };
+  }
 }
