@@ -66,6 +66,37 @@ app.get("/material-categories", async () => {
   );
 });
 
+app.get("/materials", async () => {
+  return queryDatabase<{
+    id: number;
+    name: string;
+    description: string | null;
+    is_active: boolean;
+    category_id: number | null;
+    category_name: string | null;
+    unit_id: number;
+    unit_code: string;
+    unit_name: string;
+  }>(
+    `
+      select
+        m.id,
+        m.name,
+        m.description,
+        m.is_active,
+        m.category_id,
+        c.name as category_name,
+        m.unit_id,
+        u.code as unit_code,
+        u.name as unit_name
+      from app.materials m
+      left join app.material_categories c on c.id = m.category_id
+      join app.units u on u.id = m.unit_id
+      order by c.name nulls last, m.name
+    `
+  );
+});
+
 try {
   await app.listen({
     host: apiHost,
