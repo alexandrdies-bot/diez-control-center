@@ -1,0 +1,14 @@
+{
+  "name": "diez-control-center",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Desktop control center for Diez Image ecosystem",
+  "scripts": {
+    "dev": "echo \"No app created yet\"",
+    "check": "echo \"No checks configured yet\""
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ]
+}
