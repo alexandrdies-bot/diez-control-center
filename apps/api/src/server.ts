@@ -49,6 +49,23 @@ app.get("/units", async () => {
   );
 });
 
+app.get("/material-categories", async () => {
+  return queryDatabase<{
+    id: number;
+    name: string;
+    description: string | null;
+  }>(
+    `
+      select
+        id,
+        name,
+        description
+      from app.material_categories
+      order by name
+    `
+  );
+});
+
 try {
   await app.listen({
     host: apiHost,
