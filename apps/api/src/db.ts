@@ -1,4 +1,5 @@
 import pg from "pg";
+import type { QueryResultRow } from "pg";
 
 const { Pool } = pg;
 
@@ -42,4 +43,16 @@ export async function checkDatabaseConnection() {
       code: errorCode
     };
   }
+}
+
+export async function queryDatabase<T extends QueryResultRow>(
+  sql: string,
+  params: unknown[] = []
+) {
+  if (!dbPool) {
+    throw new Error("DATABASE_URL is not configured");
+  }
+
+  const result = await dbPool.query<T>(sql, params);
+  return result.rows;
 }

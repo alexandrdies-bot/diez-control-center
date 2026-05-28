@@ -1,7 +1,7 @@
 import "dotenv/config";
 import cors from "@fastify/cors";
 import Fastify from "fastify";
-import { checkDatabaseConnection } from "./db.js";
+import { checkDatabaseConnection, queryDatabase } from "./db.js";
 
 const apiHost = process.env.API_HOST ?? "127.0.0.1";
 const apiPort = Number(process.env.API_PORT ?? "3001");
@@ -30,6 +30,23 @@ app.get("/health/db", async (_request, reply) => {
   }
 
   return result;
+});
+
+app.get("/units", async () => {
+  return queryDatabase<{
+    id: number;
+    code: string;
+    name: string;
+  }>(
+    `
+      select
+        id,
+        code,
+        name
+      from app.units
+      order by code
+    `
+  );
 });
 
 try {
