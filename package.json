@@ -4,8 +4,10 @@
   "private": true,
   "description": "Desktop control center for Diez Image ecosystem",
   "scripts": {
-    "dev": "pnpm --filter @diez/api dev",
-    "check": "pnpm --filter @diez/api check"
+    "dev": "pnpm --filter @diez/desktop dev",
+    "dev:api": "pnpm --filter @diez/api dev",
+    "dev:desktop": "pnpm --filter @diez/desktop dev",
+    "check": "pnpm -r check"
   },
   "workspaces": [
     "apps/*",
