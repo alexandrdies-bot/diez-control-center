@@ -275,6 +275,33 @@ app.get("/materials/specs/bulk", async () => {
   );
 });
 
+app.get("/light-letter-specs", async () => {
+  return queryDatabase<{
+    id: number;
+    symbol: string;
+    symbol_type: string;
+    nominal_height_mm: number;
+    height_mm: number;
+    width_mm: number;
+    perimeter_mm: number;
+    led_count: number;
+  }>(
+    `
+      select
+        id,
+        symbol,
+        symbol_type,
+        nominal_height_mm,
+        height_mm,
+        width_mm,
+        perimeter_mm,
+        led_count
+      from app.light_letter_specs
+      order by nominal_height_mm, symbol_type, symbol
+    `
+  );
+});
+
 try {
   await app.listen({
     host: apiHost,
