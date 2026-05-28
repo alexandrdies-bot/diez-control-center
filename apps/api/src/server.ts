@@ -340,6 +340,42 @@ app.get("/products", async () => {
   );
 });
 
+app.get("/services", async () => {
+  return queryDatabase<{
+    id: number;
+    name: string;
+    description: string | null;
+    is_active: boolean;
+    category_id: number | null;
+    category_name: string | null;
+    unit_id: number;
+    unit_code: string;
+    price_minor: number | null;
+    currency_code: string | null;
+  }>(
+    `
+      select
+        s.id,
+        s.name,
+        s.description,
+        s.is_active,
+        s.category_id,
+        c.name as category_name,
+        s.unit_id,
+        u.code as unit_code,
+        sp.price_minor,
+        sp.currency_code
+      from app.services s
+      left join app.service_categories c on c.id = s.category_id
+      join app.units u on u.id = s.unit_id
+      left join app.service_prices sp
+        on sp.service_id = s.id
+       and sp.valid_to is null
+      order by c.name nulls last, s.name
+    `
+  );
+});
+
 try {
   await app.listen({
     host: apiHost,
