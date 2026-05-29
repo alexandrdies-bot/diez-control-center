@@ -8,7 +8,13 @@
 
 На текущем этапе создан API-слой для read-only доступа к существующей базе `diez-data-core`.
 
-Desktop UI ещё не создан.
+Добавлен Tauri 2 desktop shell.
+
+Приложение открывается как Windows desktop window.
+
+React/Vite остаётся frontend-слоем внутри Tauri.
+
+Desktop пока показывает shell и API health.
 
 Правильный доступ к данным:
 
@@ -44,6 +50,16 @@ MVP-1 API endpoints готовы:
 
 Endpoint-ы MVP-1 только читают данные.
 
+## Desktop
+
+Добавлен Tauri 2 desktop shell.
+
+Приложение открывается как Windows desktop window.
+
+React/Vite остаётся frontend-слоем внутри Tauri.
+
+Desktop пока показывает shell и API health.
+
 ## Границы
 
 В рамках MVP-1:
@@ -51,4 +67,4 @@ Endpoint-ы MVP-1 только читают данные.
 * сайт `diez-site` не менялся;
 * база `diez-data-core` не менялась;
 * миграции не создавались;
-* desktop UI ещё не создан.
+* desktop пока показывает shell и API health.

@@ -22,6 +22,14 @@ MVP-1 API read-only endpoints готовы:
 * GET /products
 * GET /services
 
+Tauri 2 desktop shell добавлен.
+
+Приложение открывается как Windows desktop window.
+
+React/Vite остаётся frontend-слоем внутри Tauri.
+
+Desktop пока показывает shell и API health.
+
 ## Подключение к базе
 
 PostgreSQL подключается через `DATABASE_URL` из локального `.env`.
@@ -35,5 +43,4 @@ Endpoint-ы работают только в режиме read-only.
 * изменение сайта `diez-site`;
 * изменение базы `diez-data-core`;
 * создание миграций;
-* desktop UI;
 * запись данных через API.

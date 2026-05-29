@@ -11,7 +11,10 @@
 * Добавлено правило рекомендуемого уровня интеллекта Codex.
 * Документированы готовые MVP-1 API read-only endpoints.
 * Зафиксировано подключение PostgreSQL через `DATABASE_URL` из локального `.env`.
-* Зафиксировано, что desktop UI ещё не создан.
+* Добавлен Tauri 2 desktop shell.
+* Зафиксировано, что приложение открывается как Windows desktop window.
+* Зафиксировано, что React/Vite остаётся frontend-слоем внутри Tauri.
+* Зафиксировано, что desktop пока показывает shell и API health.
 
 ### Not changed
 
