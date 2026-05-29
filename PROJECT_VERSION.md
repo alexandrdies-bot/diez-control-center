@@ -4,7 +4,7 @@
 
 Current version: 0.0.0
 
-Stage: mvp-1-tauri-shell-ready
+Stage: mvp-1-materials-screen-ready
 
 Date: 2026-05-29
 
@@ -19,6 +19,22 @@ Tauri 2 desktop shell добавлен.
 React/Vite остаётся frontend-слоем внутри Tauri.
 
 Desktop пока показывает shell и API health.
+
+Добавлен временный MVP-экран "Материалы".
+
+Экран работает внутри Tauri desktop window.
+
+Данные читаются через API endpoint GET /materials.
+
+Для работы экрана PostgreSQL должен быть запущен через `diez-data-core` Docker.
+
+Проверено 158 материалов.
+
+Поиск по материалам работает.
+
+Экран read-only.
+
+Экран временный и может быть перенесён/удалён позже.
 
 Проект создан как будущая главная ПК-программа / центр управления экосистемой «Диез Имидж».
 
@@ -59,6 +75,24 @@ Endpoint-ы MVP-1 работают только в режиме read-only.
 React/Vite остаётся frontend-слоем внутри Tauri.
 
 Desktop пока показывает shell и API health.
+
+## Temporary materials screen
+
+Добавлен временный MVP-экран "Материалы".
+
+Экран работает внутри Tauri desktop window.
+
+Данные читаются через API endpoint GET /materials.
+
+Для работы экрана PostgreSQL должен быть запущен через `diez-data-core` Docker.
+
+Проверено 158 материалов.
+
+Поиск по материалам работает.
+
+Экран read-only.
+
+Экран временный и может быть перенесён/удалён позже.
 
 ## Versioning rule
 
