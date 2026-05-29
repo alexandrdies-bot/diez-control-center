@@ -60,3 +60,27 @@ Endpoint-ы работают только в режиме read-only.
 * изменение базы `diez-data-core`;
 * создание миграций;
 * запись данных через API.
+
+## Текущий запуск desktop в dev-режиме
+
+Tauri desktop-приложение запускается.
+
+Временный экран "Материалы" создан.
+
+Экран читает данные через API endpoint `GET /materials`.
+
+Для работы экрана сейчас нужны одновременно:
+
+* PostgreSQL Docker из `diez-data-core`;
+* API `pnpm.cmd dev:api`;
+* Tauri `pnpm.cmd dev:tauri`.
+
+Если PostgreSQL не запущен или API не видит `DATABASE_URL`, экран может показать:
+
+```text
+Materials request failed: 500
+```
+
+Это известная dev-проблема запуска, не ошибка UI.
+
+Позже нужно сделать более удобный запуск и нормальное сообщение об ошибке.
