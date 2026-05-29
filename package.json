@@ -7,6 +7,9 @@
     "dev": "pnpm --filter @diez/desktop dev",
     "dev:api": "pnpm --filter @diez/api dev",
     "dev:desktop": "pnpm --filter @diez/desktop dev",
+    "dev:tauri": "pnpm --filter @diez/desktop tauri:dev",
+    "build:desktop": "pnpm --filter @diez/desktop build",
+    "build:tauri": "pnpm --filter @diez/desktop tauri:build",
     "check": "pnpm -r check"
   },
   "workspaces": [

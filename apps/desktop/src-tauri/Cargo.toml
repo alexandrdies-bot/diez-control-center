@@ -1,0 +1,13 @@
+[package]
+name = "diez-control-center"
+version = "0.0.0"
+description = "Diez Image Control Center"
+authors = ["Diez Image"]
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
