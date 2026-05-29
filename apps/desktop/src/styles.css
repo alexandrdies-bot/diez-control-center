@@ -4,87 +4,208 @@
   background: #111318;
 }
 
+* {
+  box-sizing: border-box;
+}
+
 body {
   margin: 0;
 }
 
-.app-shell {
+button,
+input {
+  font: inherit;
+}
+
+.app-layout {
   min-height: 100vh;
   display: grid;
-  place-items: center;
-  padding: 32px;
+  grid-template-columns: 280px 1fr;
   background:
     radial-gradient(circle at top left, rgba(58, 119, 255, 0.22), transparent 32rem),
     linear-gradient(135deg, #111318, #1c2028);
 }
 
-.hero-card {
-  width: min(720px, 100%);
-  padding: 40px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 28px;
-  background: rgba(255, 255, 255, 0.06);
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.28);
+.sidebar {
+  padding: 28px;
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.18);
 }
 
 .eyebrow {
-  margin: 0 0 12px;
+  margin: 0 0 10px;
   color: #9fb7ff;
   text-transform: uppercase;
   letter-spacing: 0.16em;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
 }
 
+h1,
+h2 {
+  margin: 0;
+}
+
 h1 {
-  margin: 0 0 16px;
-  font-size: clamp(40px, 8vw, 72px);
-  line-height: 0.95;
+  font-size: 32px;
+  line-height: 1;
+}
+
+h2 {
+  font-size: 44px;
 }
 
 p {
-  max-width: 620px;
-  font-size: 18px;
+  margin: 10px 0 0;
+  color: rgba(255, 255, 255, 0.72);
   line-height: 1.6;
-  color: rgba(255, 255, 255, 0.78);
 }
 
-.status-row {
+.nav-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 36px;
+}
+
+.nav-item {
+  width: 100%;
+  padding: 13px 14px;
+  border: 0;
+  border-radius: 14px;
+  color: rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.08);
+  text-align: left;
+}
+
+.nav-item-active {
+  color: #ffffff;
+  background: rgba(90, 139, 255, 0.32);
+}
+
+.nav-item:disabled {
+  opacity: 0.45;
+}
+
+.api-status {
   display: flex;
-  gap: 12px;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 36px;
+  padding: 14px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.api-status strong {
+  color: #9fffbf;
+}
+
+.content-panel {
+  padding: 32px;
+  overflow: auto;
+}
+
+.content-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  align-items: flex-start;
+}
+
+.counter-card {
+  min-width: 130px;
+  padding: 18px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.counter-card span {
+  display: block;
+  color: rgba(255, 255, 255, 0.64);
+}
+
+.counter-card strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 36px;
+}
+
+.toolbar {
+  display: flex;
+  gap: 16px;
   align-items: center;
   margin-top: 28px;
 }
 
-.status-row span,
-.status-row strong {
-  padding: 10px 14px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.1);
+.toolbar input {
+  width: min(520px, 100%);
+  padding: 14px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
+  color: #ffffff;
+  background: rgba(0, 0, 0, 0.22);
+  outline: none;
 }
 
-.status-row strong {
-  color: #9fffbf;
+.toolbar span {
+  color: rgba(255, 255, 255, 0.64);
 }
 
-.api-panel {
-  margin-top: 28px;
-  padding: 20px;
-  border-radius: 20px;
-  background: rgba(0, 0, 0, 0.24);
+.error-card {
+  margin-top: 24px;
+  padding: 18px;
+  border-radius: 16px;
+  color: #ffb1b1;
+  background: rgba(255, 70, 70, 0.14);
 }
 
-.api-panel h2 {
-  margin: 0 0 12px;
-  font-size: 18px;
-}
-
-.api-panel pre {
-  margin: 0;
+.table-wrap {
+  margin-top: 24px;
   overflow: auto;
-  color: #9fffbf;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.07);
 }
 
-.error-text {
-  color: #ff9f9f;
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  text-align: left;
+  vertical-align: top;
+}
+
+th {
+  position: sticky;
+  top: 0;
+  color: rgba(255, 255, 255, 0.64);
+  background: rgba(17, 19, 24, 0.96);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+td small {
+  display: block;
+  margin-top: 4px;
+  color: rgba(255, 255, 255, 0.52);
+}
+
+.status-badge {
+  display: inline-flex;
+  padding: 6px 10px;
+  border-radius: 999px;
+  color: #ffcdcd;
+  background: rgba(255, 80, 80, 0.16);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.status-active {
+  color: #9fffbf;
+  background: rgba(80, 255, 140, 0.14);
 }
