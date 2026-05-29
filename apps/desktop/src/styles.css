@@ -209,3 +209,85 @@ td small {
   color: #9fffbf;
   background: rgba(80, 255, 140, 0.14);
 }
+
+.workspace-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 380px);
+  gap: 24px;
+  align-items: start;
+  margin-top: 24px;
+}
+
+.materials-section {
+  min-width: 0;
+}
+
+.materials-section .table-wrap {
+  margin-top: 0;
+}
+
+.details-panel {
+  position: sticky;
+  top: 24px;
+  padding: 20px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.details-panel h3,
+.details-panel h4 {
+  margin: 0;
+}
+
+.details-panel h3 {
+  font-size: 24px;
+  line-height: 1.2;
+}
+
+.details-panel h4 {
+  font-size: 16px;
+}
+
+.details-block {
+  margin-top: 24px;
+}
+
+.selected-row {
+  background: rgba(90, 139, 255, 0.2);
+}
+
+tbody tr {
+  cursor: pointer;
+}
+
+.price-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.price-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 16px;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.price-card div {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.price-card span {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.price-card strong {
+  text-align: right;
+}
+
+.muted-text {
+  color: rgba(255, 255, 255, 0.6);
+}

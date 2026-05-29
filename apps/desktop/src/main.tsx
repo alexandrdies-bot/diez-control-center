@@ -2,28 +2,43 @@ import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   getApiHealth,
+  getMaterialPricingInputs,
   getMaterials,
   type ApiHealth,
-  type Material
+  type Material,
+  type MaterialPricingInput
 } from "./api";
 import "./styles.css";
+
+function formatMinorPrice(value: number, currencyCode: string) {
+  return `${(value / 100).toLocaleString("ru-RU", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  })} ${currencyCode}`;
+}
 
 function App() {
   const [health, setHealth] = useState<ApiHealth | null>(null);
   const [materials, setMaterials] = useState<Material[]>([]);
+  const [selectedMaterialId, setSelectedMaterialId] = useState<number | null>(null);
+  const [pricingInputs, setPricingInputs] = useState<MaterialPricingInput[]>([]);
   const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [pricingError, setPricingError] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([getApiHealth(), getMaterials()])
       .then(([healthResult, materialsResult]) => {
         setHealth(healthResult);
         setMaterials(materialsResult);
+        setSelectedMaterialId(materialsResult[0]?.id ?? null);
         setError(null);
       })
       .catch((unknownError) => {
         setHealth(null);
         setMaterials([]);
+        setSelectedMaterialId(null);
+        setPricingInputs([]);
         setError(
           unknownError instanceof Error
             ? unknownError.message
@@ -31,6 +46,38 @@ function App() {
         );
       });
   }, []);
+
+  useEffect(() => {
+    if (!selectedMaterialId) {
+      setPricingInputs([]);
+      setPricingError(null);
+      return;
+    }
+
+    let isCurrent = true;
+
+    getMaterialPricingInputs(selectedMaterialId)
+      .then((result) => {
+        if (isCurrent) {
+          setPricingInputs(result);
+          setPricingError(null);
+        }
+      })
+      .catch((unknownError) => {
+        if (isCurrent) {
+          setPricingInputs([]);
+          setPricingError(
+            unknownError instanceof Error
+              ? unknownError.message
+              : "Unknown pricing inputs error"
+          );
+        }
+      });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [selectedMaterialId]);
 
   const filteredMaterials = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -50,6 +97,10 @@ function App() {
         .some((value) => value!.toLowerCase().includes(normalizedQuery));
     });
   }, [materials, query]);
+
+  const selectedMaterial = useMemo(() => {
+    return materials.find((material) => material.id === selectedMaterialId) ?? null;
+  }, [materials, selectedMaterialId]);
 
   return (
     <main className="app-layout">
@@ -104,44 +155,127 @@ function App() {
         {error ? (
           <div className="error-card">{error}</div>
         ) : (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Материал</th>
-                  <th>Категория</th>
-                  <th>Ед.</th>
-                  <th>Статус</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredMaterials.map((material) => (
-                  <tr key={material.id}>
-                    <td>{material.id}</td>
-                    <td>
-                      <strong>{material.name}</strong>
-                      {material.description ? (
-                        <small>{material.description}</small>
-                      ) : null}
-                    </td>
-                    <td>{material.category_name ?? "—"}</td>
-                    <td>{material.unit_code}</td>
-                    <td>
-                      <span
+          <div className="workspace-grid">
+            <section className="materials-section">
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>Материал</th>
+                      <th>Категория</th>
+                      <th>Ед.</th>
+                      <th>Статус</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredMaterials.map((material) => (
+                      <tr
                         className={
-                          material.is_active
-                            ? "status-badge status-active"
-                            : "status-badge"
+                          material.id === selectedMaterialId ? "selected-row" : undefined
                         }
+                        key={material.id}
+                        onClick={() => setSelectedMaterialId(material.id)}
                       >
-                        {material.is_active ? "Активен" : "Отключён"}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                        <td>{material.id}</td>
+                        <td>
+                          <strong>{material.name}</strong>
+                          {material.description ? (
+                            <small>{material.description}</small>
+                          ) : null}
+                        </td>
+                        <td>{material.category_name ?? "—"}</td>
+                        <td>{material.unit_code}</td>
+                        <td>
+                          <span
+                            className={
+                              material.is_active
+                                ? "status-badge status-active"
+                                : "status-badge"
+                            }
+                          >
+                            {material.is_active ? "Активен" : "Отключён"}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <aside className="details-panel">
+              {selectedMaterial ? (
+                <>
+                  <p className="eyebrow">Выбранный материал</p>
+                  <h3>{selectedMaterial.name}</h3>
+                  <p className="muted-text">
+                    ID {selectedMaterial.id} · {selectedMaterial.category_name ?? "без категории"} · {selectedMaterial.unit_code}
+                  </p>
+
+                  <div className="details-block">
+                    <h4>Закупочные данные</h4>
+
+                    {pricingError ? (
+                      <div className="error-card">{pricingError}</div>
+                    ) : pricingInputs.length > 0 ? (
+                      <div className="price-list">
+                        {pricingInputs.map((input) => (
+                          <article className="price-card" key={input.id}>
+                            <div>
+                              <span>Поставщик</span>
+                              <strong>{input.supplier_name ?? "Не указан"}</strong>
+                            </div>
+                            <div>
+                              <span>Цена закупки</span>
+                              <strong>
+                                {formatMinorPrice(
+                                  input.purchase_price_minor,
+                                  input.currency_code
+                                )}
+                              </strong>
+                            </div>
+                            <div>
+                              <span>Наценка</span>
+                              <strong>{input.markup_percent}%</strong>
+                            </div>
+                            <div>
+                              <span>Доставка</span>
+                              <strong>
+                                {formatMinorPrice(
+                                  input.delivery_price_minor,
+                                  input.currency_code
+                                )}
+                              </strong>
+                            </div>
+                            <div>
+                              <span>Единицы</span>
+                              <strong>
+                                {input.purchase_unit_code} → {input.calculation_unit_code}
+                              </strong>
+                            </div>
+                            <div>
+                              <span>Действует</span>
+                              <strong>
+                                {input.valid_from}
+                                {input.valid_to ? ` — ${input.valid_to}` : ""}
+                              </strong>
+                            </div>
+                            {input.source_note ? (
+                              <p className="muted-text">{input.source_note}</p>
+                            ) : null}
+                          </article>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="muted-text">Закупочные данные не найдены</p>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <p className="muted-text">Материал не выбран</p>
+              )}
+            </aside>
           </div>
         )}
       </section>
