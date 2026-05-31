@@ -20,7 +20,7 @@ input {
 .app-layout {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 280px 1fr;
+  grid-template-columns: 300px 1fr;
   background:
     radial-gradient(circle at top left, rgba(58, 119, 255, 0.22), transparent 32rem),
     linear-gradient(135deg, #111318, #1c2028);
@@ -28,6 +28,7 @@ input {
 
 .sidebar {
   padding: 28px;
+  overflow: auto;
   border-right: 1px solid rgba(255, 255, 255, 0.1);
   background: rgba(0, 0, 0, 0.18);
 }
@@ -63,18 +64,19 @@ p {
 
 .nav-list {
   display: grid;
-  gap: 10px;
+  gap: 8px;
   margin-top: 36px;
 }
 
 .nav-item {
   width: 100%;
-  padding: 13px 14px;
+  padding: 12px 14px;
   border: 0;
-  border-radius: 14px;
+  border-radius: 12px;
   color: rgba(255, 255, 255, 0.72);
   background: rgba(255, 255, 255, 0.08);
   text-align: left;
+  cursor: pointer;
 }
 
 .nav-item-active {
@@ -82,8 +84,28 @@ p {
   background: rgba(90, 139, 255, 0.32);
 }
 
-.nav-item:disabled {
-  opacity: 0.45;
+.subnav-list {
+  display: grid;
+  gap: 6px;
+  margin: -2px 0 4px 14px;
+  padding-left: 12px;
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.subnav-item {
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 10px;
+  color: rgba(255, 255, 255, 0.64);
+  background: rgba(255, 255, 255, 0.05);
+  text-align: left;
+  cursor: pointer;
+}
+
+.subnav-item-active {
+  color: #ffffff;
+  background: rgba(80, 255, 140, 0.14);
 }
 
 .api-status {
@@ -290,4 +312,36 @@ tbody tr {
 
 .muted-text {
   color: rgba(255, 255, 255, 0.6);
+}
+
+.placeholder-panel {
+  max-width: 760px;
+  padding: 32px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.placeholder-panel h2 {
+  margin-bottom: 12px;
+}
+
+@media (max-width: 980px) {
+  .app-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    border-right: 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .workspace-grid,
+  .content-header {
+    grid-template-columns: 1fr;
+    display: grid;
+  }
+
+  .details-panel {
+    position: static;
+  }
 }
