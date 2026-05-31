@@ -143,6 +143,18 @@ Ozon также должен быть отдельным каналом зака
 
 На текущем этапе не создавать миграции заказов, клиентов, сообщений и диалогов без отдельного проектирования.
 
+## Future orders and chat model
+
+Создан draft будущей модели заказов и чата:
+
+```text
+docs/FUTURE_ORDERS_AND_CHAT_MODEL.md
+```
+
+Документ описывает будущие сущности customers, customer_contacts, customer_addresses, orders, order_items, order_statuses, order_status_history, order_events, order_files / attachments, conversations, conversation_participants, messages, message_attachments, message_statuses, роли и права.
+
+Документ не создаёт миграции и не содержит SQL-код.
+
 ## MVP-1 API endpoints
 
 * GET /health
