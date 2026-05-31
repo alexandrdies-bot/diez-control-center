@@ -28,6 +28,66 @@ type PrimarySection = (typeof primarySections)[number];
 
 const materialsSettingsSection = "Материалы и закупочные цены";
 
+const dashboardMetrics = [
+  {
+    label: "Новые заказы",
+    value: "0"
+  },
+  {
+    label: "Сообщения сайта",
+    value: "0"
+  },
+  {
+    label: "Заказы в работе",
+    value: "0"
+  },
+  {
+    label: "Требуют внимания",
+    value: "0"
+  }
+];
+
+const orderChannels = [
+  {
+    title: "Сайт",
+    text: "Ожидает подключения заказов"
+  },
+  {
+    title: "Ozon",
+    text: "Интеграция будет добавлена позже"
+  },
+  {
+    title: "Ручные заказы",
+    text: "Будет добавление из приложения"
+  }
+];
+
+const operationCards = [
+  {
+    title: "Производство",
+    text: "Нет активных задач"
+  },
+  {
+    title: "Оплаты",
+    text: "0 ₽ ожидают оплаты"
+  },
+  {
+    title: "Доставка",
+    text: "Нет активных отправлений"
+  },
+  {
+    title: "Расчёты",
+    text: "Модуль будет добавлен позже"
+  }
+];
+
+const todayTasks = [
+  "Проверить новые заявки с сайта",
+  "Проверить сообщения клиентов",
+  "Проверить заказы Ozon после подключения",
+  "Проверить заказы в производстве"
+];
+
 function formatMinorPrice(value: number, currencyCode: string) {
   return `${(value / 100).toLocaleString("ru-RU", {
     minimumFractionDigits: 2,
@@ -36,7 +96,7 @@ function formatMinorPrice(value: number, currencyCode: string) {
 }
 
 function App() {
-  const [activeSection, setActiveSection] = useState<PrimarySection>("Настройки");
+  const [activeSection, setActiveSection] = useState<PrimarySection>("Главная");
   const [activeSettingsSection, setActiveSettingsSection] = useState(
     materialsSettingsSection
   );
@@ -127,6 +187,7 @@ function App() {
   const isMaterialsScreen =
     activeSection === "Настройки" &&
     activeSettingsSection === materialsSettingsSection;
+  const isHomeScreen = activeSection === "Главная";
 
   return (
     <main className="app-layout">
@@ -173,7 +234,81 @@ function App() {
       </aside>
 
       <section className="content-panel">
-        {isMaterialsScreen ? (
+        {isHomeScreen ? (
+          <section className="dashboard-panel">
+            <div className="content-header">
+              <div>
+                <p className="eyebrow">Диез Имидж Control Center</p>
+                <h2>Панель управления</h2>
+                <p>
+                  Мониторинг заказов, сайта, Ozon, оплат, доставки и производства.
+                </p>
+              </div>
+            </div>
+
+            <div className="metric-grid">
+              {dashboardMetrics.map((metric) => (
+                <article className="metric-card" key={metric.label}>
+                  <span>{metric.label}</span>
+                  <strong>{metric.value}</strong>
+                </article>
+              ))}
+            </div>
+
+            <div className="dashboard-section">
+              <div className="section-heading">
+                <h3>Каналы заказов</h3>
+                <span>Будущие источники</span>
+              </div>
+              <div className="dashboard-grid">
+                {orderChannels.map((card) => (
+                  <article className="dashboard-card" key={card.title}>
+                    <h4>{card.title}</h4>
+                    <p>{card.text}</p>
+                  </article>
+                ))}
+              </div>
+            </div>
+
+            <div className="dashboard-section">
+              <div className="section-heading">
+                <h3>Операции</h3>
+                <span>Рабочий обзор</span>
+              </div>
+              <div className="dashboard-grid">
+                {operationCards.map((card) => (
+                  <article className="dashboard-card" key={card.title}>
+                    <h4>{card.title}</h4>
+                    <p>{card.text}</p>
+                  </article>
+                ))}
+              </div>
+            </div>
+
+            <div className="dashboard-bottom-grid">
+              <section className="task-panel">
+                <div className="section-heading">
+                  <h3>Задачи на сегодня</h3>
+                  <span>Черновик</span>
+                </div>
+                <ul className="task-list">
+                  {todayTasks.map((task) => (
+                    <li key={task}>{task}</li>
+                  ))}
+                </ul>
+              </section>
+
+              <section className="important-panel">
+                <p className="eyebrow">Важно</p>
+                <p>
+                  Главный рабочий раздел в будущем — <strong>Заказы</strong>.
+                  Материалы и закупочные цены находятся в настройках и
+                  используются для расчётов себестоимости.
+                </p>
+              </section>
+            </div>
+          </section>
+        ) : isMaterialsScreen ? (
           <>
             <div className="content-header">
               <div>
