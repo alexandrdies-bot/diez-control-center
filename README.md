@@ -145,24 +145,29 @@ docker compose up -d postgres
 docker compose ps
 ```
 
-2. API:
+2. API + Desktop / Tauri:
 
 ```powershell
 cd D:\_ProjectHome\diez-control-center
-pnpm.cmd dev:api
+pnpm.cmd dev:all
 ```
 
-Проверка:
+Команда `pnpm.cmd dev:all` запускает API и Tauri вместе.
+
+Если порт `3001` занят, значит API уже запущен и его нужно остановить.
+
+Проверка API:
 
 ```text
 http://127.0.0.1:3001/health/db
 http://127.0.0.1:3001/materials
 ```
 
-3. Desktop / Tauri в Developer PowerShell for Visual Studio:
+При необходимости API и Tauri можно запускать отдельно:
 
 ```powershell
 cd D:\_ProjectHome\diez-control-center
+pnpm.cmd dev:api
 pnpm.cmd dev:tauri
 ```
 

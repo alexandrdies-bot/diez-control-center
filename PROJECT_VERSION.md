@@ -121,6 +121,24 @@ Desktop-приложение не должно хранить пароль Postg
 * API `pnpm.cmd dev:api`;
 * Tauri `pnpm.cmd dev:tauri`.
 
+PostgreSQL Docker пока запускать отдельно:
+
+```powershell
+cd D:\_ProjectHome\diez-data-core
+docker compose up -d postgres
+```
+
+После запуска базы приложение можно запускать одной командой:
+
+```powershell
+cd D:\_ProjectHome\diez-control-center
+pnpm.cmd dev:all
+```
+
+Команда `pnpm.cmd dev:all` запускает API и Tauri вместе.
+
+Если порт `3001` занят, значит API уже запущен и его нужно остановить.
+
 Если PostgreSQL не запущен или API не видит `DATABASE_URL`, экран может показать:
 
 ```text

@@ -8,9 +8,13 @@
     "dev:api": "pnpm --filter @diez/api dev",
     "dev:desktop": "pnpm --filter @diez/desktop dev",
     "dev:tauri": "pnpm --filter @diez/desktop tauri:dev",
+    "dev:all": "concurrently -k -n API,TAURI -c blue,green \"pnpm dev:api\" \"pnpm dev:tauri\"",
     "build:desktop": "pnpm --filter @diez/desktop build",
     "build:tauri": "pnpm --filter @diez/desktop tauri:build",
     "check": "pnpm -r check"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
   },
   "workspaces": [
     "apps/*",
