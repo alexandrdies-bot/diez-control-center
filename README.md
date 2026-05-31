@@ -547,29 +547,31 @@ diez-site / manual / phone / ozon_later -> API -> diez-data-core -> diez-control
 
 ## Shared constructor contracts
 
-Создан пакет:
+Старый локальный пакет `@diez/shared` удалён из `diez-control-center`.
+
+Общие контракты расчёта теперь живут в отдельном общем проекте:
 
 ```text
-packages/shared
+D:\_ProjectHome\diez-shared-core\packages\calculation-core
 ```
 
 Package name:
 
 ```text
-@diez/shared
+@diez/calculation-core
 ```
 
-Сейчас в `@diez/shared` находятся только типы/контракты будущего общего ядра конструктора.
+Сейчас там только типы/контракты конструктора.
 
 Формула расчёта пока не перенесена.
 
-Сайт пока не подключён к `@diez/shared`.
+Сайт пока не подключён к `@diez/calculation-core`.
 
-ПК-программа пока не использует `@diez/shared` для расчёта.
+ПК-программа пока не подключена к `@diez/calculation-core`.
 
-Это безопасная подготовка к общему расчётному core.
+Дублей shared-контрактов в `diez-control-center` быть не должно.
 
-Следующий шаг позже: переносить pure-логику маленькими частями и сверять результат по baseline fixtures.
+Следующий шаг позже: подключать общий пакет отдельно и переносить pure-логику маленькими частями со сверкой по baseline fixtures.
 
 ## Server-first + local cache
 

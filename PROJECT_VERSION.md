@@ -328,21 +328,27 @@ Ozon учитывать как будущий канал, но первый MVP 
 
 ## Shared constructor contracts package
 
-Создан пакет `packages/shared`.
+Старый локальный пакет `@diez/shared` удалён из `diez-control-center`.
 
-Пакет называется `@diez/shared`.
+Общие контракты расчёта теперь живут в:
 
-Сейчас в нём только типы/контракты будущего общего ядра конструктора.
+```text
+D:\_ProjectHome\diez-shared-core\packages\calculation-core
+```
+
+Пакет называется `@diez/calculation-core`.
+
+Сейчас там только типы/контракты конструктора.
 
 Формула расчёта пока не перенесена.
 
-Сайт пока не подключён к `@diez/shared`.
+Сайт пока не подключён к `@diez/calculation-core`.
 
-ПК-программа пока не использует `@diez/shared` для расчёта.
+ПК-программа пока не подключена к `@diez/calculation-core`.
 
-Это безопасная подготовка к общему расчётному core.
+Дублей shared-контрактов в `diez-control-center` больше нет.
 
-Следующий шаг позже: переносить pure-логику маленькими частями и сверять по baseline fixtures.
+Следующий шаг позже: подключать общий пакет отдельно и переносить pure-логику маленькими частями со сверкой по baseline fixtures.
 
 ## Server-first + local cache
 
