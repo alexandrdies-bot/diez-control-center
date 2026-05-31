@@ -51,64 +51,71 @@ const ozonSections = [
   "Настройки Ozon"
 ];
 
-const dashboardMetrics = [
+const diezDashboardCards = [
   {
-    label: "Новые заказы",
+    title: "Заказы с сайта",
     value: "0"
   },
   {
-    label: "Сообщения сайта",
+    title: "Сообщения сайта",
     value: "0"
   },
   {
-    label: "Заказы в работе",
+    title: "Заказы в работе",
     value: "0"
   },
-  {
-    label: "Требуют внимания",
-    value: "0"
-  }
-];
-
-const orderChannels = [
-  {
-    title: "Сайт",
-    text: "Ожидает подключения заказов"
-  },
-  {
-    title: "Ozon",
-    text: "Интеграция будет добавлена позже"
-  },
-  {
-    title: "Ручные заказы",
-    text: "Будет добавление из приложения"
-  }
-];
-
-const operationCards = [
   {
     title: "Производство",
-    text: "Нет активных задач"
+    value: "0"
   },
   {
     title: "Оплаты",
-    text: "0 ₽ ожидают оплаты"
+    value: "0 ₽"
   },
   {
     title: "Доставка",
-    text: "Нет активных отправлений"
-  },
-  {
-    title: "Расчёты",
-    text: "Модуль будет добавлен позже"
+    value: "0"
   }
 ];
 
-const todayTasks = [
-  "Проверить новые заявки с сайта",
-  "Проверить сообщения клиентов",
-  "Проверить заказы Ozon после подключения",
-  "Проверить заказы в производстве"
+const ozonDashboardCards = [
+  {
+    title: "Заказы Ozon",
+    value: "0"
+  },
+  {
+    title: "Сообщения Ozon",
+    value: "0"
+  },
+  {
+    title: "Товары Ozon",
+    value: "Не подключено"
+  },
+  {
+    title: "Остатки",
+    value: "Не подключено"
+  },
+  {
+    title: "Поставки",
+    value: "Не подключено"
+  },
+  {
+    title: "Финансы Ozon",
+    value: "0 ₽"
+  }
+];
+
+const attentionItems = [
+  "Новых проблем нет",
+  "Интеграция сайта будет подключена позже",
+  "Интеграция Ozon будет подключена позже"
+];
+
+const nextSteps = [
+  "Подключить заказы сайта",
+  "Спроектировать клиентов",
+  "Спроектировать чат сайта",
+  "Подготовить Ozon API-модуль"
 ];
 
 const ozonCards = [
@@ -372,77 +379,97 @@ function App() {
                 <div>
                   <p className="eyebrow">Общий мониторинг</p>
                   <h2>Панель управления</h2>
-                  <p>
-                    Общий мониторинг: сайт, Ozon, заказы, сообщения, оплата,
-                    доставка и производство.
+                  <p>Общий мониторинг Диез Имидж и Ozon.</p>
+                </div>
+              </div>
+
+              <div className="dashboard-zone-grid">
+                <section className="dashboard-zone">
+                  <div className="dashboard-zone-header">
+                    <div>
+                      <p className="eyebrow">Первый этап</p>
+                      <h3>Диез Имидж</h3>
+                    </div>
+                    <span>Основная бизнес-система</span>
+                  </div>
+
+                  <div className="dashboard-card-grid">
+                    {diezDashboardCards.map((card) => (
+                      <article className="metric-card" key={card.title}>
+                        <span>{card.title}</span>
+                        <strong>{card.value}</strong>
+                      </article>
+                    ))}
+                  </div>
+
+                  <p className="dashboard-note">
+                    Первый этап разработки: заказы, клиенты, чат сайта, расчёты и
+                    производство Диез Имидж.
                   </p>
-                </div>
-              </div>
+                </section>
 
-              <div className="metric-grid">
-                {dashboardMetrics.map((metric) => (
-                  <article className="metric-card" key={metric.label}>
-                    <span>{metric.label}</span>
-                    <strong>{metric.value}</strong>
-                  </article>
-                ))}
-              </div>
+                <section className="dashboard-zone">
+                  <div className="dashboard-zone-header">
+                    <div>
+                      <p className="eyebrow">Будущий модуль</p>
+                      <h3>Ozon</h3>
+                    </div>
+                    <span>Канал внутри общей системы</span>
+                  </div>
 
-              <div className="dashboard-section">
-                <div className="section-heading">
-                  <h3>Каналы заказов</h3>
-                  <span>Сайт и Ozon</span>
-                </div>
-                <div className="dashboard-grid">
-                  {orderChannels.map((card) => (
-                    <article className="dashboard-card" key={card.title}>
-                      <h4>{card.title}</h4>
-                      <p>{card.text}</p>
-                    </article>
-                  ))}
-                </div>
-              </div>
+                  <div className="dashboard-card-grid">
+                    {ozonDashboardCards.map((card) => (
+                      <article className="metric-card" key={card.title}>
+                        <span>{card.title}</span>
+                        <strong>{card.value}</strong>
+                      </article>
+                    ))}
+                  </div>
 
-              <div className="dashboard-section">
-                <div className="section-heading">
-                  <h3>Операции</h3>
-                  <span>Рабочий обзор</span>
-                </div>
-                <div className="dashboard-grid">
-                  {operationCards.map((card) => (
-                    <article className="dashboard-card" key={card.title}>
-                      <h4>{card.title}</h4>
-                      <p>{card.text}</p>
-                    </article>
-                  ))}
-                </div>
+                  <p className="dashboard-note">
+                    Ozon будет подключён позже как крупный модуль для ежедневной
+                    работы вместо seller.ozon.ru.
+                  </p>
+                </section>
               </div>
 
               <div className="dashboard-bottom-grid">
                 <section className="task-panel">
                   <div className="section-heading">
-                    <h3>Задачи на сегодня</h3>
-                    <span>Черновик</span>
+                    <h3>Требуют внимания</h3>
+                    <span>Mock</span>
                   </div>
-                  <ul className="task-list">
-                    {todayTasks.map((task) => (
-                      <li key={task}>{task}</li>
+                  <ul className="attention-list">
+                    {attentionItems.map((item) => (
+                      <li key={item}>{item}</li>
                     ))}
                   </ul>
                 </section>
 
-                <section className="important-panel">
-                  <p className="eyebrow">Важно</p>
-                  <p>
-                    Главная — общая для `Диез Имидж` и `Ozon`. Переключатель
-                    рабочей области влияет на остальные разделы.
-                  </p>
-                  <p>
-                    Материалы и закупочные цены находятся в настройках и
-                    используются для расчётов себестоимости.
-                  </p>
+                <section className="task-panel">
+                  <div className="section-heading">
+                    <h3>Следующие шаги</h3>
+                    <span>План</span>
+                  </div>
+                  <ul className="next-steps">
+                    {nextSteps.map((step) => (
+                      <li key={step}>{step}</li>
+                    ))}
+                  </ul>
                 </section>
               </div>
+
+              <section className="important-panel">
+                <p className="eyebrow">Важно</p>
+                <p>
+                  Главная всегда остаётся общей панелью мониторинга. Переключатель
+                  `Диез Имидж / Ozon` влияет на остальные рабочие разделы.
+                </p>
+                <p>
+                  Материалы и закупочные цены находятся в настройках и
+                  используются для расчётов себестоимости.
+                </p>
+              </section>
             </section>
           ) : isOzonWorkspaceSection ? (
             <section className="dashboard-panel">
