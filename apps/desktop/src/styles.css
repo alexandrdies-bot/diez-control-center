@@ -17,13 +17,19 @@ input {
   font: inherit;
 }
 
-.app-layout {
+.app-shell {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 300px 1fr;
+  grid-template-rows: auto 1fr;
   background:
     radial-gradient(circle at top left, rgba(58, 119, 255, 0.22), transparent 32rem),
     linear-gradient(135deg, #111318, #1c2028);
+}
+
+.app-layout {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 300px 1fr;
 }
 
 .sidebar {
@@ -125,6 +131,71 @@ p {
 .content-panel {
   padding: 32px;
   overflow: auto;
+}
+
+.workbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 8px 16px 8px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.workbar-items {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.workbar-item {
+  flex: 0 0 auto;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 10px;
+  color: rgba(255, 255, 255, 0.68);
+  background: transparent;
+  cursor: pointer;
+}
+
+.workbar-item-active {
+  color: #ffffff;
+  background: rgba(90, 139, 255, 0.28);
+}
+
+.workbar-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+  align-items: center;
+  margin-left: 16px;
+}
+
+.icon-button {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.icon-button:hover {
+  background: transparent;
+  opacity: 0.75;
+}
+
+.icon-button img {
+  width: 25px;
+  height: 25px;
+  filter: brightness(0) invert(1);
+  object-fit: contain;
 }
 
 .content-header {

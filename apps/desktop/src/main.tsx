@@ -88,6 +88,16 @@ const todayTasks = [
   "Проверить заказы в производстве"
 ];
 
+const workbarItems = [
+  "Сегодня",
+  "Новые",
+  "В работе",
+  "Требуют внимания",
+  "Сообщения",
+  "Финансы",
+  "Отчёты"
+];
+
 function formatMinorPrice(value: number, currencyCode: string) {
   return `${(value / 100).toLocaleString("ru-RU", {
     minimumFractionDigits: 2,
@@ -190,52 +200,90 @@ function App() {
   const isHomeScreen = activeSection === "Главная";
 
   return (
-    <main className="app-layout">
-      <aside className="sidebar">
-        <p className="eyebrow">Диез Имидж</p>
-        <h1>Control Center</h1>
-
-        <nav className="nav-list">
-          {primarySections.map((section) => (
-            <React.Fragment key={section}>
-              <button
-                className={
-                  section === activeSection ? "nav-item nav-item-active" : "nav-item"
-                }
-                type="button"
-                onClick={() => setActiveSection(section)}
-              >
-                {section}
-              </button>
-
-              {section === "Настройки" && activeSection === "Настройки" ? (
-                <div className="subnav-list">
-                  <button
-                    className={
-                      activeSettingsSection === materialsSettingsSection
-                        ? "subnav-item subnav-item-active"
-                        : "subnav-item"
-                    }
-                    type="button"
-                    onClick={() => setActiveSettingsSection(materialsSettingsSection)}
-                  >
-                    {materialsSettingsSection}
-                  </button>
-                </div>
-              ) : null}
-            </React.Fragment>
+    <main className="app-shell">
+      <div className="workbar" aria-label="Быстрые рабочие фильтры">
+        <div className="workbar-items">
+          {workbarItems.map((item, index) => (
+            <button
+              className={
+                index === 0 ? "workbar-item workbar-item-active" : "workbar-item"
+              }
+              key={item}
+              type="button"
+            >
+              {item}
+            </button>
           ))}
-        </nav>
-
-        <div className="api-status">
-          <span>API</span>
-          <strong>{health?.ok ? "online" : "checking"}</strong>
         </div>
-      </aside>
 
-      <section className="content-panel">
-        {isHomeScreen ? (
-          <section className="dashboard-panel">
+        <div className="workbar-actions">
+          <button
+            className="icon-button"
+            onClick={() => console.log("notifications")}
+            title="Уведомления"
+            type="button"
+          >
+            <img alt="" src="/svg/bell-ringing-2.svg" />
+          </button>
+          <button
+            className="icon-button"
+            onClick={() => setActiveSection("Настройки")}
+            title="Настройки"
+            type="button"
+          >
+            <img alt="" src="/svg/settings.svg" />
+          </button>
+        </div>
+      </div>
+
+      <div className="app-layout">
+        <aside className="sidebar">
+          <p className="eyebrow">Диез Имидж</p>
+          <h1>Control Center</h1>
+
+          <nav className="nav-list">
+            {primarySections.map((section) => (
+              <React.Fragment key={section}>
+                <button
+                  className={
+                    section === activeSection
+                      ? "nav-item nav-item-active"
+                      : "nav-item"
+                  }
+                  type="button"
+                  onClick={() => setActiveSection(section)}
+                >
+                  {section}
+                </button>
+
+                {section === "Настройки" && activeSection === "Настройки" ? (
+                  <div className="subnav-list">
+                    <button
+                      className={
+                        activeSettingsSection === materialsSettingsSection
+                          ? "subnav-item subnav-item-active"
+                          : "subnav-item"
+                      }
+                      type="button"
+                      onClick={() => setActiveSettingsSection(materialsSettingsSection)}
+                    >
+                      {materialsSettingsSection}
+                    </button>
+                  </div>
+                ) : null}
+              </React.Fragment>
+            ))}
+          </nav>
+
+          <div className="api-status">
+            <span>API</span>
+            <strong>{health?.ok ? "online" : "checking"}</strong>
+          </div>
+        </aside>
+
+        <section className="content-panel">
+          {isHomeScreen ? (
+            <section className="dashboard-panel">
             <div className="content-header">
               <div>
                 <p className="eyebrow">Диез Имидж Control Center</p>
@@ -484,8 +532,9 @@ function App() {
               служебный экран для расчётов и закупочных цен.
             </p>
           </div>
-        )}
-      </section>
+          )}
+        </section>
+      </div>
     </main>
   );
 }
