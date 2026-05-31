@@ -185,6 +185,7 @@ function App() {
   const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pricingError, setPricingError] = useState<string | null>(null);
+  const [isNewOrderFormOpen, setIsNewOrderFormOpen] = useState(false);
 
   useEffect(() => {
     Promise.all([getApiHealth(), getMaterials()])
@@ -498,7 +499,7 @@ function App() {
 
                 <button
                   className="primary-action-button"
-                  onClick={() => console.log("new diez order")}
+                  onClick={() => setIsNewOrderFormOpen(true)}
                   type="button"
                 >
                   + Новый заказ
@@ -513,6 +514,109 @@ function App() {
                   </article>
                 ))}
               </div>
+
+              {isNewOrderFormOpen ? (
+                <section className="order-form-panel">
+                  <div className="section-heading">
+                    <div>
+                      <h3>Новый заказ</h3>
+                      <p>
+                        Это черновик формы. Поля будут уточняться до создания
+                        миграций.
+                      </p>
+                    </div>
+                    <button
+                      className="secondary-action-button"
+                      onClick={() => setIsNewOrderFormOpen(false)}
+                      type="button"
+                    >
+                      Закрыть
+                    </button>
+                  </div>
+
+                  <form
+                    className="order-form-grid"
+                    onSubmit={(event) => event.preventDefault()}
+                  >
+                    <label className="form-field">
+                      <span>Источник заказа</span>
+                      <select defaultValue="manual">
+                        <option value="site">сайт</option>
+                        <option value="manual">вручную</option>
+                        <option value="phone">телефон</option>
+                        <option disabled value="ozon_later">
+                          Ozon позже
+                        </option>
+                      </select>
+                    </label>
+
+                    <label className="form-field">
+                      <span>Статус</span>
+                      <select defaultValue="new" disabled>
+                        <option value="new">Новый</option>
+                      </select>
+                    </label>
+
+                    <label className="form-field">
+                      <span>Клиент</span>
+                      <input placeholder="Имя клиента или компания" />
+                    </label>
+
+                    <label className="form-field">
+                      <span>Телефон</span>
+                      <input placeholder="+7..." />
+                    </label>
+
+                    <label className="form-field">
+                      <span>Email</span>
+                      <input placeholder="client@example.ru" type="email" />
+                    </label>
+
+                    <label className="form-field">
+                      <span>Примерная сумма</span>
+                      <input placeholder="0 ₽" />
+                    </label>
+
+                    <label className="form-field form-field-wide">
+                      <span>Позиция заказа / что нужно сделать</span>
+                      <textarea placeholder="Кратко описать изделие, услугу или расчёт" />
+                    </label>
+
+                    <label className="form-field form-field-wide">
+                      <span>Комментарий клиента</span>
+                      <textarea placeholder="Комментарий из заявки или разговора" />
+                    </label>
+
+                    <label className="form-field form-field-wide">
+                      <span>Внутренний комментарий</span>
+                      <textarea placeholder="Заметка для менеджера" />
+                    </label>
+
+                    <div className="order-form-actions">
+                      <button
+                        className="primary-action-button"
+                        disabled
+                        title="Сохранение будет подключено после проектирования таблиц заказов"
+                        type="submit"
+                      >
+                        Сохранение позже
+                      </button>
+                      <button
+                        className="secondary-action-button"
+                        onClick={() => setIsNewOrderFormOpen(false)}
+                        type="button"
+                      >
+                        Закрыть
+                      </button>
+                    </div>
+                  </form>
+
+                  <p className="form-note">
+                    Сохранение будет подключено после проектирования таблиц
+                    заказов.
+                  </p>
+                </section>
+              ) : null}
 
               <div className="orders-workspace-grid">
                 <section className="orders-table-panel">
