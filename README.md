@@ -545,6 +545,32 @@ diez-site / manual / phone / ozon_later -> API -> diez-data-core -> diez-control
 
 Текущий вывод: перед офисной версией конструктора нужно сначала создать baseline fixtures текущего сайта, а уже потом выделять shared pricing/core.
 
+## Shared constructor contracts
+
+Создан пакет:
+
+```text
+packages/shared
+```
+
+Package name:
+
+```text
+@diez/shared
+```
+
+Сейчас в `@diez/shared` находятся только типы/контракты будущего общего ядра конструктора.
+
+Формула расчёта пока не перенесена.
+
+Сайт пока не подключён к `@diez/shared`.
+
+ПК-программа пока не использует `@diez/shared` для расчёта.
+
+Это безопасная подготовка к общему расчётному core.
+
+Следующий шаг позже: переносить pure-логику маленькими частями и сверять результат по baseline fixtures.
+
 ## Versioning
 
 Проект использует версии вида:
