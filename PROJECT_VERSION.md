@@ -149,6 +149,23 @@ Materials request failed: 500
 
 Позже нужно сделать более удобный запуск и нормальное сообщение об ошибке.
 
+## Persistent Tauri dev workflow
+
+Во время разработки пользователь может держать Tauri-приложение открытым.
+
+Если окно `Диез Имидж Control Center` уже открыто, Codex не должен запускать `pnpm.cmd dev:tauri` повторно.
+
+Повторный запуск может дать ошибку доступа к `target/debug/diez-control-center.exe`.
+
+Для UI-правок Codex должен менять файлы и выполнять:
+
+* `pnpm.cmd check`
+* `pnpm.cmd --filter @diez/desktop build`
+
+Пользователь сам смотрит изменения в уже открытом окне.
+
+Если нужен полный перезапуск, пользователь сам закрывает окно приложения и разрешает запуск заново.
+
 ## Future architecture notes
 
 Будущие роли: `admin`, `manager`, `designer`, `production`, `accountant`, `viewer`.
