@@ -1,7 +1,18 @@
-import "dotenv/config";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import cors from "@fastify/cors";
+import dotenv from "dotenv";
 import Fastify from "fastify";
-import { checkDatabaseConnection, queryDatabase } from "./db.js";
+
+const currentFile = fileURLToPath(import.meta.url);
+const currentDir = path.dirname(currentFile);
+const repoRoot = path.resolve(currentDir, "../../..");
+
+dotenv.config({
+  path: path.join(repoRoot, ".env")
+});
+
+const { checkDatabaseConnection, queryDatabase } = await import("./db.js");
 
 const apiHost = process.env.API_HOST ?? "127.0.0.1";
 const apiPort = Number(process.env.API_PORT ?? "3001");
