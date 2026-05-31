@@ -622,6 +622,105 @@ tbody tr {
   background: rgba(90, 139, 255, 0.12);
 }
 
+.orders-panel {
+  display: grid;
+  gap: 24px;
+}
+
+.primary-action-button {
+  flex: 0 0 auto;
+  padding: 12px 16px;
+  border: 0;
+  border-radius: 12px;
+  color: #ffffff;
+  background: rgba(90, 139, 255, 0.42);
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.primary-action-button:hover {
+  background: rgba(90, 139, 255, 0.56);
+}
+
+.order-status-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.order-status-card {
+  min-height: 106px;
+  padding: 16px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.order-status-card span {
+  display: block;
+  color: rgba(255, 255, 255, 0.64);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.order-status-card strong {
+  display: block;
+  margin-top: 16px;
+  font-size: 34px;
+  line-height: 1;
+}
+
+.orders-workspace-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+  gap: 18px;
+  align-items: start;
+}
+
+.orders-table-panel,
+.order-sources-panel {
+  min-width: 0;
+  padding: 20px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.orders-table-wrap {
+  margin-top: 16px;
+  overflow: auto;
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.empty-row td {
+  padding: 34px 18px;
+  color: rgba(255, 255, 255, 0.62);
+  text-align: center;
+}
+
+.order-source-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.order-source-item {
+  padding: 12px 14px;
+  border-radius: 12px;
+  color: rgba(255, 255, 255, 0.78);
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.order-source-item span::before {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 10px;
+  border-radius: 999px;
+  background: #9fb7ff;
+  vertical-align: 1px;
+}
+
 .placeholder-panel {
   max-width: 760px;
   padding: 32px;
@@ -644,11 +743,13 @@ tbody tr {
   }
 
   .workspace-grid,
+  .orders-workspace-grid,
   .content-header,
   .metric-grid,
   .dashboard-zone-grid,
   .dashboard-card-grid,
-  .dashboard-bottom-grid {
+  .dashboard-bottom-grid,
+  .order-status-grid {
     grid-template-columns: 1fr;
     display: grid;
   }

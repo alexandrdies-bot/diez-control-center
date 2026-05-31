@@ -153,6 +153,17 @@ const ozonCards = [
   }
 ];
 
+const diezOrderStatuses = [
+  "Новые",
+  "В работе",
+  "Ожидают клиента",
+  "В производстве",
+  "Готовы",
+  "Завершены"
+];
+
+const diezOrderSources = ["Сайт", "Ручной заказ", "Ozon позже"];
+
 function formatMinorPrice(value: number, currencyCode: string) {
   return `${(value / 100).toLocaleString("ru-RU", {
     minimumFractionDigits: 2,
@@ -254,6 +265,8 @@ function App() {
   const activeSections =
     activeWorkspace === "Диез Имидж" ? diezSections : ozonSections;
   const isHomeScreen = activeSection === "Главная";
+  const isDiezOrdersScreen =
+    activeWorkspace === "Диез Имидж" && activeSection === "Заказы";
   const isMaterialsScreen =
     activeWorkspace === "Диез Имидж" &&
     activeSection === "Настройки" &&
@@ -470,6 +483,84 @@ function App() {
                   используются для расчётов себестоимости.
                 </p>
               </section>
+            </section>
+          ) : isDiezOrdersScreen ? (
+            <section className="orders-panel">
+              <div className="content-header">
+                <div>
+                  <p className="eyebrow">Диез Имидж / первый этап</p>
+                  <h2>Заказы Диез Имидж</h2>
+                  <p>
+                    Главный рабочий раздел для заказов с сайта, ручных заказов,
+                    клиентов, расчётов и производства.
+                  </p>
+                </div>
+
+                <button
+                  className="primary-action-button"
+                  onClick={() => console.log("new diez order")}
+                  type="button"
+                >
+                  + Новый заказ
+                </button>
+              </div>
+
+              <div className="order-status-grid">
+                {diezOrderStatuses.map((status) => (
+                  <article className="order-status-card" key={status}>
+                    <span>{status}</span>
+                    <strong>0</strong>
+                  </article>
+                ))}
+              </div>
+
+              <div className="orders-workspace-grid">
+                <section className="orders-table-panel">
+                  <div className="section-heading">
+                    <h3>Список заказов</h3>
+                    <span>Mock / read-only</span>
+                  </div>
+
+                  <div className="orders-table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>№</th>
+                          <th>Источник</th>
+                          <th>Клиент</th>
+                          <th>Заказ</th>
+                          <th>Статус</th>
+                          <th>Сумма</th>
+                          <th>Дата</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr className="empty-row">
+                          <td colSpan={7}>
+                            Заказов пока нет. Позже здесь появятся заказы с
+                            сайта, ручные заказы и заказы из других каналов.
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+
+                <aside className="order-sources-panel">
+                  <p className="eyebrow">Источники заказов</p>
+                  <div className="order-source-list">
+                    {diezOrderSources.map((source) => (
+                      <div className="order-source-item" key={source}>
+                        <span>{source}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <p>
+                    Ozon не смешивается с текущим экраном заказов Диез Имидж.
+                    Ozon-заказы будут отдельным каналом/модулем позже.
+                  </p>
+                </aside>
+              </div>
             </section>
           ) : isOzonWorkspaceSection ? (
             <section className="dashboard-panel">
