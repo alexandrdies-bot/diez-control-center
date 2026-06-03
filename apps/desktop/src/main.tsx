@@ -181,6 +181,16 @@ const constructorFixturePresets = [
   }
 ];
 
+type DraftOrderItem = {
+  id: string;
+  type: "Конструктор объёмных букв";
+  title: string;
+  priceMinor: number;
+  ledCount: number;
+  fixtureId: string;
+  baselineStatus: string;
+};
+
 function formatMinorPrice(value: number, currencyCode: string) {
   return `${(value / 100).toLocaleString("ru-RU", {
     minimumFractionDigits: 2,
@@ -208,6 +218,7 @@ function App() {
     useState<CalculationFixtureDebugResult | null>(null);
   const [fixtureError, setFixtureError] = useState<string | null>(null);
   const [isFixtureLoading, setIsFixtureLoading] = useState(false);
+  const [draftOrderItems, setDraftOrderItems] = useState<DraftOrderItem[]>([]);
 
   useEffect(() => {
     Promise.all([getApiHealth(), getMaterials()])
@@ -285,6 +296,10 @@ function App() {
     return materials.find((material) => material.id === selectedMaterialId) ?? null;
   }, [materials, selectedMaterialId]);
 
+  const draftOrderTotalMinor = useMemo(() => {
+    return draftOrderItems.reduce((total, item) => total + item.priceMinor, 0);
+  }, [draftOrderItems]);
+
   const activeSections =
     activeWorkspace === "Диез Имидж" ? diezSections : ozonSections;
   const isHomeScreen = activeSection === "Главная";
@@ -327,6 +342,35 @@ function App() {
       .finally(() => {
         setIsFixtureLoading(false);
       });
+  }
+
+  function handleAddConstructorItem() {
+    if (!fixtureResult) {
+      return;
+    }
+
+    const preset = constructorFixturePresets.find(
+      (item) => item.fixtureId === fixtureResult.fixtureId
+    );
+
+    setDraftOrderItems((items) => [
+      ...items,
+      {
+        id: `${fixtureResult.fixtureId}-${Date.now()}-${items.length}`,
+        type: "Конструктор объёмных букв",
+        title: preset?.title ?? fixtureResult.fixtureId,
+        priceMinor: fixtureResult.calculatedTotalPriceMinor,
+        ledCount: fixtureResult.ledCount,
+        fixtureId: fixtureResult.fixtureId,
+        baselineStatus: fixtureResult.roundedTotalPriceMinorMatches
+          ? "Baseline совпал"
+          : "Есть расхождение"
+      }
+    ]);
+  }
+
+  function handleRemoveDraftOrderItem(itemId: string) {
+    setDraftOrderItems((items) => items.filter((item) => item.id !== itemId));
   }
 
   return (
@@ -771,8 +815,79 @@ function App() {
                         </div>
 
                         <p className="muted-text">{fixtureResult.limitation}</p>
+
+                        <button
+                          className="primary-action-button constructor-add-button"
+                          onClick={handleAddConstructorItem}
+                          type="button"
+                        >
+                          Добавить в заказ
+                        </button>
                       </div>
                     ) : null}
+                  </section>
+
+                  <section className="draft-items-panel">
+                    <div className="section-heading">
+                      <h3>Позиции заказа</h3>
+                      <span>Локальный черновик</span>
+                    </div>
+
+                    {draftOrderItems.length === 0 ? (
+                      <p className="draft-empty-text">Позиции пока не добавлены</p>
+                    ) : (
+                      <div className="draft-items-table-wrap">
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>№</th>
+                              <th>Тип</th>
+                              <th>Название</th>
+                              <th>Цена</th>
+                              <th>Статус</th>
+                              <th></th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {draftOrderItems.map((item, index) => (
+                              <tr key={item.id}>
+                                <td>{index + 1}</td>
+                                <td>{item.type}</td>
+                                <td>
+                                  <strong>{item.title}</strong>
+                                  <small>
+                                    {item.fixtureId}, LED: {item.ledCount}
+                                  </small>
+                                </td>
+                                <td>{formatMinorPrice(item.priceMinor, "RUB")}</td>
+                                <td>{item.baselineStatus}</td>
+                                <td>
+                                  <button
+                                    className="text-action-button"
+                                    onClick={() =>
+                                      handleRemoveDraftOrderItem(item.id)
+                                    }
+                                    type="button"
+                                  >
+                                    Удалить
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+
+                    <div className="draft-total-row">
+                      <span>Итого:</span>
+                      <strong>{formatMinorPrice(draftOrderTotalMinor, "RUB")}</strong>
+                    </div>
+
+                    <p className="constructor-warning">
+                      Черновик не сохраняется в базу. Сохранение будет
+                      подключено после создания таблиц заказов.
+                    </p>
                   </section>
                 </section>
               ) : null}
