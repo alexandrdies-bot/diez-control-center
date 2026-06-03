@@ -854,6 +854,20 @@ tbody tr {
   background: rgba(0, 0, 0, 0.18);
 }
 
+.office-constructor-fields {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr;
+  gap: 14px;
+}
+
+.constructor-helper-text {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  color: rgba(255, 255, 255, 0.66);
+  background: rgba(0, 0, 0, 0.18);
+}
+
 .constructor-preset-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -879,11 +893,23 @@ tbody tr {
   background: rgba(90, 139, 255, 0.22);
 }
 
+.constructor-preset-card-recommended {
+  border-color: rgba(159, 183, 255, 0.42);
+  background: rgba(159, 183, 255, 0.14);
+}
+
 .constructor-preset-card span {
   color: rgba(255, 255, 255, 0.56);
   font-size: 12px;
   line-height: 1.35;
   word-break: break-word;
+}
+
+.constructor-preset-card em {
+  color: #9fffbf;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 700;
 }
 
 .constructor-warning {
@@ -1103,6 +1129,7 @@ tbody tr {
   .dashboard-zone-grid,
   .dashboard-card-grid,
   .dashboard-bottom-grid,
+  .office-constructor-fields,
   .constructor-preset-grid,
   .constructor-result-grid,
   .order-status-grid {

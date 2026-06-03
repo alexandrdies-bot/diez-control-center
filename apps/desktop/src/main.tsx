@@ -169,15 +169,18 @@ const diezOrderSources = ["Сайт", "Ручной заказ", "Ozon позж�
 const constructorFixturePresets = [
   {
     fixtureId: "simple-light-text-diez-300",
-    title: "Световая ДИЕЗ 300"
+    title: "Световая ДИЕЗ 300",
+    recommendedMode: "light"
   },
   {
     fixtureId: "simple-non-light-text-diez-300",
-    title: "Несветовая ДИЕЗ 300"
+    title: "Несветовая ДИЕЗ 300",
+    recommendedMode: "non-light"
   },
   {
     fixtureId: "face-film-red-text-diez-300",
-    title: "Световая ДИЕЗ 300 + красная плёнка"
+    title: "Световая ДИЕЗ 300 + красная плёнка",
+    recommendedMode: "light"
   }
 ];
 
@@ -203,6 +206,12 @@ type DraftOrderForm = {
   customerComment: string;
   internalComment: string;
   status: "new";
+};
+
+type OfficeConstructorForm = {
+  text: string;
+  heightMm: string;
+  mode: "light" | "non-light";
 };
 
 function formatMinorPrice(value: number, currencyCode: string) {
@@ -235,6 +244,12 @@ function App() {
   const [isFixtureLoading, setIsFixtureLoading] = useState(false);
   const [draftOrderItems, setDraftOrderItems] = useState<DraftOrderItem[]>([]);
   const [isDraftJsonVisible, setIsDraftJsonVisible] = useState(false);
+  const [officeConstructorForm, setOfficeConstructorForm] =
+    useState<OfficeConstructorForm>({
+      text: "ДИЕЗ",
+      heightMm: "300",
+      mode: "light"
+    });
   const [draftOrderForm, setDraftOrderForm] = useState<DraftOrderForm>({
     source: "manual",
     customerName: "",
@@ -360,6 +375,19 @@ function App() {
     };
   }, [draftOrderForm, draftOrderItems, draftOrderTotalMinor]);
 
+  const recommendedConstructorFixtureId = useMemo(() => {
+    const normalizedText = officeConstructorForm.text.trim().toUpperCase();
+    const normalizedHeight = officeConstructorForm.heightMm.trim();
+
+    if (normalizedText !== "ДИЕЗ" || normalizedHeight !== "300") {
+      return null;
+    }
+
+    return officeConstructorForm.mode === "light"
+      ? "simple-light-text-diez-300"
+      : "simple-non-light-text-diez-300";
+  }, [officeConstructorForm]);
+
   const activeSections =
     activeWorkspace === "Диез Имидж" ? diezSections : ozonSections;
   const isHomeScreen = activeSection === "Главная";
@@ -385,6 +413,16 @@ function App() {
     value: DraftOrderForm[Field]
   ) {
     setDraftOrderForm((current) => ({
+      ...current,
+      [field]: value
+    }));
+  }
+
+  function updateOfficeConstructorForm<Field extends keyof OfficeConstructorForm>(
+    field: Field,
+    value: OfficeConstructorForm[Field]
+  ) {
+    setOfficeConstructorForm((current) => ({
       ...current,
       [field]: value
     }));
@@ -876,13 +914,65 @@ function App() {
                         </button>
                       </div>
 
+                      <div className="office-constructor-fields">
+                        <label className="form-field">
+                          <span>Текст</span>
+                          <input
+                            value={officeConstructorForm.text}
+                            onChange={(event) =>
+                              updateOfficeConstructorForm(
+                                "text",
+                                event.target.value
+                              )
+                            }
+                          />
+                        </label>
+
+                        <label className="form-field">
+                          <span>Высота, мм</span>
+                          <input
+                            value={officeConstructorForm.heightMm}
+                            onChange={(event) =>
+                              updateOfficeConstructorForm(
+                                "heightMm",
+                                event.target.value
+                              )
+                            }
+                          />
+                        </label>
+
+                        <label className="form-field">
+                          <span>Режим</span>
+                          <select
+                            value={officeConstructorForm.mode}
+                            onChange={(event) =>
+                              updateOfficeConstructorForm(
+                                "mode",
+                                event.target.value as OfficeConstructorForm["mode"]
+                              )
+                            }
+                          >
+                            <option value="light">Световая</option>
+                            <option value="non-light">Несветовая</option>
+                          </select>
+                        </label>
+                      </div>
+
+                      <p className="constructor-helper-text">
+                        Поля конструктора уже добавлены, но произвольный расчёт
+                        будет подключён после переноса layout/geometry в
+                        shared-core.
+                      </p>
+
                       <div className="constructor-preset-grid">
                         {constructorFixturePresets.map((preset) => (
                           <button
                             className={
                               selectedFixtureId === preset.fixtureId
                                 ? "constructor-preset-card constructor-preset-card-active"
-                                : "constructor-preset-card"
+                                : preset.fixtureId === recommendedConstructorFixtureId
+                                  ? "constructor-preset-card constructor-preset-card-recommended"
+                                  : "constructor-preset-card"
                             }
                             key={preset.fixtureId}
                             onClick={() =>
@@ -892,6 +982,9 @@ function App() {
                           >
                             <strong>{preset.title}</strong>
                             <span>{preset.fixtureId}</span>
+                            {preset.fixtureId === recommendedConstructorFixtureId ? (
+                              <em>Рекомендуемый пресет</em>
+                            ) : null}
                           </button>
                         ))}
                       </div>
