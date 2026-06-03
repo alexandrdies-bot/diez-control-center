@@ -353,6 +353,12 @@ API технически подключён к `@diez/calculation-core` чере
 
 Сейчас используется только import-check файл `apps/api/src/calculation-core-import-check.ts`.
 
+Добавлен диагностический endpoint `GET /health/calculation-core`.
+
+Endpoint проверяет, что API может импортировать `@diez/calculation-core`.
+
+Это не рабочий расчёт и не подключение конструктора.
+
 Desktop UI и реальные расчёты пока не используют shared-формулу напрямую.
 
 Следующий этап позже: использовать shared-core в офисном конструкторе на основе общего расчётного ядра и сохранить возможность offline cache.

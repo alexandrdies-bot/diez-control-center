@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import cors from "@fastify/cors";
 import dotenv from "dotenv";
 import Fastify from "fastify";
+import { checkCalculationCoreImport } from "./calculation-core-import-check.js";
 
 const currentFile = fileURLToPath(import.meta.url);
 const currentDir = path.dirname(currentFile);
@@ -31,6 +32,10 @@ app.get("/health", async () => {
     service: "diez-control-center-api",
     version: "0.0.0"
   };
+});
+
+app.get("/health/calculation-core", async () => {
+  return checkCalculationCoreImport();
 });
 
 app.get("/health/db", async (_request, reply) => {
