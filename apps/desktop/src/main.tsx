@@ -212,7 +212,11 @@ type OfficeConstructorForm = {
   text: string;
   heightMm: string;
   mode: "light" | "non-light";
+  boardTape: "white-ral-9003-80";
+  faceFilm: "none" | "red-6811";
 };
+
+type NewOrderStep = "calculation" | "details";
 
 function formatMinorPrice(value: number, currencyCode: string) {
   return `${(value / 100).toLocaleString("ru-RU", {
@@ -236,6 +240,7 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [pricingError, setPricingError] = useState<string | null>(null);
   const [isNewOrderFormOpen, setIsNewOrderFormOpen] = useState(false);
+  const [newOrderStep, setNewOrderStep] = useState<NewOrderStep>("calculation");
   const [isConstructorPanelOpen, setIsConstructorPanelOpen] = useState(false);
   const [selectedFixtureId, setSelectedFixtureId] = useState<string | null>(null);
   const [fixtureResult, setFixtureResult] =
@@ -248,7 +253,9 @@ function App() {
     useState<OfficeConstructorForm>({
       text: "ДИЕЗ",
       heightMm: "300",
-      mode: "light"
+      mode: "light",
+      boardTape: "white-ral-9003-80",
+      faceFilm: "none"
     });
   const [draftOrderForm, setDraftOrderForm] = useState<DraftOrderForm>({
     source: "manual",
@@ -383,9 +390,13 @@ function App() {
       return null;
     }
 
-    return officeConstructorForm.mode === "light"
-      ? "simple-light-text-diez-300"
-      : "simple-non-light-text-diez-300";
+    if (officeConstructorForm.mode === "non-light") {
+      return "simple-non-light-text-diez-300";
+    }
+
+    return officeConstructorForm.faceFilm === "red-6811"
+      ? "face-film-red-text-diez-300"
+      : "simple-light-text-diez-300";
   }, [officeConstructorForm]);
 
   const activeSections =
@@ -406,6 +417,12 @@ function App() {
 
   function handleSectionChange(section: string) {
     setActiveSection(section);
+  }
+
+  function handleOpenNewOrder() {
+    setIsNewOrderFormOpen(true);
+    setNewOrderStep("calculation");
+    setIsConstructorPanelOpen(false);
   }
 
   function updateDraftOrderForm<Field extends keyof DraftOrderForm>(
@@ -701,7 +718,7 @@ function App() {
 
                 <button
                   className="primary-action-button"
-                  onClick={() => setIsNewOrderFormOpen(true)}
+                  onClick={handleOpenNewOrder}
                   type="button"
                 >
                   + Новый заказ
@@ -723,8 +740,8 @@ function App() {
                     <div>
                       <h3>Новый заказ</h3>
                       <p>
-                        Это черновик формы. Поля будут уточняться до создания
-                        миграций.
+                        Сначала рассчитайте изделие, затем примите заказ и
+                        заполните данные клиента.
                       </p>
                     </div>
                     <button
@@ -736,347 +753,347 @@ function App() {
                     </button>
                   </div>
 
-                  <form
-                    className="order-form-grid"
-                    onSubmit={(event) => event.preventDefault()}
-                  >
-                    <label className="form-field">
-                      <span>Источник заказа</span>
-                      <select
-                        value={draftOrderForm.source}
-                        onChange={(event) =>
-                          updateDraftOrderForm(
-                            "source",
-                            event.target.value as DraftOrderForm["source"]
-                          )
-                        }
-                      >
-                        <option value="site">сайт</option>
-                        <option value="manual">вручную</option>
-                        <option value="phone">телефон</option>
-                        <option disabled value="ozon_later">
-                          Ozon позже
-                        </option>
-                      </select>
-                    </label>
-
-                    <label className="form-field">
-                      <span>Статус</span>
-                      <select value={draftOrderForm.status} disabled>
-                        <option value="new">Новый</option>
-                      </select>
-                    </label>
-
-                    <label className="form-field">
-                      <span>Клиент</span>
-                      <input
-                        value={draftOrderForm.customerName}
-                        onChange={(event) =>
-                          updateDraftOrderForm("customerName", event.target.value)
-                        }
-                        placeholder="Имя клиента или компания"
-                      />
-                    </label>
-
-                    <label className="form-field">
-                      <span>Телефон</span>
-                      <input
-                        value={draftOrderForm.phone}
-                        onChange={(event) =>
-                          updateDraftOrderForm("phone", event.target.value)
-                        }
-                        placeholder="+7..."
-                      />
-                    </label>
-
-                    <label className="form-field">
-                      <span>Email</span>
-                      <input
-                        value={draftOrderForm.email}
-                        onChange={(event) =>
-                          updateDraftOrderForm("email", event.target.value)
-                        }
-                        placeholder="client@example.ru"
-                        type="email"
-                      />
-                    </label>
-
-                    <label className="form-field">
-                      <span>Примерная сумма</span>
-                      <input
-                        value={draftOrderForm.estimatedAmount}
-                        onChange={(event) =>
-                          updateDraftOrderForm(
-                            "estimatedAmount",
-                            event.target.value
-                          )
-                        }
-                        placeholder="0 ₽"
-                      />
-                    </label>
-
-                    <label className="form-field form-field-wide">
-                      <span>Позиция заказа / что нужно сделать</span>
-                      <textarea
-                        value={draftOrderForm.itemDescription}
-                        onChange={(event) =>
-                          updateDraftOrderForm(
-                            "itemDescription",
-                            event.target.value
-                          )
-                        }
-                        placeholder="Кратко описать изделие, услугу или расчёт"
-                      />
-                    </label>
-
-                    <label className="form-field form-field-wide">
-                      <span>Комментарий клиента</span>
-                      <textarea
-                        value={draftOrderForm.customerComment}
-                        onChange={(event) =>
-                          updateDraftOrderForm(
-                            "customerComment",
-                            event.target.value
-                          )
-                        }
-                        placeholder="Комментарий из заявки или разговора"
-                      />
-                    </label>
-
-                    <label className="form-field form-field-wide">
-                      <span>Внутренний комментарий</span>
-                      <textarea
-                        value={draftOrderForm.internalComment}
-                        onChange={(event) =>
-                          updateDraftOrderForm(
-                            "internalComment",
-                            event.target.value
-                          )
-                        }
-                        placeholder="Заметка для менеджера"
-                      />
-                    </label>
-
-                    <div className="order-form-actions">
-                      <button
-                        className="primary-action-button"
-                        disabled
-                        title="Сохранение будет подключено после проектирования таблиц заказов"
-                        type="submit"
-                      >
-                        Сохранить заказ
-                      </button>
-                      <button
-                        className="secondary-action-button"
-                        onClick={() => setIsNewOrderFormOpen(false)}
-                        type="button"
-                      >
-                        Закрыть
-                      </button>
-                    </div>
-                  </form>
-
-                  <p className="form-note">
-                    Сохранение будет подключено после проектирования таблиц
-                    заказов.
-                  </p>
-
-                  <section className="constructor-entry-card">
-                    <div>
-                      <h3>Конструктор объёмных букв</h3>
-                      <p>Офисный конструктор для расчёта позиции заказа.</p>
-                    </div>
-                    <button
-                      className="primary-action-button"
-                      onClick={() => setIsConstructorPanelOpen(true)}
-                      type="button"
+                  <div className="order-step-tabs">
+                    <span
+                      className={
+                        newOrderStep === "calculation"
+                          ? "order-step-tab order-step-tab-active"
+                          : "order-step-tab"
+                      }
                     >
-                      Открыть конструктор
-                    </button>
-                  </section>
+                      Шаг 1 — Расчёт
+                    </span>
+                    <span
+                      className={
+                        newOrderStep === "details"
+                          ? "order-step-tab order-step-tab-active"
+                          : "order-step-tab"
+                      }
+                    >
+                      Шаг 2 — Оформление
+                    </span>
+                  </div>
 
-                  {isConstructorPanelOpen ? (
-                    <section className="constructor-debug-panel">
-                      <div className="section-heading">
+                  {newOrderStep === "calculation" ? (
+                    <section className="order-step-panel">
+                      <p className="eyebrow">Шаг 1 — Расчёт</p>
+                      <h3>Расчёт вывески</h3>
+                      <p>
+                        Сначала рассчитайте изделие и добавьте позицию в заказ.
+                        Если цена устраивает, можно перейти к оформлению.
+                      </p>
+
+                      <section className="constructor-entry-card">
                         <div>
-                          <h3>Офисный конструктор</h3>
-                          <p>
-                            Временная панель расчёта через debug endpoints.
-                            Полный визуальный конструктор будет подключён позже.
-                          </p>
+                          <h3>Конструктор объёмных букв</h3>
+                          <p>Офисный конструктор для расчёта позиции заказа.</p>
                         </div>
                         <button
-                          className="secondary-action-button"
-                          onClick={() => setIsConstructorPanelOpen(false)}
+                          className="primary-action-button"
+                          onClick={() => setIsConstructorPanelOpen(true)}
                           type="button"
                         >
-                          Вернуться к заказу
+                          Открыть конструктор
                         </button>
-                      </div>
+                      </section>
 
-                      <div className="office-constructor-fields">
-                        <label className="form-field">
-                          <span>Текст</span>
-                          <input
-                            value={officeConstructorForm.text}
-                            onChange={(event) =>
-                              updateOfficeConstructorForm(
-                                "text",
-                                event.target.value
-                              )
-                            }
-                          />
-                        </label>
-
-                        <label className="form-field">
-                          <span>Высота, мм</span>
-                          <input
-                            value={officeConstructorForm.heightMm}
-                            onChange={(event) =>
-                              updateOfficeConstructorForm(
-                                "heightMm",
-                                event.target.value
-                              )
-                            }
-                          />
-                        </label>
-
-                        <label className="form-field">
-                          <span>Режим</span>
-                          <select
-                            value={officeConstructorForm.mode}
-                            onChange={(event) =>
-                              updateOfficeConstructorForm(
-                                "mode",
-                                event.target.value as OfficeConstructorForm["mode"]
-                              )
-                            }
-                          >
-                            <option value="light">Световая</option>
-                            <option value="non-light">Несветовая</option>
-                          </select>
-                        </label>
-                      </div>
-
-                      <p className="constructor-helper-text">
-                        Поля конструктора уже добавлены, но произвольный расчёт
-                        будет подключён после переноса layout/geometry в
-                        shared-core.
-                      </p>
-
-                      <div className="constructor-preset-grid">
-                        {constructorFixturePresets.map((preset) => (
-                          <button
-                            className={
-                              selectedFixtureId === preset.fixtureId
-                                ? "constructor-preset-card constructor-preset-card-active"
-                                : preset.fixtureId === recommendedConstructorFixtureId
-                                  ? "constructor-preset-card constructor-preset-card-recommended"
-                                  : "constructor-preset-card"
-                            }
-                            key={preset.fixtureId}
-                            onClick={() =>
-                              handleConstructorPresetClick(preset.fixtureId)
-                            }
-                            type="button"
-                          >
-                            <strong>{preset.title}</strong>
-                            <span>{preset.fixtureId}</span>
-                            {preset.fixtureId === recommendedConstructorFixtureId ? (
-                              <em>Рекомендуемый пресет</em>
-                            ) : null}
-                          </button>
-                        ))}
-                      </div>
-
-                      <p className="constructor-warning">
-                        Это временная проверка shared-core, а не финальный
-                        визуальный конструктор и не сохранение позиции заказа.
-                      </p>
-
-                      {isFixtureLoading ? (
-                        <div className="constructor-result-card">
-                          Загружаем проверочный расчёт...
-                        </div>
-                      ) : fixtureError ? (
-                        <div className="error-card">{fixtureError}</div>
-                      ) : fixtureResult ? (
-                        <div className="constructor-result-card">
-                          <div className="constructor-result-header">
+                      {isConstructorPanelOpen ? (
+                        <section className="constructor-debug-panel">
+                          <div className="section-heading">
                             <div>
-                              <span>Итоговая цена</span>
-                              <strong>{fixtureResult.formattedTotalPrice}</strong>
+                              <h3>Офисный конструктор</h3>
+                              <p>
+                                Временная панель расчёта через debug endpoints.
+                                Полный визуальный конструктор будет подключён
+                                позже.
+                              </p>
                             </div>
-                            <span
-                              className={
-                                fixtureResult.roundedTotalPriceMinorMatches
-                                  ? "match-status match-status-ok"
-                                  : "match-status"
-                              }
+                            <button
+                              className="secondary-action-button"
+                              onClick={() => setIsConstructorPanelOpen(false)}
+                              type="button"
                             >
-                              {fixtureResult.roundedTotalPriceMinorMatches
-                                ? "baseline совпал"
-                                : "есть расхождение"}
-                            </span>
+                              Вернуться к заказу
+                            </button>
                           </div>
 
-                          <div className="constructor-result-grid">
-                            <div>
-                              <span>LED count</span>
-                              <strong>{fixtureResult.ledCount}</strong>
-                            </div>
-                            <div>
-                              <span>LED baseline</span>
-                              <strong>
-                                {fixtureResult.ledCountMatches
-                                  ? "совпал"
-                                  : "не совпал"}
-                              </strong>
-                            </div>
-                            <div>
+                          <div className="office-constructor-fields">
+                            <label className="form-field">
+                              <span>Текст</span>
+                              <input
+                                value={officeConstructorForm.text}
+                                onChange={(event) =>
+                                  updateOfficeConstructorForm(
+                                    "text",
+                                    event.target.value
+                                  )
+                                }
+                              />
+                            </label>
+
+                            <label className="form-field">
+                              <span>Высота, мм</span>
+                              <input
+                                value={officeConstructorForm.heightMm}
+                                onChange={(event) =>
+                                  updateOfficeConstructorForm(
+                                    "heightMm",
+                                    event.target.value
+                                  )
+                                }
+                              />
+                            </label>
+
+                            <label className="form-field">
+                              <span>Режим</span>
+                              <select
+                                value={officeConstructorForm.mode}
+                                onChange={(event) =>
+                                  updateOfficeConstructorForm(
+                                    "mode",
+                                    event.target
+                                      .value as OfficeConstructorForm["mode"]
+                                  )
+                                }
+                              >
+                                <option value="light">Световая</option>
+                                <option value="non-light">Несветовая</option>
+                              </select>
+                            </label>
+
+                            <label className="form-field">
+                              <span>Борт</span>
+                              <select
+                                value={officeConstructorForm.boardTape}
+                                onChange={(event) =>
+                                  updateOfficeConstructorForm(
+                                    "boardTape",
+                                    event.target
+                                      .value as OfficeConstructorForm["boardTape"]
+                                  )
+                                }
+                              >
+                                <option value="white-ral-9003-80">
+                                  Белый RAL 9003 / 80 мм
+                                </option>
+                              </select>
+                            </label>
+
+                            <label className="form-field">
                               <span>Плёнка</span>
-                              <strong>
-                                {fixtureResult.faceFilmCostMinor === null
-                                  ? "нет данных"
-                                  : formatMinorPrice(
-                                      fixtureResult.faceFilmCostMinor,
-                                      "RUB"
-                                    )}
-                              </strong>
-                            </div>
-                            <div>
-                              <span>Плёнка baseline</span>
-                              <strong>
-                                {fixtureResult.faceFilmCostMatches === null
-                                  ? "нет данных"
-                                  : fixtureResult.faceFilmCostMatches
-                                    ? "совпал"
-                                    : "не совпал"}
-                              </strong>
-                            </div>
-                            <div>
-                              <span>Режим проверки</span>
-                              <strong>{fixtureResult.mode}</strong>
-                            </div>
-                            <div>
-                              <span>Fixture</span>
-                              <strong>{fixtureResult.fixtureId}</strong>
-                            </div>
+                              <select
+                                value={officeConstructorForm.faceFilm}
+                                onChange={(event) =>
+                                  updateOfficeConstructorForm(
+                                    "faceFilm",
+                                    event.target
+                                      .value as OfficeConstructorForm["faceFilm"]
+                                  )
+                                }
+                              >
+                                <option value="none">Без плёнки</option>
+                                <option value="red-6811">Красная 6811</option>
+                              </select>
+                            </label>
                           </div>
 
-                          <p className="muted-text">{fixtureResult.limitation}</p>
+                          <p className="constructor-helper-text">
+                            Пока доступны только контрольные варианты расчёта.
+                            Произвольный расчёт будет подключён после завершения
+                            общего layout/geometry core.
+                          </p>
 
-                          <button
-                            className="primary-action-button constructor-add-button"
-                            onClick={handleAddConstructorItem}
-                            type="button"
-                          >
-                            Добавить в заказ
-                          </button>
-                        </div>
+                          <div className="constructor-preset-grid">
+                            {constructorFixturePresets.map((preset) => (
+                              <button
+                                className={
+                                  selectedFixtureId === preset.fixtureId
+                                    ? "constructor-preset-card constructor-preset-card-active"
+                                    : preset.fixtureId ===
+                                        recommendedConstructorFixtureId
+                                      ? "constructor-preset-card constructor-preset-card-recommended"
+                                      : "constructor-preset-card"
+                                }
+                                key={preset.fixtureId}
+                                onClick={() =>
+                                  handleConstructorPresetClick(preset.fixtureId)
+                                }
+                                type="button"
+                              >
+                                <strong>{preset.title}</strong>
+                                <span>{preset.fixtureId}</span>
+                                {preset.fixtureId ===
+                                recommendedConstructorFixtureId ? (
+                                  <em>Рекомендуемый пресет</em>
+                                ) : null}
+                              </button>
+                            ))}
+                          </div>
+
+                          <p className="constructor-warning">
+                            Это временная проверка shared-core, а не финальный
+                            визуальный конструктор и не сохранение позиции
+                            заказа.
+                          </p>
+
+                          {isFixtureLoading ? (
+                            <div className="constructor-result-card">
+                              Загружаем проверочный расчёт...
+                            </div>
+                          ) : fixtureError ? (
+                            <div className="error-card">{fixtureError}</div>
+                          ) : fixtureResult ? (
+                            <div className="constructor-result-card">
+                              <div className="constructor-result-header">
+                                <div>
+                                  <span>Итоговая цена</span>
+                                  <strong>
+                                    {fixtureResult.formattedTotalPrice}
+                                  </strong>
+                                </div>
+                                <span
+                                  className={
+                                    fixtureResult.roundedTotalPriceMinorMatches
+                                      ? "match-status match-status-ok"
+                                      : "match-status"
+                                  }
+                                >
+                                  {fixtureResult.roundedTotalPriceMinorMatches
+                                    ? "baseline совпал"
+                                    : "есть расхождение"}
+                                </span>
+                              </div>
+
+                              <div className="constructor-result-grid">
+                                <div>
+                                  <span>LED count</span>
+                                  <strong>{fixtureResult.ledCount}</strong>
+                                </div>
+                                <div>
+                                  <span>LED baseline</span>
+                                  <strong>
+                                    {fixtureResult.ledCountMatches
+                                      ? "совпал"
+                                      : "не совпал"}
+                                  </strong>
+                                </div>
+                                <div>
+                                  <span>Плёнка</span>
+                                  <strong>
+                                    {fixtureResult.faceFilmCostMinor === null
+                                      ? "нет данных"
+                                      : formatMinorPrice(
+                                          fixtureResult.faceFilmCostMinor,
+                                          "RUB"
+                                        )}
+                                  </strong>
+                                </div>
+                                <div>
+                                  <span>Плёнка baseline</span>
+                                  <strong>
+                                    {fixtureResult.faceFilmCostMatches === null
+                                      ? "нет данных"
+                                      : fixtureResult.faceFilmCostMatches
+                                        ? "совпал"
+                                        : "не совпал"}
+                                  </strong>
+                                </div>
+                                <div>
+                                  <span>Режим проверки</span>
+                                  <strong>{fixtureResult.mode}</strong>
+                                </div>
+                                <div>
+                                  <span>Fixture</span>
+                                  <strong>{fixtureResult.fixtureId}</strong>
+                                </div>
+                              </div>
+
+                              <p className="muted-text">
+                                {fixtureResult.limitation}
+                              </p>
+
+                              <button
+                                className="primary-action-button constructor-add-button"
+                                onClick={handleAddConstructorItem}
+                                type="button"
+                              >
+                                Добавить в заказ
+                              </button>
+                            </div>
+                          ) : null}
+                        </section>
                       ) : null}
+
+                      <div className="accept-order-panel">
+                        <button
+                          className="primary-action-button"
+                          disabled={draftOrderItems.length === 0}
+                          onClick={() => setNewOrderStep("details")}
+                          type="button"
+                        >
+                          Принять заказ
+                        </button>
+                        <p>
+                          {draftOrderItems.length === 0
+                            ? "Добавьте хотя бы одну позицию заказа."
+                            : "Цена рассчитана. Можно перейти к оформлению заказа."}
+                        </p>
+                      </div>
                     </section>
-                  ) : null}
+                  ) : (
+                    <section className="order-step-panel">
+                      <p className="eyebrow">Шаг 2 — Оформление</p>
+                      <h3>Оформление заказа</h3>
+                      <p>
+                        Заполните данные клиента и проверьте позиции заказа.
+                        Сохранение в базу пока не подключено.
+                      </p>
+
+                      <form
+                        className="order-form-grid"
+                        onSubmit={(event) => event.preventDefault()}
+                      >
+                        <label className="form-field">
+                          <span>Клиент</span>
+                          <input
+                            value={draftOrderForm.customerName}
+                            onChange={(event) =>
+                              updateDraftOrderForm(
+                                "customerName",
+                                event.target.value
+                              )
+                            }
+                            placeholder="Имя клиента или компания"
+                          />
+                        </label>
+
+                        <label className="form-field">
+                          <span>Телефон</span>
+                          <input
+                            value={draftOrderForm.phone}
+                            onChange={(event) =>
+                              updateDraftOrderForm("phone", event.target.value)
+                            }
+                            placeholder="+7..."
+                          />
+                        </label>
+
+                        <label className="form-field form-field-wide">
+                          <span>Комментарий к заказу</span>
+                          <textarea
+                            value={draftOrderForm.customerComment}
+                            onChange={(event) =>
+                              updateDraftOrderForm(
+                                "customerComment",
+                                event.target.value
+                              )
+                            }
+                            placeholder="Что важно учесть по заказу"
+                          />
+                        </label>
+                      </form>
+                    </section>
+                  )}
 
                   <section className="draft-items-panel">
                     <div className="section-heading">
@@ -1138,22 +1155,22 @@ function App() {
 
                     <p className="constructor-warning">
                       Черновик не сохраняется в базу. Сохранение будет
-                      подключено после создания таблиц заказов.
+                      подключено после создания таблиц заказов и API.
                     </p>
 
                     <div className="save-order-placeholder">
                       <button
                         className="primary-action-button"
                         disabled
-                        title="Сохранение заказа будет подключено после создания таблиц заказов и API сохранения"
+                        title="Сохранение будет подключено после создания таблиц заказов и API"
                         type="button"
                       >
                         Сохранить заказ
                       </button>
                       <div>
                         <p>
-                          Сохранение заказа будет подключено после создания
-                          таблиц заказов и API сохранения.
+                          Сохранение будет подключено после создания таблиц
+                          заказов и API.
                         </p>
                         {draftOrderItems.length === 0 ? (
                           <p>Добавьте хотя бы одну позицию заказа.</p>

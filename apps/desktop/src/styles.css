@@ -751,11 +751,44 @@ tbody tr {
   background: rgba(255, 255, 255, 0.08);
 }
 
+.order-step-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.order-step-tab {
+  padding: 9px 12px;
+  border-radius: 999px;
+  color: rgba(255, 255, 255, 0.58);
+  background: rgba(0, 0, 0, 0.16);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.order-step-tab-active {
+  color: #ffffff;
+  background: rgba(90, 139, 255, 0.32);
+}
+
+.order-step-panel {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+  padding: 18px;
+  border-radius: 16px;
+  background: rgba(0, 0, 0, 0.14);
+}
+
+.order-step-panel h3 {
+  margin: 0;
+}
+
 .order-form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
-  margin-top: 18px;
 }
 
 .form-field {
@@ -856,7 +889,7 @@ tbody tr {
 
 .office-constructor-fields {
   display: grid;
-  grid-template-columns: 1.4fr 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
 }
 
@@ -968,6 +1001,21 @@ tbody tr {
 
 .constructor-add-button {
   justify-self: start;
+}
+
+.accept-order-panel {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: flex-end;
+  padding-top: 2px;
+}
+
+.accept-order-panel p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 13px;
 }
 
 .match-status {
