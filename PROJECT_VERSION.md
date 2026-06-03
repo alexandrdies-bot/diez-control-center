@@ -359,6 +359,14 @@ Endpoint проверяет, что API может импортировать `@
 
 Это не рабочий расчёт и не подключение конструктора.
 
+Добавлен временный debug endpoint `GET /debug/calculation/simple-light-text-diez-300`.
+
+Endpoint читает baseline fixture `simple-light-text-diez-300` и сверяет доступный расчёт через shared-core по сохранённой geometry.
+
+Это не production API.
+
+Полный расчёт из text input ждёт shared text-layout/serializable shape adapter.
+
 Desktop UI и реальные расчёты пока не используют shared-формулу напрямую.
 
 Следующий этап позже: использовать shared-core в офисном конструкторе на основе общего расчётного ядра и сохранить возможность offline cache.
