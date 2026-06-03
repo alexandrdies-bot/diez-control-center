@@ -2,9 +2,11 @@ import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   getApiHealth,
+  getCalculationFixtureDebug,
   getMaterialPricingInputs,
   getMaterials,
   type ApiHealth,
+  type CalculationFixtureDebugResult,
   type Material,
   type MaterialPricingInput
 } from "./api";
@@ -164,6 +166,21 @@ const diezOrderStatuses = [
 
 const diezOrderSources = ["Сайт", "Ручной заказ", "Ozon позже"];
 
+const constructorFixturePresets = [
+  {
+    fixtureId: "simple-light-text-diez-300",
+    title: "Световая ДИЕЗ 300"
+  },
+  {
+    fixtureId: "simple-non-light-text-diez-300",
+    title: "Несветовая ДИЕЗ 300"
+  },
+  {
+    fixtureId: "face-film-red-text-diez-300",
+    title: "Световая ДИЕЗ 300 + красная плёнка"
+  }
+];
+
 function formatMinorPrice(value: number, currencyCode: string) {
   return `${(value / 100).toLocaleString("ru-RU", {
     minimumFractionDigits: 2,
@@ -186,6 +203,11 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [pricingError, setPricingError] = useState<string | null>(null);
   const [isNewOrderFormOpen, setIsNewOrderFormOpen] = useState(false);
+  const [selectedFixtureId, setSelectedFixtureId] = useState<string | null>(null);
+  const [fixtureResult, setFixtureResult] =
+    useState<CalculationFixtureDebugResult | null>(null);
+  const [fixtureError, setFixtureError] = useState<string | null>(null);
+  const [isFixtureLoading, setIsFixtureLoading] = useState(false);
 
   useEffect(() => {
     Promise.all([getApiHealth(), getMaterials()])
@@ -281,6 +303,30 @@ function App() {
 
   function handleSectionChange(section: string) {
     setActiveSection(section);
+  }
+
+  function handleConstructorPresetClick(fixtureId: string) {
+    setSelectedFixtureId(fixtureId);
+    setFixtureResult(null);
+    setFixtureError(null);
+    setIsFixtureLoading(true);
+
+    getCalculationFixtureDebug(fixtureId)
+      .then((result) => {
+        setFixtureResult(result);
+        setFixtureError(null);
+      })
+      .catch((unknownError) => {
+        setFixtureResult(null);
+        setFixtureError(
+          unknownError instanceof Error
+            ? unknownError.message
+            : "Unknown calculation fixture error"
+        );
+      })
+      .finally(() => {
+        setIsFixtureLoading(false);
+      });
   }
 
   return (
@@ -615,6 +661,119 @@ function App() {
                     Сохранение будет подключено после проектирования таблиц
                     заказов.
                   </p>
+
+                  <section className="constructor-debug-panel">
+                    <div className="section-heading">
+                      <div>
+                        <h3>Конструктор объёмных букв</h3>
+                        <p>
+                          Полноценный офисный конструктор будет подключён позже.
+                          Сейчас отображается проверочный расчёт из общего
+                          calculation-core.
+                        </p>
+                      </div>
+                      <span>Debug</span>
+                    </div>
+
+                    <div className="constructor-preset-grid">
+                      {constructorFixturePresets.map((preset) => (
+                        <button
+                          className={
+                            selectedFixtureId === preset.fixtureId
+                              ? "constructor-preset-card constructor-preset-card-active"
+                              : "constructor-preset-card"
+                          }
+                          key={preset.fixtureId}
+                          onClick={() =>
+                            handleConstructorPresetClick(preset.fixtureId)
+                          }
+                          type="button"
+                        >
+                          <strong>{preset.title}</strong>
+                          <span>{preset.fixtureId}</span>
+                        </button>
+                      ))}
+                    </div>
+
+                    <p className="constructor-warning">
+                      Это временная проверка shared-core, а не финальный
+                      визуальный конструктор и не сохранение позиции заказа.
+                    </p>
+
+                    {isFixtureLoading ? (
+                      <div className="constructor-result-card">
+                        Загружаем проверочный расчёт...
+                      </div>
+                    ) : fixtureError ? (
+                      <div className="error-card">{fixtureError}</div>
+                    ) : fixtureResult ? (
+                      <div className="constructor-result-card">
+                        <div className="constructor-result-header">
+                          <div>
+                            <span>Итоговая цена</span>
+                            <strong>{fixtureResult.formattedTotalPrice}</strong>
+                          </div>
+                          <span
+                            className={
+                              fixtureResult.roundedTotalPriceMinorMatches
+                                ? "match-status match-status-ok"
+                                : "match-status"
+                            }
+                          >
+                            {fixtureResult.roundedTotalPriceMinorMatches
+                              ? "baseline совпал"
+                              : "есть расхождение"}
+                          </span>
+                        </div>
+
+                        <div className="constructor-result-grid">
+                          <div>
+                            <span>LED count</span>
+                            <strong>{fixtureResult.ledCount}</strong>
+                          </div>
+                          <div>
+                            <span>LED baseline</span>
+                            <strong>
+                              {fixtureResult.ledCountMatches
+                                ? "совпал"
+                                : "не совпал"}
+                            </strong>
+                          </div>
+                          <div>
+                            <span>Плёнка</span>
+                            <strong>
+                              {fixtureResult.faceFilmCostMinor === null
+                                ? "нет данных"
+                                : formatMinorPrice(
+                                    fixtureResult.faceFilmCostMinor,
+                                    "RUB"
+                                  )}
+                            </strong>
+                          </div>
+                          <div>
+                            <span>Плёнка baseline</span>
+                            <strong>
+                              {fixtureResult.faceFilmCostMatches === null
+                                ? "нет данных"
+                                : fixtureResult.faceFilmCostMatches
+                                  ? "совпал"
+                                  : "не совпал"}
+                            </strong>
+                          </div>
+                          <div>
+                            <span>Режим проверки</span>
+                            <strong>{fixtureResult.mode}</strong>
+                          </div>
+                          <div>
+                            <span>Fixture</span>
+                            <strong>{fixtureResult.fixtureId}</strong>
+                          </div>
+                        </div>
+
+                        <p className="muted-text">{fixtureResult.limitation}</p>
+                      </div>
+                    ) : null}
+                  </section>
                 </section>
               ) : null}
 

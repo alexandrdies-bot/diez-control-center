@@ -823,6 +823,117 @@ tbody tr {
   background: rgba(0, 0, 0, 0.18);
 }
 
+.constructor-debug-panel {
+  display: grid;
+  gap: 16px;
+  margin-top: 18px;
+  padding: 18px;
+  border: 1px solid rgba(159, 183, 255, 0.18);
+  border-radius: 16px;
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.constructor-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.constructor-preset-card {
+  display: grid;
+  gap: 8px;
+  min-height: 96px;
+  padding: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.07);
+  text-align: left;
+  cursor: pointer;
+}
+
+.constructor-preset-card:hover,
+.constructor-preset-card-active {
+  border-color: rgba(159, 183, 255, 0.58);
+  background: rgba(90, 139, 255, 0.22);
+}
+
+.constructor-preset-card span {
+  color: rgba(255, 255, 255, 0.56);
+  font-size: 12px;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.constructor-warning {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  color: rgba(255, 226, 170, 0.88);
+  background: rgba(255, 178, 70, 0.12);
+}
+
+.constructor-result-card {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.constructor-result-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.constructor-result-header span,
+.constructor-result-grid span {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 13px;
+}
+
+.constructor-result-header strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 28px;
+}
+
+.constructor-result-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.constructor-result-grid div {
+  min-width: 0;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.constructor-result-grid strong {
+  display: block;
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+}
+
+.match-status {
+  flex: 0 0 auto;
+  padding: 7px 10px;
+  border-radius: 999px;
+  color: #ffcdcd;
+  background: rgba(255, 80, 80, 0.16);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.match-status-ok {
+  color: #9fffbf;
+  background: rgba(80, 255, 140, 0.14);
+}
+
 .placeholder-panel {
   max-width: 760px;
   padding: 32px;
@@ -852,6 +963,8 @@ tbody tr {
   .dashboard-zone-grid,
   .dashboard-card-grid,
   .dashboard-bottom-grid,
+  .constructor-preset-grid,
+  .constructor-result-grid,
   .order-status-grid {
     grid-template-columns: 1fr;
     display: grid;

@@ -34,6 +34,21 @@ export type MaterialPricingInput = {
   valid_to: string | null;
 };
 
+export type CalculationFixtureDebugResult = {
+  ok: boolean;
+  mode: string;
+  fixtureId: string;
+  expectedTotalPriceMinor: number;
+  calculatedTotalPriceMinor: number;
+  formattedTotalPrice: string;
+  ledCount: number;
+  ledCountMatches: boolean | null;
+  roundedTotalPriceMinorMatches: boolean;
+  faceFilmCostMinor: number | null;
+  faceFilmCostMatches: boolean | null;
+  limitation: string;
+};
+
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:3001";
 
 export async function getApiHealth(): Promise<ApiHealth> {
@@ -66,4 +81,18 @@ export async function getMaterialPricingInputs(
   }
 
   return response.json() as Promise<MaterialPricingInput[]>;
+}
+
+export async function getCalculationFixtureDebug(
+  fixtureId: string
+): Promise<CalculationFixtureDebugResult> {
+  const response = await fetch(
+    `${apiBaseUrl}/debug/calculation/fixtures/${fixtureId}`
+  );
+
+  if (!response.ok) {
+    throw new Error(`Calculation fixture request failed: ${response.status}`);
+  }
+
+  return response.json() as Promise<CalculationFixtureDebugResult>;
 }
