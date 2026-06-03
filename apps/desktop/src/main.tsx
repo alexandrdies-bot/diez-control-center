@@ -246,6 +246,10 @@ function App() {
   const [fixtureResult, setFixtureResult] =
     useState<CalculationFixtureDebugResult | null>(null);
   const [fixtureError, setFixtureError] = useState<string | null>(null);
+  const [unsupportedConstructorMessage, setUnsupportedConstructorMessage] =
+    useState<string | null>(null);
+  const [isConstructorTechnicalVisible, setIsConstructorTechnicalVisible] =
+    useState(false);
   const [isFixtureLoading, setIsFixtureLoading] = useState(false);
   const [draftOrderItems, setDraftOrderItems] = useState<DraftOrderItem[]>([]);
   const [isDraftJsonVisible, setIsDraftJsonVisible] = useState(false);
@@ -399,6 +403,59 @@ function App() {
       : "simple-light-text-diez-300";
   }, [officeConstructorForm]);
 
+  useEffect(() => {
+    if (!isConstructorPanelOpen) {
+      return;
+    }
+
+    if (!recommendedConstructorFixtureId) {
+      setSelectedFixtureId(null);
+      setFixtureResult(null);
+      setFixtureError(null);
+      setIsFixtureLoading(false);
+      setUnsupportedConstructorMessage(
+        "Для этого варианта расчёт пока не подключён"
+      );
+      return;
+    }
+
+    let isCurrent = true;
+
+    setSelectedFixtureId(recommendedConstructorFixtureId);
+    setFixtureResult(null);
+    setFixtureError(null);
+    setUnsupportedConstructorMessage(null);
+    setIsConstructorTechnicalVisible(false);
+    setIsFixtureLoading(true);
+
+    getCalculationFixtureDebug(recommendedConstructorFixtureId)
+      .then((result) => {
+        if (isCurrent) {
+          setFixtureResult(result);
+          setFixtureError(null);
+        }
+      })
+      .catch((unknownError) => {
+        if (isCurrent) {
+          setFixtureResult(null);
+          setFixtureError(
+            unknownError instanceof Error
+              ? unknownError.message
+              : "Unknown calculation fixture error"
+          );
+        }
+      })
+      .finally(() => {
+        if (isCurrent) {
+          setIsFixtureLoading(false);
+        }
+      });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [isConstructorPanelOpen, recommendedConstructorFixtureId]);
+
   const activeSections =
     activeWorkspace === "Диез Имидж" ? diezSections : ozonSections;
   const isHomeScreen = activeSection === "Главная";
@@ -443,30 +500,6 @@ function App() {
       ...current,
       [field]: value
     }));
-  }
-
-  function handleConstructorPresetClick(fixtureId: string) {
-    setSelectedFixtureId(fixtureId);
-    setFixtureResult(null);
-    setFixtureError(null);
-    setIsFixtureLoading(true);
-
-    getCalculationFixtureDebug(fixtureId)
-      .then((result) => {
-        setFixtureResult(result);
-        setFixtureError(null);
-      })
-      .catch((unknownError) => {
-        setFixtureResult(null);
-        setFixtureError(
-          unknownError instanceof Error
-            ? unknownError.message
-            : "Unknown calculation fixture error"
-        );
-      })
-      .finally(() => {
-        setIsFixtureLoading(false);
-      });
   }
 
   function handleAddConstructorItem() {
@@ -899,43 +932,15 @@ function App() {
                           </div>
 
                           <p className="constructor-helper-text">
-                            Пока доступны только контрольные варианты расчёта.
-                            Произвольный расчёт будет подключён после завершения
-                            общего layout/geometry core.
+                            Расчёт обновляется автоматически. Сейчас доступны
+                            контрольные варианты.
                           </p>
 
-                          <div className="constructor-preset-grid">
-                            {constructorFixturePresets.map((preset) => (
-                              <button
-                                className={
-                                  selectedFixtureId === preset.fixtureId
-                                    ? "constructor-preset-card constructor-preset-card-active"
-                                    : preset.fixtureId ===
-                                        recommendedConstructorFixtureId
-                                      ? "constructor-preset-card constructor-preset-card-recommended"
-                                      : "constructor-preset-card"
-                                }
-                                key={preset.fixtureId}
-                                onClick={() =>
-                                  handleConstructorPresetClick(preset.fixtureId)
-                                }
-                                type="button"
-                              >
-                                <strong>{preset.title}</strong>
-                                <span>{preset.fixtureId}</span>
-                                {preset.fixtureId ===
-                                recommendedConstructorFixtureId ? (
-                                  <em>Рекомендуемый пресет</em>
-                                ) : null}
-                              </button>
-                            ))}
-                          </div>
-
-                          <p className="constructor-warning">
-                            Это временная проверка shared-core, а не финальный
-                            визуальный конструктор и не сохранение позиции
-                            заказа.
-                          </p>
+                          {unsupportedConstructorMessage ? (
+                            <p className="constructor-warning">
+                              {unsupportedConstructorMessage}
+                            </p>
+                          ) : null}
 
                           {isFixtureLoading ? (
                             <div className="constructor-result-card">
@@ -952,66 +957,11 @@ function App() {
                                     {fixtureResult.formattedTotalPrice}
                                   </strong>
                                 </div>
-                                <span
-                                  className={
-                                    fixtureResult.roundedTotalPriceMinorMatches
-                                      ? "match-status match-status-ok"
-                                      : "match-status"
-                                  }
-                                >
-                                  {fixtureResult.roundedTotalPriceMinorMatches
-                                    ? "baseline совпал"
-                                    : "есть расхождение"}
-                                </span>
-                              </div>
-
-                              <div className="constructor-result-grid">
                                 <div>
                                   <span>LED count</span>
                                   <strong>{fixtureResult.ledCount}</strong>
                                 </div>
-                                <div>
-                                  <span>LED baseline</span>
-                                  <strong>
-                                    {fixtureResult.ledCountMatches
-                                      ? "совпал"
-                                      : "не совпал"}
-                                  </strong>
-                                </div>
-                                <div>
-                                  <span>Плёнка</span>
-                                  <strong>
-                                    {fixtureResult.faceFilmCostMinor === null
-                                      ? "нет данных"
-                                      : formatMinorPrice(
-                                          fixtureResult.faceFilmCostMinor,
-                                          "RUB"
-                                        )}
-                                  </strong>
-                                </div>
-                                <div>
-                                  <span>Плёнка baseline</span>
-                                  <strong>
-                                    {fixtureResult.faceFilmCostMatches === null
-                                      ? "нет данных"
-                                      : fixtureResult.faceFilmCostMatches
-                                        ? "совпал"
-                                        : "не совпал"}
-                                  </strong>
-                                </div>
-                                <div>
-                                  <span>Режим проверки</span>
-                                  <strong>{fixtureResult.mode}</strong>
-                                </div>
-                                <div>
-                                  <span>Fixture</span>
-                                  <strong>{fixtureResult.fixtureId}</strong>
-                                </div>
                               </div>
-
-                              <p className="muted-text">
-                                {fixtureResult.limitation}
-                              </p>
 
                               <button
                                 className="primary-action-button constructor-add-button"
@@ -1020,6 +970,66 @@ function App() {
                               >
                                 Добавить в заказ
                               </button>
+
+                              <div className="constructor-technical-panel">
+                                <button
+                                  className="secondary-action-button"
+                                  onClick={() =>
+                                    setIsConstructorTechnicalVisible(
+                                      (isVisible) => !isVisible
+                                    )
+                                  }
+                                  type="button"
+                                >
+                                  {isConstructorTechnicalVisible
+                                    ? "Скрыть технические данные"
+                                    : "Показать технические данные"}
+                                </button>
+
+                                {isConstructorTechnicalVisible ? (
+                                  <div className="constructor-result-grid">
+                                    <div>
+                                      <span>Baseline status</span>
+                                      <strong>
+                                        {fixtureResult.roundedTotalPriceMinorMatches
+                                          ? "совпал"
+                                          : "есть расхождение"}
+                                      </strong>
+                                    </div>
+                                    <div>
+                                      <span>Fixture id</span>
+                                      <strong>{fixtureResult.fixtureId}</strong>
+                                    </div>
+                                    <div>
+                                      <span>Mode</span>
+                                      <strong>{fixtureResult.mode}</strong>
+                                    </div>
+                                    <div>
+                                      <span>Face film cost</span>
+                                      <strong>
+                                        {fixtureResult.faceFilmCostMinor === null
+                                          ? "нет данных"
+                                          : formatMinorPrice(
+                                              fixtureResult.faceFilmCostMinor,
+                                              "RUB"
+                                            )}
+                                      </strong>
+                                    </div>
+                                    <div>
+                                      <span>LED matches</span>
+                                      <strong>
+                                        {fixtureResult.ledCountMatches
+                                          ? "да"
+                                          : "нет"}
+                                      </strong>
+                                    </div>
+                                    <div>
+                                      <span>Limitation</span>
+                                      <strong>{fixtureResult.limitation}</strong>
+                                    </div>
+                                  </div>
+                                ) : null}
+                              </div>
                             </div>
                           ) : null}
                         </section>

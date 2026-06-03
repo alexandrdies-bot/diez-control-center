@@ -1053,6 +1053,15 @@ tbody tr {
   justify-self: start;
 }
 
+.constructor-technical-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.constructor-technical-panel .secondary-action-button {
+  justify-self: start;
+}
+
 .accept-order-panel {
   display: flex;
   flex-wrap: wrap;
