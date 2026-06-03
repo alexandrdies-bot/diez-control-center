@@ -545,33 +545,44 @@ diez-site / manual / phone / ozon_later -> API -> diez-data-core -> diez-control
 
 Текущий вывод: перед офисной версией конструктора нужно сначала создать baseline fixtures текущего сайта, а уже потом выделять shared pricing/core.
 
-## Shared constructor contracts
+## diez-shared-core
 
-Старый локальный пакет `@diez/shared` удалён из `diez-control-center`.
-
-Общие контракты расчёта теперь живут в отдельном общем проекте:
+В экосистеме создан отдельный общий проект:
 
 ```text
-D:\_ProjectHome\diez-shared-core\packages\calculation-core
+D:\_ProjectHome\diez-shared-core
 ```
 
-Package name:
+Назначение проекта:
+
+* общий shared-код экосистемы;
+* будущие общие расчёты;
+* общие контракты;
+* future API contracts;
+* общие типы заказов, клиентов и Ozon.
+
+В `diez-shared-core` создан пакет:
 
 ```text
-@diez/calculation-core
+packages/calculation-core
 ```
 
-Сейчас там только типы/контракты конструктора.
+Текущий состав `calculation-core`:
 
-Формула расчёта пока не перенесена.
+* `light-letter.ts` — перенесённая формула расчёта объёмных букв;
+* `geometry-analysis.ts` — перенесённый анализ геометрии;
+* `serializable-shape.ts` — типы сериализуемой геометрии;
+* `shape-adapters.ts` — контракты будущих адаптеров.
 
-Сайт пока не подключён к `@diez/calculation-core`.
+`diez-control-center` пока не подключён к `diez-shared-core`.
 
-ПК-программа пока не подключена к `@diez/calculation-core`.
+ПК-программа пока не использует shared-формулу напрямую.
 
-Дублей shared-контрактов в `diez-control-center` быть не должно.
+Следующий этап позже:
 
-Следующий шаг позже: подключать общий пакет отдельно и переносить pure-логику маленькими частями со сверкой по baseline fixtures.
+* подключить `diez-control-center` к `@diez/calculation-core`;
+* сделать офисный конструктор на основе общего расчётного ядра;
+* сохранить возможность offline cache.
 
 ## Server-first + local cache
 
