@@ -349,11 +349,13 @@ packages/calculation-core
 * `serializable-shape.ts` — типы сериализуемой геометрии;
 * `shape-adapters.ts` — контракты будущих адаптеров.
 
-`diez-control-center` пока не подключён к `diez-shared-core`.
+API технически подключён к `@diez/calculation-core` через локальную file dependency.
 
-ПК-программа пока не использует shared-формулу напрямую.
+Сейчас используется только import-check файл `apps/api/src/calculation-core-import-check.ts`.
 
-Следующий этап позже: подключить `diez-control-center` к `@diez/calculation-core`, сделать офисный конструктор на основе общего расчётного ядра и сохранить возможность offline cache.
+Desktop UI и реальные расчёты пока не используют shared-формулу напрямую.
+
+Следующий этап позже: использовать shared-core в офисном конструкторе на основе общего расчётного ядра и сохранить возможность offline cache.
 
 ## Server-first + local cache
 
