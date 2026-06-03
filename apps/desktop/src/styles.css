@@ -823,6 +823,27 @@ tbody tr {
   background: rgba(0, 0, 0, 0.18);
 }
 
+.constructor-entry-card {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 18px;
+  padding: 18px;
+  border: 1px solid rgba(159, 183, 255, 0.18);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.constructor-entry-card h3 {
+  margin: 0;
+}
+
+.constructor-entry-card p {
+  margin: 8px 0 0;
+}
+
 .constructor-debug-panel {
   display: grid;
   gap: 16px;

@@ -227,6 +227,7 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [pricingError, setPricingError] = useState<string | null>(null);
   const [isNewOrderFormOpen, setIsNewOrderFormOpen] = useState(false);
+  const [isConstructorPanelOpen, setIsConstructorPanelOpen] = useState(false);
   const [selectedFixtureId, setSelectedFixtureId] = useState<string | null>(null);
   const [fixtureResult, setFixtureResult] =
     useState<CalculationFixtureDebugResult | null>(null);
@@ -439,6 +440,7 @@ function App() {
           "@diez/calculation-core через API debug endpoint"
       }
     ]);
+    setIsConstructorPanelOpen(false);
   }
 
   function handleRemoveDraftOrderItem(itemId: string) {
@@ -841,126 +843,147 @@ function App() {
                     заказов.
                   </p>
 
-                  <section className="constructor-debug-panel">
-                    <div className="section-heading">
-                      <div>
-                        <h3>Конструктор объёмных букв</h3>
-                        <p>
-                          Полноценный офисный конструктор будет подключён позже.
-                          Сейчас отображается проверочный расчёт из общего
-                          calculation-core.
-                        </p>
-                      </div>
-                      <span>Debug</span>
+                  <section className="constructor-entry-card">
+                    <div>
+                      <h3>Конструктор объёмных букв</h3>
+                      <p>Офисный конструктор для расчёта позиции заказа.</p>
                     </div>
+                    <button
+                      className="primary-action-button"
+                      onClick={() => setIsConstructorPanelOpen(true)}
+                      type="button"
+                    >
+                      Открыть конструктор
+                    </button>
+                  </section>
 
-                    <div className="constructor-preset-grid">
-                      {constructorFixturePresets.map((preset) => (
+                  {isConstructorPanelOpen ? (
+                    <section className="constructor-debug-panel">
+                      <div className="section-heading">
+                        <div>
+                          <h3>Офисный конструктор</h3>
+                          <p>
+                            Временная панель расчёта через debug endpoints.
+                            Полный визуальный конструктор будет подключён позже.
+                          </p>
+                        </div>
                         <button
-                          className={
-                            selectedFixtureId === preset.fixtureId
-                              ? "constructor-preset-card constructor-preset-card-active"
-                              : "constructor-preset-card"
-                          }
-                          key={preset.fixtureId}
-                          onClick={() =>
-                            handleConstructorPresetClick(preset.fixtureId)
-                          }
+                          className="secondary-action-button"
+                          onClick={() => setIsConstructorPanelOpen(false)}
                           type="button"
                         >
-                          <strong>{preset.title}</strong>
-                          <span>{preset.fixtureId}</span>
+                          Вернуться к заказу
                         </button>
-                      ))}
-                    </div>
-
-                    <p className="constructor-warning">
-                      Это временная проверка shared-core, а не финальный
-                      визуальный конструктор и не сохранение позиции заказа.
-                    </p>
-
-                    {isFixtureLoading ? (
-                      <div className="constructor-result-card">
-                        Загружаем проверочный расчёт...
                       </div>
-                    ) : fixtureError ? (
-                      <div className="error-card">{fixtureError}</div>
-                    ) : fixtureResult ? (
-                      <div className="constructor-result-card">
-                        <div className="constructor-result-header">
-                          <div>
-                            <span>Итоговая цена</span>
-                            <strong>{fixtureResult.formattedTotalPrice}</strong>
-                          </div>
-                          <span
-                            className={
-                              fixtureResult.roundedTotalPriceMinorMatches
-                                ? "match-status match-status-ok"
-                                : "match-status"
-                            }
-                          >
-                            {fixtureResult.roundedTotalPriceMinorMatches
-                              ? "baseline совпал"
-                              : "есть расхождение"}
-                          </span>
-                        </div>
 
-                        <div className="constructor-result-grid">
-                          <div>
-                            <span>LED count</span>
-                            <strong>{fixtureResult.ledCount}</strong>
+                      <div className="constructor-preset-grid">
+                        {constructorFixturePresets.map((preset) => (
+                          <button
+                            className={
+                              selectedFixtureId === preset.fixtureId
+                                ? "constructor-preset-card constructor-preset-card-active"
+                                : "constructor-preset-card"
+                            }
+                            key={preset.fixtureId}
+                            onClick={() =>
+                              handleConstructorPresetClick(preset.fixtureId)
+                            }
+                            type="button"
+                          >
+                            <strong>{preset.title}</strong>
+                            <span>{preset.fixtureId}</span>
+                          </button>
+                        ))}
+                      </div>
+
+                      <p className="constructor-warning">
+                        Это временная проверка shared-core, а не финальный
+                        визуальный конструктор и не сохранение позиции заказа.
+                      </p>
+
+                      {isFixtureLoading ? (
+                        <div className="constructor-result-card">
+                          Загружаем проверочный расчёт...
+                        </div>
+                      ) : fixtureError ? (
+                        <div className="error-card">{fixtureError}</div>
+                      ) : fixtureResult ? (
+                        <div className="constructor-result-card">
+                          <div className="constructor-result-header">
+                            <div>
+                              <span>Итоговая цена</span>
+                              <strong>{fixtureResult.formattedTotalPrice}</strong>
+                            </div>
+                            <span
+                              className={
+                                fixtureResult.roundedTotalPriceMinorMatches
+                                  ? "match-status match-status-ok"
+                                  : "match-status"
+                              }
+                            >
+                              {fixtureResult.roundedTotalPriceMinorMatches
+                                ? "baseline совпал"
+                                : "есть расхождение"}
+                            </span>
                           </div>
-                          <div>
-                            <span>LED baseline</span>
-                            <strong>
-                              {fixtureResult.ledCountMatches
-                                ? "совпал"
-                                : "не совпал"}
-                            </strong>
-                          </div>
-                          <div>
-                            <span>Плёнка</span>
-                            <strong>
-                              {fixtureResult.faceFilmCostMinor === null
-                                ? "нет данных"
-                                : formatMinorPrice(
-                                    fixtureResult.faceFilmCostMinor,
-                                    "RUB"
-                                  )}
-                            </strong>
-                          </div>
-                          <div>
-                            <span>Плёнка baseline</span>
-                            <strong>
-                              {fixtureResult.faceFilmCostMatches === null
-                                ? "нет данных"
-                                : fixtureResult.faceFilmCostMatches
+
+                          <div className="constructor-result-grid">
+                            <div>
+                              <span>LED count</span>
+                              <strong>{fixtureResult.ledCount}</strong>
+                            </div>
+                            <div>
+                              <span>LED baseline</span>
+                              <strong>
+                                {fixtureResult.ledCountMatches
                                   ? "совпал"
                                   : "не совпал"}
-                            </strong>
+                              </strong>
+                            </div>
+                            <div>
+                              <span>Плёнка</span>
+                              <strong>
+                                {fixtureResult.faceFilmCostMinor === null
+                                  ? "нет данных"
+                                  : formatMinorPrice(
+                                      fixtureResult.faceFilmCostMinor,
+                                      "RUB"
+                                    )}
+                              </strong>
+                            </div>
+                            <div>
+                              <span>Плёнка baseline</span>
+                              <strong>
+                                {fixtureResult.faceFilmCostMatches === null
+                                  ? "нет данных"
+                                  : fixtureResult.faceFilmCostMatches
+                                    ? "совпал"
+                                    : "не совпал"}
+                              </strong>
+                            </div>
+                            <div>
+                              <span>Режим проверки</span>
+                              <strong>{fixtureResult.mode}</strong>
+                            </div>
+                            <div>
+                              <span>Fixture</span>
+                              <strong>{fixtureResult.fixtureId}</strong>
+                            </div>
                           </div>
-                          <div>
-                            <span>Режим проверки</span>
-                            <strong>{fixtureResult.mode}</strong>
-                          </div>
-                          <div>
-                            <span>Fixture</span>
-                            <strong>{fixtureResult.fixtureId}</strong>
-                          </div>
+
+                          <p className="muted-text">{fixtureResult.limitation}</p>
+
+                          <button
+                            className="primary-action-button constructor-add-button"
+                            onClick={handleAddConstructorItem}
+                            type="button"
+                          >
+                            Добавить в заказ
+                          </button>
                         </div>
-
-                        <p className="muted-text">{fixtureResult.limitation}</p>
-
-                        <button
-                          className="primary-action-button constructor-add-button"
-                          onClick={handleAddConstructorItem}
-                          type="button"
-                        >
-                          Добавить в заказ
-                        </button>
-                      </div>
-                    ) : null}
-                  </section>
+                      ) : null}
+                    </section>
+                  ) : null}
 
                   <section className="draft-items-panel">
                     <div className="section-heading">
