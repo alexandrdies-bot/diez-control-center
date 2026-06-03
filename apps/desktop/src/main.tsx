@@ -824,7 +824,7 @@ function App() {
                         title="Сохранение будет подключено после проектирования таблиц заказов"
                         type="submit"
                       >
-                        Сохранение позже
+                        Сохранить заказ
                       </button>
                       <button
                         className="secondary-action-button"
@@ -1024,6 +1024,26 @@ function App() {
                       Черновик не сохраняется в базу. Сохранение будет
                       подключено после создания таблиц заказов.
                     </p>
+
+                    <div className="save-order-placeholder">
+                      <button
+                        className="primary-action-button"
+                        disabled
+                        title="Сохранение заказа будет подключено после создания таблиц заказов и API сохранения"
+                        type="button"
+                      >
+                        Сохранить заказ
+                      </button>
+                      <div>
+                        <p>
+                          Сохранение заказа будет подключено после создания
+                          таблиц заказов и API сохранения.
+                        </p>
+                        {draftOrderItems.length === 0 ? (
+                          <p>Добавьте хотя бы одну позицию заказа.</p>
+                        ) : null}
+                      </div>
+                    </div>
                   </section>
 
                   <section className="technical-data-panel">

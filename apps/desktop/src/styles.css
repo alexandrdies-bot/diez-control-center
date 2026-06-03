@@ -1000,6 +1000,30 @@ tbody tr {
   font-size: 24px;
 }
 
+.save-order-placeholder {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: flex-end;
+  padding-top: 2px;
+}
+
+.save-order-placeholder div {
+  max-width: 520px;
+}
+
+.save-order-placeholder p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 13px;
+}
+
+.save-order-placeholder p + p {
+  margin-top: 4px;
+  color: rgba(255, 226, 170, 0.88);
+}
+
 .technical-data-panel {
   display: flex;
   flex-wrap: wrap;
