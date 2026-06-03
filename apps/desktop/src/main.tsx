@@ -189,6 +189,20 @@ type DraftOrderItem = {
   ledCount: number;
   fixtureId: string;
   baselineStatus: string;
+  checkMode: string;
+  calculationSource: string;
+};
+
+type DraftOrderForm = {
+  source: "site" | "manual" | "phone";
+  customerName: string;
+  phone: string;
+  email: string;
+  estimatedAmount: string;
+  itemDescription: string;
+  customerComment: string;
+  internalComment: string;
+  status: "new";
 };
 
 function formatMinorPrice(value: number, currencyCode: string) {
@@ -219,6 +233,18 @@ function App() {
   const [fixtureError, setFixtureError] = useState<string | null>(null);
   const [isFixtureLoading, setIsFixtureLoading] = useState(false);
   const [draftOrderItems, setDraftOrderItems] = useState<DraftOrderItem[]>([]);
+  const [isDraftJsonVisible, setIsDraftJsonVisible] = useState(false);
+  const [draftOrderForm, setDraftOrderForm] = useState<DraftOrderForm>({
+    source: "manual",
+    customerName: "",
+    phone: "",
+    email: "",
+    estimatedAmount: "",
+    itemDescription: "",
+    customerComment: "",
+    internalComment: "",
+    status: "new"
+  });
 
   useEffect(() => {
     Promise.all([getApiHealth(), getMaterials()])
@@ -300,6 +326,39 @@ function App() {
     return draftOrderItems.reduce((total, item) => total + item.priceMinor, 0);
   }, [draftOrderItems]);
 
+  const draftOrderPayload = useMemo(() => {
+    return {
+      source: draftOrderForm.source,
+      customer: {
+        name: draftOrderForm.customerName || null
+      },
+      contacts: {
+        phone: draftOrderForm.phone || null,
+        email: draftOrderForm.email || null
+      },
+      comments: {
+        customer: draftOrderForm.customerComment || null,
+        internal: draftOrderForm.internalComment || null
+      },
+      status: draftOrderForm.status,
+      estimatedAmountText: draftOrderForm.estimatedAmount || null,
+      requestedWork: draftOrderForm.itemDescription || null,
+      items: draftOrderItems.map((item) => ({
+        type: item.type,
+        title: item.title,
+        priceMinor: item.priceMinor,
+        calculationData: {
+          source: item.calculationSource,
+          fixtureId: item.fixtureId,
+          ledCount: item.ledCount,
+          baselineStatus: item.baselineStatus,
+          checkMode: item.checkMode
+        }
+      })),
+      totalAmountMinor: draftOrderTotalMinor
+    };
+  }, [draftOrderForm, draftOrderItems, draftOrderTotalMinor]);
+
   const activeSections =
     activeWorkspace === "Диез Имидж" ? diezSections : ozonSections;
   const isHomeScreen = activeSection === "Главная";
@@ -318,6 +377,16 @@ function App() {
 
   function handleSectionChange(section: string) {
     setActiveSection(section);
+  }
+
+  function updateDraftOrderForm<Field extends keyof DraftOrderForm>(
+    field: Field,
+    value: DraftOrderForm[Field]
+  ) {
+    setDraftOrderForm((current) => ({
+      ...current,
+      [field]: value
+    }));
   }
 
   function handleConstructorPresetClick(fixtureId: string) {
@@ -364,7 +433,10 @@ function App() {
         fixtureId: fixtureResult.fixtureId,
         baselineStatus: fixtureResult.roundedTotalPriceMinorMatches
           ? "Baseline совпал"
-          : "Есть расхождение"
+          : "Есть расхождение",
+        checkMode: fixtureResult.mode,
+        calculationSource:
+          "@diez/calculation-core через API debug endpoint"
       }
     ]);
   }
@@ -630,7 +702,15 @@ function App() {
                   >
                     <label className="form-field">
                       <span>Источник заказа</span>
-                      <select defaultValue="manual">
+                      <select
+                        value={draftOrderForm.source}
+                        onChange={(event) =>
+                          updateDraftOrderForm(
+                            "source",
+                            event.target.value as DraftOrderForm["source"]
+                          )
+                        }
+                      >
                         <option value="site">сайт</option>
                         <option value="manual">вручную</option>
                         <option value="phone">телефон</option>
@@ -642,44 +722,99 @@ function App() {
 
                     <label className="form-field">
                       <span>Статус</span>
-                      <select defaultValue="new" disabled>
+                      <select value={draftOrderForm.status} disabled>
                         <option value="new">Новый</option>
                       </select>
                     </label>
 
                     <label className="form-field">
                       <span>Клиент</span>
-                      <input placeholder="Имя клиента или компания" />
+                      <input
+                        value={draftOrderForm.customerName}
+                        onChange={(event) =>
+                          updateDraftOrderForm("customerName", event.target.value)
+                        }
+                        placeholder="Имя клиента или компания"
+                      />
                     </label>
 
                     <label className="form-field">
                       <span>Телефон</span>
-                      <input placeholder="+7..." />
+                      <input
+                        value={draftOrderForm.phone}
+                        onChange={(event) =>
+                          updateDraftOrderForm("phone", event.target.value)
+                        }
+                        placeholder="+7..."
+                      />
                     </label>
 
                     <label className="form-field">
                       <span>Email</span>
-                      <input placeholder="client@example.ru" type="email" />
+                      <input
+                        value={draftOrderForm.email}
+                        onChange={(event) =>
+                          updateDraftOrderForm("email", event.target.value)
+                        }
+                        placeholder="client@example.ru"
+                        type="email"
+                      />
                     </label>
 
                     <label className="form-field">
                       <span>Примерная сумма</span>
-                      <input placeholder="0 ₽" />
+                      <input
+                        value={draftOrderForm.estimatedAmount}
+                        onChange={(event) =>
+                          updateDraftOrderForm(
+                            "estimatedAmount",
+                            event.target.value
+                          )
+                        }
+                        placeholder="0 ₽"
+                      />
                     </label>
 
                     <label className="form-field form-field-wide">
                       <span>Позиция заказа / что нужно сделать</span>
-                      <textarea placeholder="Кратко описать изделие, услугу или расчёт" />
+                      <textarea
+                        value={draftOrderForm.itemDescription}
+                        onChange={(event) =>
+                          updateDraftOrderForm(
+                            "itemDescription",
+                            event.target.value
+                          )
+                        }
+                        placeholder="Кратко описать изделие, услугу или расчёт"
+                      />
                     </label>
 
                     <label className="form-field form-field-wide">
                       <span>Комментарий клиента</span>
-                      <textarea placeholder="Комментарий из заявки или разговора" />
+                      <textarea
+                        value={draftOrderForm.customerComment}
+                        onChange={(event) =>
+                          updateDraftOrderForm(
+                            "customerComment",
+                            event.target.value
+                          )
+                        }
+                        placeholder="Комментарий из заявки или разговора"
+                      />
                     </label>
 
                     <label className="form-field form-field-wide">
                       <span>Внутренний комментарий</span>
-                      <textarea placeholder="Заметка для менеджера" />
+                      <textarea
+                        value={draftOrderForm.internalComment}
+                        onChange={(event) =>
+                          updateDraftOrderForm(
+                            "internalComment",
+                            event.target.value
+                          )
+                        }
+                        placeholder="Заметка для менеджера"
+                      />
                     </label>
 
                     <div className="order-form-actions">
@@ -858,6 +993,7 @@ function App() {
                                   <small>
                                     {item.fixtureId}, LED: {item.ledCount}
                                   </small>
+                                  <small>{item.calculationSource}</small>
                                 </td>
                                 <td>{formatMinorPrice(item.priceMinor, "RUB")}</td>
                                 <td>{item.baselineStatus}</td>
@@ -888,6 +1024,32 @@ function App() {
                       Черновик не сохраняется в базу. Сохранение будет
                       подключено после создания таблиц заказов.
                     </p>
+                  </section>
+
+                  <section className="technical-data-panel">
+                    <div>
+                      <p>
+                        Технические данные нужны только для разработки будущего
+                        API сохранения заказа.
+                      </p>
+                    </div>
+                    <button
+                      className="secondary-action-button"
+                      onClick={() =>
+                        setIsDraftJsonVisible((isVisible) => !isVisible)
+                      }
+                      type="button"
+                    >
+                      {isDraftJsonVisible
+                        ? "Скрыть технические данные"
+                        : "Показать технические данные"}
+                    </button>
+
+                    {isDraftJsonVisible ? (
+                      <pre className="order-draft-json">
+                        {JSON.stringify(draftOrderPayload, null, 2)}
+                      </pre>
+                    ) : null}
                   </section>
                 </section>
               ) : null}

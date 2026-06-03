@@ -1000,6 +1000,35 @@ tbody tr {
   font-size: 24px;
 }
 
+.technical-data-panel {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.technical-data-panel p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 13px;
+}
+
+.order-draft-json {
+  flex: 1 0 100%;
+  max-height: 360px;
+  margin: 0;
+  padding: 14px;
+  overflow: auto;
+  border-radius: 12px;
+  color: #9fffbf;
+  background: rgba(0, 0, 0, 0.28);
+}
+
 .placeholder-panel {
   max-width: 760px;
   padding: 32px;
