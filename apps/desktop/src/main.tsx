@@ -761,26 +761,27 @@ function App() {
                           : "order-step-tab"
                       }
                     >
-                      Шаг 1 — Расчёт
+                      <strong>1</strong>
+                      Расчёт
                     </span>
                     <span
                       className={
                         newOrderStep === "details"
                           ? "order-step-tab order-step-tab-active"
                           : "order-step-tab"
-                      }
+                        }
                     >
-                      Шаг 2 — Оформление
+                      <strong>2</strong>
+                      Оформление
                     </span>
                   </div>
 
                   {newOrderStep === "calculation" ? (
                     <section className="order-step-panel">
-                      <p className="eyebrow">Шаг 1 — Расчёт</p>
+                      <p className="eyebrow">1. Расчёт</p>
                       <h3>Расчёт вывески</h3>
                       <p>
-                        Сначала рассчитайте изделие и добавьте позицию в заказ.
-                        Если цена устраивает, можно перейти к оформлению.
+                        Рассчитайте изделие и добавьте позицию в заказ.
                       </p>
 
                       <section className="constructor-entry-card">
@@ -1042,12 +1043,22 @@ function App() {
                     </section>
                   ) : (
                     <section className="order-step-panel">
-                      <p className="eyebrow">Шаг 2 — Оформление</p>
+                      <p className="eyebrow">2. Оформление</p>
                       <h3>Оформление заказа</h3>
-                      <p>
-                        Заполните данные клиента и проверьте позиции заказа.
-                        Сохранение в базу пока не подключено.
-                      </p>
+                      <p>Заполните данные клиента и проверьте состав заказа.</p>
+
+                      <div className="order-details-summary">
+                        <div>
+                          <span>Позиций</span>
+                          <strong>{draftOrderItems.length}</strong>
+                        </div>
+                        <div>
+                          <span>Итого</span>
+                          <strong>
+                            {formatMinorPrice(draftOrderTotalMinor, "RUB")}
+                          </strong>
+                        </div>
+                      </div>
 
                       <form
                         className="order-form-grid"
@@ -1092,6 +1103,28 @@ function App() {
                           />
                         </label>
                       </form>
+
+                      <div className="order-form-actions">
+                        <button
+                          className="secondary-action-button"
+                          onClick={() => setNewOrderStep("calculation")}
+                          type="button"
+                        >
+                          Вернуться к расчёту
+                        </button>
+                        <button
+                          className="primary-action-button"
+                          disabled
+                          title="Сохранение будет подключено после создания таблиц заказов и API"
+                          type="button"
+                        >
+                          Сохранить заказ
+                        </button>
+                        <p>
+                          Сохранение будет подключено после создания таблиц
+                          заказов и API.
+                        </p>
+                      </div>
                     </section>
                   )}
 
@@ -1158,25 +1191,6 @@ function App() {
                       подключено после создания таблиц заказов и API.
                     </p>
 
-                    <div className="save-order-placeholder">
-                      <button
-                        className="primary-action-button"
-                        disabled
-                        title="Сохранение будет подключено после создания таблиц заказов и API"
-                        type="button"
-                      >
-                        Сохранить заказ
-                      </button>
-                      <div>
-                        <p>
-                          Сохранение будет подключено после создания таблиц
-                          заказов и API.
-                        </p>
-                        {draftOrderItems.length === 0 ? (
-                          <p>Добавьте хотя бы одну позицию заказа.</p>
-                        ) : null}
-                      </div>
-                    </div>
                   </section>
 
                   <section className="technical-data-panel">

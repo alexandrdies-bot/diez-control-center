@@ -754,11 +754,14 @@ tbody tr {
 .order-step-tabs {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 12px;
   margin-top: 18px;
 }
 
 .order-step-tab {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
   padding: 9px 12px;
   border-radius: 999px;
   color: rgba(255, 255, 255, 0.58);
@@ -767,9 +770,25 @@ tbody tr {
   font-weight: 700;
 }
 
+.order-step-tab strong {
+  display: inline-grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border-radius: 999px;
+  color: rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.1);
+  font-size: 12px;
+}
+
 .order-step-tab-active {
   color: #ffffff;
   background: rgba(90, 139, 255, 0.32);
+}
+
+.order-step-tab-active strong {
+  color: #111318;
+  background: #9fffbf;
 }
 
 .order-step-panel {
@@ -783,6 +802,30 @@ tbody tr {
 
 .order-step-panel h3 {
   margin: 0;
+}
+
+.order-details-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.order-details-summary div {
+  padding: 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.order-details-summary span {
+  display: block;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 13px;
+}
+
+.order-details-summary strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 24px;
 }
 
 .order-form-grid {
@@ -846,6 +889,13 @@ tbody tr {
   gap: 10px;
   align-items: center;
   grid-column: 1 / -1;
+}
+
+.order-form-actions p {
+  flex: 1 1 260px;
+  margin: 0;
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 13px;
 }
 
 .form-note {
