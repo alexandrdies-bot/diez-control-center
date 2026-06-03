@@ -4,7 +4,10 @@ import cors from "@fastify/cors";
 import dotenv from "dotenv";
 import Fastify from "fastify";
 import { checkCalculationCoreImport } from "./calculation-core-import-check.js";
-import { checkSimpleLightTextDiez300Fixture } from "./debug-calculation-fixture.js";
+import {
+  checkCalculationFixture,
+  checkSimpleLightTextDiez300Fixture
+} from "./debug-calculation-fixture.js";
 
 const currentFile = fileURLToPath(import.meta.url);
 const currentDir = path.dirname(currentFile);
@@ -42,6 +45,19 @@ app.get("/health/calculation-core", async () => {
 app.get("/debug/calculation/simple-light-text-diez-300", async () => {
   return checkSimpleLightTextDiez300Fixture();
 });
+
+app.get<{ Params: { fixtureId: string } }>(
+  "/debug/calculation/fixtures/:fixtureId",
+  async (request, reply) => {
+    const result = await checkCalculationFixture(request.params.fixtureId);
+
+    if (!result.ok) {
+      return reply.code(404).send(result);
+    }
+
+    return result;
+  }
+);
 
 app.get("/health/db", async (_request, reply) => {
   const result = await checkDatabaseConnection();

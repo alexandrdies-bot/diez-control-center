@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import path from "node:path";
 import {
   calculateKonstruktorLedModulesByGeometry,
   calculateKonstruktorLightingCost,
@@ -7,12 +8,21 @@ import {
   formatKonstruktorPriceMinor,
   getKonstruktorBackPvcByHeight,
   getKonstruktorFaceAcrylicByHeight,
+  getKonstruktorFacePvcByHeight,
   shouldUseKonstruktorFaceFilm,
   type KonstruktorMaterialPricingSource
 } from "@diez/calculation-core";
 
-const fixturePath =
-  "D:\\_ProjectHome\\diez-site\\outputs\\constructor-fixtures\\simple-light-text-diez-300.json";
+const fixturesDir =
+  "D:\\_ProjectHome\\diez-site\\outputs\\constructor-fixtures";
+
+const fixtureFiles = {
+  "face-film-red-text-diez-300": "face-film-red-text-diez-300.json",
+  "simple-light-text-diez-300": "simple-light-text-diez-300.json",
+  "simple-non-light-text-diez-300": "simple-non-light-text-diez-300.json"
+} as const;
+
+type FixtureId = keyof typeof fixtureFiles;
 
 type FixtureMaterialSource = {
   deliveryPriceMinor: number;
@@ -37,11 +47,11 @@ type Fixture = {
     }>;
   };
   input: {
-    boardTape: {
-      widthMm: number;
-    };
     faceFilm: {
       colorCode: string;
+    };
+    lighting: {
+      mode: "light" | "non-light";
     };
     targetHeightMm: string;
   };
@@ -63,6 +73,10 @@ type Fixture = {
   selectedBoardTape: FixtureMaterialSource;
   selectedFaceFilm: FixtureMaterialSource;
 };
+
+function isFixtureId(fixtureId: string): fixtureId is FixtureId {
+  return fixtureId in fixtureFiles;
+}
 
 function toMaterialSource(source: FixtureMaterialSource): KonstruktorMaterialPricingSource {
   return {
@@ -86,12 +100,30 @@ function roundMinor(value: number) {
   return Math.round(value);
 }
 
-export async function checkSimpleLightTextDiez300Fixture() {
+function nullableMinorMatches(left: number | null, right: number | null) {
+  if (left === null || right === null) {
+    return null;
+  }
+
+  return roundMinor(left) === roundMinor(right);
+}
+
+export async function checkCalculationFixture(fixtureId: string) {
+  if (!isFixtureId(fixtureId)) {
+    return {
+      ok: false,
+      reason: "UNKNOWN_FIXTURE_ID",
+      supportedFixtureIds: Object.keys(fixtureFiles)
+    };
+  }
+
+  const fixturePath = path.join(fixturesDir, fixtureFiles[fixtureId]);
   const fixture = JSON.parse(await readFile(fixturePath, "utf8")) as Fixture;
   const areaM2 = fixture.geometrySummary.areaM2;
   const materialAreaM2 = fixture.geometrySummary.materialAreaM2;
   const perimeterM = fixture.geometrySummary.perimeterM;
   const heightMm = Number(fixture.input.targetHeightMm);
+  const isLight = fixture.input.lighting.mode === "light";
   const isFaceFilmUsed = shouldUseKonstruktorFaceFilm(
     fixture.input.faceFilm.colorCode
   );
@@ -100,69 +132,68 @@ export async function checkSimpleLightTextDiez300Fixture() {
     areaM2: materialAreaM2,
     backPvc: getKonstruktorBackPvcByHeight(heightMm),
     boardTape: toMaterialSource(fixture.selectedBoardTape),
-    faceAcrylic: getKonstruktorFaceAcrylicByHeight(heightMm),
+    faceAcrylic: isLight
+      ? getKonstruktorFaceAcrylicByHeight(heightMm)
+      : getKonstruktorFacePvcByHeight(heightMm),
     faceFilm: toMaterialSource(fixture.selectedFaceFilm),
     isFaceFilmUsed,
     perimeterM
   });
 
-  const ledModules = calculateKonstruktorLedModulesByGeometry({
-    areaM2,
-    perimeterM
-  });
+  const ledModules = isLight
+    ? calculateKonstruktorLedModulesByGeometry({
+        areaM2,
+        perimeterM
+      })
+    : null;
 
-  const lightingCosts = calculateKonstruktorLightingCost({
-    bodyMaterialsCostMinor: materialCosts.totalMaterialsCostMinor,
-    ledByInnerAreaCount: ledModules.ledCount
-  });
+  const lightingCosts =
+    isLight && ledModules
+      ? calculateKonstruktorLightingCost({
+          bodyMaterialsCostMinor: materialCosts.totalMaterialsCostMinor,
+          ledByInnerAreaCount: ledModules.ledCount
+        })
+      : null;
 
   const productionCosts = calculateLightLetterProductionCostsByElements({
     baseMaterialsCostMinor:
       materialCosts.totalMaterialsCostMinor +
-      lightingCosts.finalLightingCostMinor,
+      (lightingCosts?.finalLightingCostMinor ?? 0),
     elementHeightsMm: getElementHeightsMm(fixture)
   });
 
   const calculatedTotalPriceMinor = productionCosts.totalProductionCostMinor;
   const expectedTotalPriceMinor = fixture.pricingSummary.totalPriceMinor;
-  const totalPriceDeltaMinor =
-    calculatedTotalPriceMinor - expectedTotalPriceMinor;
   const expectedLedCount =
     fixture.pricingSummary.objects?.[0]?.ledModules?.ledCount ?? null;
+  const calculatedLedCount = ledModules?.ledCount ?? 0;
   const expectedFaceFilmCostMinor =
     fixture.pricingSummary.objects?.[0]?.materialCosts?.faceFilmCostMinor ?? null;
+  const calculatedFaceFilmCostMinor = materialCosts.faceFilmCostMinor;
 
   return {
     ok: true,
     mode: "pricing-from-saved-geometry",
-    limitation:
-      "Full recalculation from text input requires shared text-layout/serializable shape adapter",
     fixtureId: fixture.fixtureId,
-    expected: {
-      areaM2,
-      faceFilmCostMinor: expectedFaceFilmCostMinor,
-      formattedTotalPrice: fixture.pricingSummary.formattedTotalPrice,
-      ledCount: expectedLedCount,
-      lightingPercentCostMinor:
-        fixture.pricingSummary.totalCosts?.lightingPercentCostMinor ?? null,
-      perimeterM,
-      totalPriceMinor: expectedTotalPriceMinor
-    },
-    calculated: {
-      faceFilmCostMinor: materialCosts.faceFilmCostMinor,
-      formattedTotalPrice: formatKonstruktorPriceMinor(
-        calculatedTotalPriceMinor
-      ),
-      ledCount: ledModules.ledCount,
-      lightingPercentCostMinor: lightingCosts.lightingPercentCostMinor,
-      totalPriceMinor: calculatedTotalPriceMinor
-    },
-    checks: {
-      ledCountMatches:
-        expectedLedCount === null ? null : ledModules.ledCount === expectedLedCount,
-      roundedTotalPriceMinorMatches:
-        roundMinor(calculatedTotalPriceMinor) === roundMinor(expectedTotalPriceMinor),
-      totalPriceDeltaMinor
-    }
+    expectedTotalPriceMinor,
+    calculatedTotalPriceMinor,
+    roundedTotalPriceMinorMatches:
+      roundMinor(calculatedTotalPriceMinor) === roundMinor(expectedTotalPriceMinor),
+    formattedTotalPrice: formatKonstruktorPriceMinor(calculatedTotalPriceMinor),
+    ledCount: calculatedLedCount,
+    ledCountMatches:
+      expectedLedCount === null ? null : calculatedLedCount === expectedLedCount,
+    expectedFaceFilmCostMinor,
+    faceFilmCostMinor: calculatedFaceFilmCostMinor,
+    faceFilmCostMatches: nullableMinorMatches(
+      calculatedFaceFilmCostMinor,
+      expectedFaceFilmCostMinor
+    ),
+    limitation:
+      "Full recalculation from text input requires shared text-layout/serializable shape adapter"
   };
+}
+
+export function checkSimpleLightTextDiez300Fixture() {
+  return checkCalculationFixture("simple-light-text-diez-300");
 }

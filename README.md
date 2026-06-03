@@ -591,10 +591,16 @@ Endpoint проверяет, что API может импортировать `@
 Добавлен временный debug endpoint:
 
 ```text
-GET /debug/calculation/simple-light-text-diez-300
+GET /debug/calculation/fixtures/:fixtureId
 ```
 
-Endpoint читает baseline fixture `simple-light-text-diez-300` и сверяет доступный расчёт через shared-core по сохранённой geometry.
+Endpoint проверяет 3 baseline fixtures:
+
+* `simple-light-text-diez-300`;
+* `simple-non-light-text-diez-300`;
+* `face-film-red-text-diez-300`.
+
+Endpoint читает baseline fixture и сверяет доступный расчёт через shared-core по сохранённой geometry.
 
 Это не production API. Полный расчёт из text input ждёт shared text-layout/serializable shape adapter.
 

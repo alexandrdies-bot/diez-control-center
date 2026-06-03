@@ -109,8 +109,9 @@
 * Зафиксировано, что UI и реальные расчёты пока не изменены.
 * Добавлен diagnostic endpoint `GET /health/calculation-core`.
 * Endpoint проверяет, что API может импортировать `@diez/calculation-core`; это не рабочий расчёт и не подключение конструктора.
-* Добавлен временный debug endpoint `GET /debug/calculation/simple-light-text-diez-300`.
-* Endpoint читает baseline fixture `simple-light-text-diez-300` и сверяет доступный расчёт через shared-core по сохранённой geometry.
+* Добавлен временный debug endpoint `GET /debug/calculation/fixtures/:fixtureId`.
+* Endpoint проверяет 3 baseline fixtures: `simple-light-text-diez-300`, `simple-non-light-text-diez-300`, `face-film-red-text-diez-300`.
+* Endpoint читает baseline fixture и сверяет доступный расчёт через shared-core по сохранённой geometry.
 * Зафиксировано, что endpoint не является production API, а полный расчёт из text input ждёт shared text-layout/serializable shape adapter.
 * Зафиксировано архитектурное правило `server-first + local cache/offline fallback`.
 * Зафиксировано, что главным источником истины остаются сервер, API и общая база `diez-data-core`, а ПК-программа не должна становиться главным источником данных.
