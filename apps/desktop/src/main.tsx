@@ -30,29 +30,6 @@ const currentUserRole = "admin";
 
 const materialsSettingsSection = "Материалы и закупочные цены";
 
-const diezSections = [
-  "Заказы",
-  "Чат",
-  "Клиенты",
-  "Расчёты",
-  "Производство",
-  "Оплаты",
-  "Доставка",
-  "Товары"
-];
-
-const ozonSections = [
-  "Главная",
-  "Заказы",
-  "Сообщения",
-  "Товары",
-  "Остатки",
-  "Поставки",
-  "Возвраты",
-  "Финансы",
-  "Настройки Ozon"
-];
-
 const diezDashboardCards = [
   {
     title: "Заказы с сайта",
@@ -216,7 +193,7 @@ type OfficeConstructorForm = {
   faceFilm: "none" | "red-6811";
 };
 
-type NewOrderStep = "calculation" | "details";
+type NewOrderStep = "start" | "calculation" | "details";
 
 function formatMinorPrice(value: number, currencyCode: string) {
   return `${(value / 100).toLocaleString("ru-RU", {
@@ -456,8 +433,6 @@ function App() {
     };
   }, [isConstructorPanelOpen, recommendedConstructorFixtureId]);
 
-  const activeSections =
-    activeWorkspace === "Диез Имидж" ? diezSections : ozonSections;
   const isHomeScreen = activeSection === "Главная";
   const isDiezOrdersScreen =
     activeWorkspace === "Диез Имидж" && activeSection === "Заказы";
@@ -477,9 +452,16 @@ function App() {
   }
 
   function handleOpenNewOrder() {
+    setActiveWorkspace("Диез Имидж");
+    setActiveSection("Заказы");
     setIsNewOrderFormOpen(true);
-    setNewOrderStep("calculation");
+    setNewOrderStep("start");
     setIsConstructorPanelOpen(false);
+  }
+
+  function handleStartVolumeLettersCalculation() {
+    setNewOrderStep("calculation");
+    setIsConstructorPanelOpen(true);
   }
 
   function updateDraftOrderForm<Field extends keyof DraftOrderForm>(
@@ -572,6 +554,15 @@ function App() {
         </div>
 
         <div className="workbar-actions">
+          {activeWorkspace === "Диез Имидж" ? (
+            <button
+              className="workbar-new-order-button"
+              onClick={handleOpenNewOrder}
+              type="button"
+            >
+              + Новый заказ
+            </button>
+          ) : null}
           <span
             className={health?.ok ? "api-dot api-dot-online" : "api-dot"}
             title={health?.ok ? "API online" : "API checking"}
@@ -603,39 +594,14 @@ function App() {
           <p className="eyebrow">{activeWorkspace}</p>
           <h1>Control Center</h1>
 
-          <nav className="nav-list">
-            {activeSections.map((section) => (
-              <React.Fragment key={section}>
-                <button
-                  className={
-                    section === activeSection ? "nav-item nav-item-active" : "nav-item"
-                  }
-                  type="button"
-                  onClick={() => handleSectionChange(section)}
-                >
-                  {section}
-                </button>
+          <section className="activity-feed-panel">
+            <div>
+              <h2>Лента</h2>
+              <p>Здесь будут новые заказы, сообщения, задачи и события.</p>
+            </div>
 
-                {section === "Настройки" &&
-                activeWorkspace === "Диез Имидж" &&
-                activeSection === "Настройки" ? (
-                  <div className="subnav-list">
-                    <button
-                      className={
-                        activeSettingsSection === materialsSettingsSection
-                          ? "subnav-item subnav-item-active"
-                          : "subnav-item"
-                      }
-                      type="button"
-                      onClick={() => setActiveSettingsSection(materialsSettingsSection)}
-                    >
-                      {materialsSettingsSection}
-                    </button>
-                  </div>
-                ) : null}
-              </React.Fragment>
-            ))}
-          </nav>
+            <div className="activity-feed-empty">Событий пока нет</div>
+          </section>
         </aside>
 
         <section className="content-panel">
@@ -748,14 +714,6 @@ function App() {
                     клиентов, расчётов и производства.
                   </p>
                 </div>
-
-                <button
-                  className="primary-action-button"
-                  onClick={handleOpenNewOrder}
-                  type="button"
-                >
-                  + Новый заказ
-                </button>
               </div>
 
               <div className="order-status-grid">
@@ -773,8 +731,8 @@ function App() {
                     <div>
                       <h3>Новый заказ</h3>
                       <p>
-                        Сначала рассчитайте изделие, затем примите заказ и
-                        заполните данные клиента.
+                        Сначала выберите, что нужно рассчитать или принять в
+                        заказ.
                       </p>
                     </div>
                     <button
@@ -786,30 +744,76 @@ function App() {
                     </button>
                   </div>
 
-                  <div className="order-step-tabs">
-                    <span
-                      className={
-                        newOrderStep === "calculation"
-                          ? "order-step-tab order-step-tab-active"
-                          : "order-step-tab"
-                      }
-                    >
-                      <strong>1</strong>
-                      Расчёт
-                    </span>
-                    <span
-                      className={
-                        newOrderStep === "details"
-                          ? "order-step-tab order-step-tab-active"
-                          : "order-step-tab"
+                  {newOrderStep !== "start" ? (
+                    <div className="order-step-tabs">
+                      <span
+                        className={
+                          newOrderStep === "calculation"
+                            ? "order-step-tab order-step-tab-active"
+                            : "order-step-tab"
                         }
-                    >
-                      <strong>2</strong>
-                      Оформление
-                    </span>
-                  </div>
+                      >
+                        <strong>1</strong>
+                        Расчёт
+                      </span>
+                      <span
+                        className={
+                          newOrderStep === "details"
+                            ? "order-step-tab order-step-tab-active"
+                            : "order-step-tab"
+                        }
+                      >
+                        <strong>2</strong>
+                        Оформление
+                      </span>
+                    </div>
+                  ) : null}
 
-                  {newOrderStep === "calculation" ? (
+                  {newOrderStep === "start" ? (
+                    <section className="order-start-panel">
+                      <div>
+                        <h3>Новый заказ</h3>
+                        <p>
+                          Сначала выберите, что нужно рассчитать или принять в
+                          заказ.
+                        </p>
+                      </div>
+
+                      <div className="order-type-grid">
+                        <article className="order-type-card order-type-card-active">
+                          <div>
+                            <h4>Объёмные буквы</h4>
+                            <p>
+                              Упрощённый офисный конструктор для расчёта
+                              вывески.
+                            </p>
+                          </div>
+                          <button
+                            className="primary-action-button"
+                            onClick={handleStartVolumeLettersCalculation}
+                            type="button"
+                          >
+                            Начать расчёт
+                          </button>
+                        </article>
+
+                        <article className="order-type-card order-type-card-disabled">
+                          <h4>DTF / печать</h4>
+                          <p>Будет добавлено позже</p>
+                        </article>
+
+                        <article className="order-type-card order-type-card-disabled">
+                          <h4>Готовый товар</h4>
+                          <p>Будет добавлено позже</p>
+                        </article>
+
+                        <article className="order-type-card order-type-card-disabled">
+                          <h4>Ручная позиция</h4>
+                          <p>Будет добавлено позже</p>
+                        </article>
+                      </div>
+                    </section>
+                  ) : newOrderStep === "calculation" ? (
                     <section className="order-step-panel">
                       <p className="eyebrow">1. Расчёт</p>
                       <h3>Расчёт вывески</h3>
@@ -817,19 +821,21 @@ function App() {
                         Рассчитайте изделие и добавьте позицию в заказ.
                       </p>
 
-                      <section className="constructor-entry-card">
-                        <div>
-                          <h3>Конструктор объёмных букв</h3>
-                          <p>Офисный конструктор для расчёта позиции заказа.</p>
-                        </div>
-                        <button
-                          className="primary-action-button"
-                          onClick={() => setIsConstructorPanelOpen(true)}
-                          type="button"
-                        >
-                          Открыть конструктор
-                        </button>
-                      </section>
+                      {!isConstructorPanelOpen ? (
+                        <section className="constructor-entry-card">
+                          <div>
+                            <h3>Конструктор объёмных букв</h3>
+                            <p>Офисный конструктор для расчёта позиции заказа.</p>
+                          </div>
+                          <button
+                            className="primary-action-button"
+                            onClick={() => setIsConstructorPanelOpen(true)}
+                            type="button"
+                          >
+                            Открыть конструктор
+                          </button>
+                        </section>
+                      ) : null}
 
                       {isConstructorPanelOpen ? (
                         <section className="constructor-debug-panel">
@@ -837,9 +843,8 @@ function App() {
                             <div>
                               <h3>Офисный конструктор</h3>
                               <p>
-                                Временная панель расчёта через debug endpoints.
-                                Полный визуальный конструктор будет подключён
-                                позже.
+                                Упрощённая офисная версия использует общее
+                                расчётное ядро.
                               </p>
                             </div>
                             <button
@@ -1138,96 +1143,103 @@ function App() {
                     </section>
                   )}
 
-                  <section className="draft-items-panel">
-                    <div className="section-heading">
-                      <h3>Позиции заказа</h3>
-                      <span>Локальный черновик</span>
-                    </div>
+                  {newOrderStep !== "start" || draftOrderItems.length > 0 ? (
+                    <>
+                      <section className="draft-items-panel">
+                        <div className="section-heading">
+                          <h3>Позиции заказа</h3>
+                          <span>Локальный черновик</span>
+                        </div>
 
-                    {draftOrderItems.length === 0 ? (
-                      <p className="draft-empty-text">Позиции пока не добавлены</p>
-                    ) : (
-                      <div className="draft-items-table-wrap">
-                        <table>
-                          <thead>
-                            <tr>
-                              <th>№</th>
-                              <th>Тип</th>
-                              <th>Название</th>
-                              <th>Цена</th>
-                              <th>Статус</th>
-                              <th></th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {draftOrderItems.map((item, index) => (
-                              <tr key={item.id}>
-                                <td>{index + 1}</td>
-                                <td>{item.type}</td>
-                                <td>
-                                  <strong>{item.title}</strong>
-                                  <small>
-                                    {item.fixtureId}, LED: {item.ledCount}
-                                  </small>
-                                  <small>{item.calculationSource}</small>
-                                </td>
-                                <td>{formatMinorPrice(item.priceMinor, "RUB")}</td>
-                                <td>{item.baselineStatus}</td>
-                                <td>
-                                  <button
-                                    className="text-action-button"
-                                    onClick={() =>
-                                      handleRemoveDraftOrderItem(item.id)
-                                    }
-                                    type="button"
-                                  >
-                                    Удалить
-                                  </button>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
+                        {draftOrderItems.length === 0 ? (
+                          <p className="draft-empty-text">
+                            Позиции пока не добавлены
+                          </p>
+                        ) : (
+                          <div className="draft-items-table-wrap">
+                            <table>
+                              <thead>
+                                <tr>
+                                  <th>№</th>
+                                  <th>Тип</th>
+                                  <th>Название</th>
+                                  <th>Цена</th>
+                                  <th>Статус</th>
+                                  <th></th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {draftOrderItems.map((item, index) => (
+                                  <tr key={item.id}>
+                                    <td>{index + 1}</td>
+                                    <td>{item.type}</td>
+                                    <td>
+                                      <strong>{item.title}</strong>
+                                      <small>
+                                        {item.fixtureId}, LED: {item.ledCount}
+                                      </small>
+                                      <small>{item.calculationSource}</small>
+                                    </td>
+                                    <td>{formatMinorPrice(item.priceMinor, "RUB")}</td>
+                                    <td>{item.baselineStatus}</td>
+                                    <td>
+                                      <button
+                                        className="text-action-button"
+                                        onClick={() =>
+                                          handleRemoveDraftOrderItem(item.id)
+                                        }
+                                        type="button"
+                                      >
+                                        Удалить
+                                      </button>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
 
-                    <div className="draft-total-row">
-                      <span>Итого:</span>
-                      <strong>{formatMinorPrice(draftOrderTotalMinor, "RUB")}</strong>
-                    </div>
+                        <div className="draft-total-row">
+                          <span>Итого:</span>
+                          <strong>
+                            {formatMinorPrice(draftOrderTotalMinor, "RUB")}
+                          </strong>
+                        </div>
 
-                    <p className="constructor-warning">
-                      Черновик не сохраняется в базу. Сохранение будет
-                      подключено после создания таблиц заказов и API.
-                    </p>
+                        <p className="constructor-warning">
+                          Черновик не сохраняется в базу. Сохранение будет
+                          подключено после создания таблиц заказов и API.
+                        </p>
+                      </section>
 
-                  </section>
+                      <section className="technical-data-panel">
+                        <div>
+                          <p>
+                            Технические данные нужны только для разработки
+                            будущего API сохранения заказа.
+                          </p>
+                        </div>
+                        <button
+                          className="secondary-action-button"
+                          onClick={() =>
+                            setIsDraftJsonVisible((isVisible) => !isVisible)
+                          }
+                          type="button"
+                        >
+                          {isDraftJsonVisible
+                            ? "Скрыть технические данные"
+                            : "Показать технические данные"}
+                        </button>
 
-                  <section className="technical-data-panel">
-                    <div>
-                      <p>
-                        Технические данные нужны только для разработки будущего
-                        API сохранения заказа.
-                      </p>
-                    </div>
-                    <button
-                      className="secondary-action-button"
-                      onClick={() =>
-                        setIsDraftJsonVisible((isVisible) => !isVisible)
-                      }
-                      type="button"
-                    >
-                      {isDraftJsonVisible
-                        ? "Скрыть технические данные"
-                        : "Показать технические данные"}
-                    </button>
-
-                    {isDraftJsonVisible ? (
-                      <pre className="order-draft-json">
-                        {JSON.stringify(draftOrderPayload, null, 2)}
-                      </pre>
-                    ) : null}
-                  </section>
+                        {isDraftJsonVisible ? (
+                          <pre className="order-draft-json">
+                            {JSON.stringify(draftOrderPayload, null, 2)}
+                          </pre>
+                        ) : null}
+                      </section>
+                    </>
+                  ) : null}
                 </section>
               ) : null}
 

@@ -70,6 +70,28 @@ p {
   line-height: 1.6;
 }
 
+.activity-feed-panel {
+  display: grid;
+  gap: 18px;
+  margin-top: 34px;
+}
+
+.activity-feed-panel h2 {
+  font-size: 26px;
+}
+
+.activity-feed-panel p {
+  margin-top: 8px;
+}
+
+.activity-feed-empty {
+  padding: 18px;
+  border: 1px dashed rgba(255, 255, 255, 0.16);
+  border-radius: 14px;
+  color: rgba(255, 255, 255, 0.58);
+  background: rgba(0, 0, 0, 0.16);
+}
+
 .nav-list {
   display: grid;
   gap: 8px;
@@ -199,6 +221,23 @@ p {
   gap: 8px;
   align-items: center;
   margin-left: 16px;
+}
+
+.workbar-new-order-button {
+  flex: 0 0 auto;
+  margin-right: 6px;
+  padding: 9px 12px;
+  border: 1px solid rgba(159, 183, 255, 0.28);
+  border-radius: 10px;
+  color: #ffffff;
+  background: rgba(90, 139, 255, 0.34);
+  cursor: pointer;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.workbar-new-order-button:hover {
+  background: rgba(90, 139, 255, 0.48);
 }
 
 .role-badge {
@@ -804,6 +843,53 @@ tbody tr {
   margin: 0;
 }
 
+.order-start-panel {
+  display: grid;
+  gap: 18px;
+  margin-top: 18px;
+  padding: 18px;
+  border-radius: 16px;
+  background: rgba(0, 0, 0, 0.14);
+}
+
+.order-start-panel h3 {
+  margin: 0;
+}
+
+.order-type-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.order-type-card {
+  display: grid;
+  gap: 16px;
+  min-height: 176px;
+  padding: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.order-type-card h4 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.order-type-card p {
+  margin-top: 8px;
+}
+
+.order-type-card-active {
+  border-color: rgba(159, 183, 255, 0.36);
+  background: rgba(90, 139, 255, 0.16);
+}
+
+.order-type-card-disabled {
+  opacity: 0.55;
+}
+
 .order-details-summary {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1236,6 +1322,7 @@ tbody tr {
   .dashboard-zone-grid,
   .dashboard-card-grid,
   .dashboard-bottom-grid,
+  .order-type-grid,
   .office-constructor-fields,
   .constructor-preset-grid,
   .constructor-result-grid,
