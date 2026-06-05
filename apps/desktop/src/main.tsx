@@ -2,14 +2,52 @@ import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   getApiHealth,
-  getCalculationFixtureDebug,
   getMaterialPricingInputs,
   getMaterials,
   type ApiHealth,
-  type CalculationFixtureDebugResult,
   type Material,
   type MaterialPricingInput
 } from "./api";
+import {
+  analyzeKonstruktorGeometry,
+  calculateKonstruktorLedModulesByGeometry,
+  calculateKonstruktorLightingCost,
+  calculateKonstruktorMaterialCosts,
+  calculateLightLetterProductionCostsByElements,
+  formatKonstruktorPriceMinor,
+  getKonstruktorBackPvcByHeight,
+  getKonstruktorFaceAcrylicByHeight,
+  getKonstruktorFacePvcByHeight,
+  shouldUseKonstruktorFaceFilm
+} from "@diez/calculation-core";
+import {
+  DEFAULT_BOARD_TAPE_OPTION,
+  getBoardTapeColorHex,
+  getBoardTapeColorLabel,
+  getBoardTapeColorOptions,
+  getBoardTapeColorTooltipLabel,
+  getBoardTapeOption,
+  getBoardTapeWidthOptions,
+  getBoardTapeThicknessOptions,
+  type BoardTapeOption
+} from "./konstruktor/board-tape-options";
+import {
+  DEFAULT_FACE_FILM_OPTION,
+  getFaceFilmColorHex,
+  getFaceFilmColorLabel,
+  getFaceFilmOption,
+  getFaceFilmOptions,
+  NO_FACE_FILM_COLOR_CODE,
+  type FaceFilmOption
+} from "./konstruktor/face-film-options";
+import {
+  KONSTRUKTOR_SCENE_HEIGHT,
+  KONSTRUKTOR_SCENE_WIDTH,
+  createKonstruktorPreviewSvg,
+  createKonstruktorTextLayout,
+  formatKonstruktorNumber,
+  type KonstruktorTextLayout
+} from "./konstruktor/text-layout";
 import "./styles.css";
 
 const workspaceNames = ["Диез Имидж", "Ozon"] as const;
@@ -141,33 +179,24 @@ const diezOrderStatuses = [
   "Завершены"
 ];
 
-const diezOrderSources = ["Сайт", "Ручной заказ", "Ozon позже"];
-
-const constructorFixturePresets = [
-  {
-    fixtureId: "simple-light-text-diez-300",
-    title: "Световая ДИЕЗ 300",
-    recommendedMode: "light"
-  },
-  {
-    fixtureId: "simple-non-light-text-diez-300",
-    title: "Несветовая ДИЕЗ 300",
-    recommendedMode: "non-light"
-  },
-  {
-    fixtureId: "face-film-red-text-diez-300",
-    title: "Световая ДИЕЗ 300 + красная плёнка",
-    recommendedMode: "light"
-  }
-];
-
 type DraftOrderItem = {
   id: string;
   type: "Конструктор объёмных букв";
   title: string;
+  text: string;
+  heightMm: string;
+  lightingMode: OfficeConstructorForm["mode"];
+  boardTapeColorName: string;
+  boardWidthMm: number;
+  boardThicknessMm: number;
+  resolvedBoardTapeMaterialName: string;
+  resolvedBoardTapeThicknessMm: number;
+  faceFilmColorCode: string;
+  faceFilmLabel: string;
   priceMinor: number;
+  formattedPrice: string;
   ledCount: number;
-  fixtureId: string;
+  calculationId: string;
   baselineStatus: string;
   checkMode: string;
   calculationSource: string;
@@ -189,17 +218,63 @@ type OfficeConstructorForm = {
   text: string;
   heightMm: string;
   mode: "light" | "non-light";
-  boardTape: "white-ral-9003-80";
-  faceFilm: "none" | "red-6811";
+  boardTapeColorName: string;
+  boardWidthMm: number;
+  boardThicknessMm: number;
+  faceFilmColorCode: string;
 };
 
 type NewOrderStep = "start" | "calculation" | "details";
+
+type OfficeConstructorCalculationResult = {
+  calculationId: string;
+  formattedPrice: string;
+  ledCount: number;
+  priceMinor: number;
+  boardTape: BoardTapeOption;
+  faceFilm: FaceFilmOption;
+  source: "office-real-calculation";
+};
 
 function formatMinorPrice(value: number, currencyCode: string) {
   return `${(value / 100).toLocaleString("ru-RU", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
   })} ${currencyCode}`;
+}
+
+function fitKonstruktorPreviewMarkupToLayout(
+  markup: string,
+  layout: KonstruktorTextLayout
+) {
+  const svgBounds = {
+    maxX: KONSTRUKTOR_SCENE_WIDTH / 2 + layout.bounds.maxX,
+    maxY: KONSTRUKTOR_SCENE_HEIGHT / 2 - layout.bounds.minY,
+    minX: KONSTRUKTOR_SCENE_WIDTH / 2 + layout.bounds.minX,
+    minY: KONSTRUKTOR_SCENE_HEIGHT / 2 - layout.bounds.maxY
+  };
+  const contentWidth = Math.max(1, svgBounds.maxX - svgBounds.minX);
+  const contentHeight = Math.max(1, svgBounds.maxY - svgBounds.minY);
+  const padding = Math.max(32, Math.max(contentWidth, contentHeight) * 0.12);
+  const viewBoxWidth = Math.max(
+    contentWidth + padding * 2,
+    KONSTRUKTOR_SCENE_WIDTH * 0.52
+  );
+  const viewBoxHeight = Math.max(
+    contentHeight + padding * 2,
+    KONSTRUKTOR_SCENE_HEIGHT * 0.42
+  );
+  const centerX = (svgBounds.minX + svgBounds.maxX) / 2;
+  const centerY = (svgBounds.minY + svgBounds.maxY) / 2;
+  const viewBox = `${formatKonstruktorNumber(
+    centerX - viewBoxWidth / 2
+  )} ${formatKonstruktorNumber(centerY - viewBoxHeight / 2)} ${formatKonstruktorNumber(
+    viewBoxWidth
+  )} ${formatKonstruktorNumber(viewBoxHeight)}`;
+
+  return markup
+    .replace(/viewBox="[^"]+"/, `viewBox="${viewBox}"`)
+    .replace("<svg ", '<svg width="100%" height="100%" ');
 }
 
 function App() {
@@ -217,26 +292,32 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [pricingError, setPricingError] = useState<string | null>(null);
   const [isNewOrderFormOpen, setIsNewOrderFormOpen] = useState(false);
+  const [isDraftOrderDetailsOpen, setIsDraftOrderDetailsOpen] = useState(false);
   const [newOrderStep, setNewOrderStep] = useState<NewOrderStep>("calculation");
   const [isConstructorPanelOpen, setIsConstructorPanelOpen] = useState(false);
-  const [selectedFixtureId, setSelectedFixtureId] = useState<string | null>(null);
-  const [fixtureResult, setFixtureResult] =
-    useState<CalculationFixtureDebugResult | null>(null);
-  const [fixtureError, setFixtureError] = useState<string | null>(null);
-  const [unsupportedConstructorMessage, setUnsupportedConstructorMessage] =
+  const [openColorPalette, setOpenColorPalette] = useState<
+    "board" | "face" | null
+  >(null);
+  const [constructorPreviewMarkup, setConstructorPreviewMarkup] =
     useState<string | null>(null);
-  const [isConstructorTechnicalVisible, setIsConstructorTechnicalVisible] =
-    useState(false);
-  const [isFixtureLoading, setIsFixtureLoading] = useState(false);
+  const [constructorPreviewError, setConstructorPreviewError] =
+    useState<string | null>(null);
+  const [constructorLayout, setConstructorLayout] =
+    useState<KonstruktorTextLayout | null>(null);
   const [draftOrderItems, setDraftOrderItems] = useState<DraftOrderItem[]>([]);
+  const [editingDraftOrderItemId, setEditingDraftOrderItemId] = useState<
+    string | null
+  >(null);
   const [isDraftJsonVisible, setIsDraftJsonVisible] = useState(false);
   const [officeConstructorForm, setOfficeConstructorForm] =
     useState<OfficeConstructorForm>({
       text: "ДИЕЗ",
       heightMm: "300",
       mode: "light",
-      boardTape: "white-ral-9003-80",
-      faceFilm: "none"
+      boardTapeColorName: DEFAULT_BOARD_TAPE_OPTION.colorName,
+      boardWidthMm: DEFAULT_BOARD_TAPE_OPTION.widthMm,
+      boardThicknessMm: DEFAULT_BOARD_TAPE_OPTION.thicknessMm,
+      faceFilmColorCode: DEFAULT_FACE_FILM_OPTION.colorCode
     });
   const [draftOrderForm, setDraftOrderForm] = useState<DraftOrderForm>({
     source: "manual",
@@ -329,6 +410,7 @@ function App() {
   const draftOrderTotalMinor = useMemo(() => {
     return draftOrderItems.reduce((total, item) => total + item.priceMinor, 0);
   }, [draftOrderItems]);
+  const acceptedCalculationItem = draftOrderItems[0] ?? null;
 
   const draftOrderPayload = useMemo(() => {
     return {
@@ -347,91 +429,275 @@ function App() {
       status: draftOrderForm.status,
       estimatedAmountText: draftOrderForm.estimatedAmount || null,
       requestedWork: draftOrderForm.itemDescription || null,
-      items: draftOrderItems.map((item) => ({
-        type: item.type,
-        title: item.title,
-        priceMinor: item.priceMinor,
-        calculationData: {
-          source: item.calculationSource,
-          fixtureId: item.fixtureId,
-          ledCount: item.ledCount,
-          baselineStatus: item.baselineStatus,
-          checkMode: item.checkMode
+        items: draftOrderItems.map((item) => ({
+          type: item.type,
+          title: item.title,
+          priceMinor: item.priceMinor,
+          formattedPrice: item.formattedPrice,
+          text: item.text,
+          heightMm: item.heightMm,
+          lightingMode: item.lightingMode,
+          boardTapeColorName: item.boardTapeColorName,
+          boardWidthMm: item.boardWidthMm,
+          boardThicknessMm: item.boardThicknessMm,
+          resolvedBoardTape: {
+            materialName: item.resolvedBoardTapeMaterialName,
+            thicknessMm: item.resolvedBoardTapeThicknessMm
+          },
+          faceFilmColorCode: item.faceFilmColorCode,
+          faceFilmLabel: item.faceFilmLabel,
+          calculationData: {
+            source: item.calculationSource,
+            calculationId: item.calculationId,
+            ledCount: item.ledCount,
+            baselineStatus: item.baselineStatus,
+            checkMode: item.checkMode
         }
       })),
       totalAmountMinor: draftOrderTotalMinor
     };
   }, [draftOrderForm, draftOrderItems, draftOrderTotalMinor]);
 
-  const recommendedConstructorFixtureId = useMemo(() => {
-    const normalizedText = officeConstructorForm.text.trim().toUpperCase();
-    const normalizedHeight = officeConstructorForm.heightMm.trim();
+  const boardTapeColorOptions = useMemo(() => getBoardTapeColorOptions(), []);
+  const boardTapeWidthOptions = useMemo(
+    () => getBoardTapeWidthOptions(officeConstructorForm.boardTapeColorName),
+    [officeConstructorForm.boardTapeColorName]
+  );
+  const safeBoardWidthMm = boardTapeWidthOptions.includes(
+    officeConstructorForm.boardWidthMm
+  )
+    ? officeConstructorForm.boardWidthMm
+    : boardTapeWidthOptions[0] ?? DEFAULT_BOARD_TAPE_OPTION.widthMm;
+  const boardTapeThicknessOptions = useMemo(
+    () =>
+      getBoardTapeThicknessOptions(
+        officeConstructorForm.boardTapeColorName,
+        safeBoardWidthMm
+      ),
+    [officeConstructorForm.boardTapeColorName, safeBoardWidthMm]
+  );
+  const faceFilmOptions = useMemo(() => getFaceFilmOptions(), []);
+  const selectedBoardTapeOption = useMemo(() => {
+    const safeThicknessMm = boardTapeThicknessOptions.includes(
+      officeConstructorForm.boardThicknessMm
+    )
+      ? officeConstructorForm.boardThicknessMm
+      : boardTapeThicknessOptions[0] ?? DEFAULT_BOARD_TAPE_OPTION.thicknessMm;
 
-    if (normalizedText !== "ДИЕЗ" || normalizedHeight !== "300") {
-      return null;
+    return getBoardTapeOption({
+      colorName: officeConstructorForm.boardTapeColorName,
+      thicknessMm: safeThicknessMm,
+      widthMm: safeBoardWidthMm
+    });
+  }, [
+    boardTapeThicknessOptions,
+    officeConstructorForm.boardTapeColorName,
+    officeConstructorForm.boardThicknessMm,
+    safeBoardWidthMm
+  ]);
+  const selectedFaceFilmOption = useMemo(() => {
+    return (
+      getFaceFilmOption(officeConstructorForm.faceFilmColorCode) ??
+      DEFAULT_FACE_FILM_OPTION
+    );
+  }, [officeConstructorForm.faceFilmColorCode]);
+
+  useEffect(() => {
+    if (
+      boardTapeWidthOptions.length > 0 &&
+      !boardTapeWidthOptions.includes(officeConstructorForm.boardWidthMm)
+    ) {
+      updateOfficeConstructorForm("boardWidthMm", boardTapeWidthOptions[0]);
+    }
+  }, [boardTapeWidthOptions, officeConstructorForm.boardWidthMm]);
+
+  useEffect(() => {
+    if (
+      boardTapeThicknessOptions.length > 0 &&
+      !boardTapeThicknessOptions.includes(officeConstructorForm.boardThicknessMm)
+    ) {
+      updateOfficeConstructorForm(
+        "boardThicknessMm",
+        boardTapeThicknessOptions[0]
+      );
+    }
+  }, [boardTapeThicknessOptions, officeConstructorForm.boardThicknessMm]);
+
+  const officeCalculation = useMemo<{
+    error: string | null;
+    result: OfficeConstructorCalculationResult | null;
+  }>(() => {
+    if (!constructorLayout) {
+      return { error: null, result: null };
     }
 
-    if (officeConstructorForm.mode === "non-light") {
-      return "simple-non-light-text-diez-300";
-    }
+    try {
+      const geometrySummary = analyzeKonstruktorGeometry(
+        constructorLayout as Parameters<typeof analyzeKonstruktorGeometry>[0]
+      );
+      const isIlluminated = officeConstructorForm.mode === "light";
+      const objects = geometrySummary.objects.map((object) => {
+        const faceFilm = selectedFaceFilmOption;
+        const isFaceFilmUsed =
+          isIlluminated && shouldUseKonstruktorFaceFilm(faceFilm.colorCode);
+        const faceAcrylic = isIlluminated
+          ? getKonstruktorFaceAcrylicByHeight(object.heightMm)
+          : getKonstruktorFacePvcByHeight(object.heightMm);
+        const backPvc = getKonstruktorBackPvcByHeight(object.heightMm);
+        const costs = calculateKonstruktorMaterialCosts({
+          areaM2: object.materialAreaM2,
+          backPvc,
+          boardTape: selectedBoardTapeOption,
+          faceAcrylic,
+          faceFilm,
+          isFaceFilmUsed,
+          perimeterM: object.perimeterM
+        });
+        const ledModules = isIlluminated
+          ? calculateKonstruktorLedModulesByGeometry({
+              areaM2: object.areaM2,
+              perimeterM: object.perimeterM
+            })
+          : {
+              ledCount: 0
+            };
+        const lightingCost = isIlluminated
+          ? calculateKonstruktorLightingCost({
+              bodyMaterialsCostMinor: costs.totalMaterialsCostMinor,
+              ledByInnerAreaCount: ledModules.ledCount
+            })
+          : {
+              finalLightingCostMinor: 0,
+              ledByInnerAreaCount: 0
+            };
+        const productionCost = calculateLightLetterProductionCostsByElements({
+          baseMaterialsCostMinor:
+            costs.totalMaterialsCostMinor + lightingCost.finalLightingCostMinor,
+          elementHeightsMm: object.elements.map((element) => element.heightMm)
+        });
 
-    return officeConstructorForm.faceFilm === "red-6811"
-      ? "face-film-red-text-diez-300"
-      : "simple-light-text-diez-300";
-  }, [officeConstructorForm]);
+        return {
+          ledCount: lightingCost.ledByInnerAreaCount,
+          totalProductionCostMinor: productionCost.totalProductionCostMinor
+        };
+      });
+      const priceMinor = objects.reduce(
+        (total, object) => total + object.totalProductionCostMinor,
+        0
+      );
+      const ledCount = objects.reduce(
+        (total, object) => total + object.ledCount,
+        0
+      );
+
+      return {
+        error: null,
+        result: {
+          boardTape: selectedBoardTapeOption,
+          calculationId: `office-${Date.now()}`,
+          faceFilm: selectedFaceFilmOption,
+          formattedPrice: formatKonstruktorPriceMinor(priceMinor),
+          ledCount,
+          priceMinor,
+          source: "office-real-calculation"
+        }
+      };
+    } catch (unknownError) {
+      return {
+        error:
+          unknownError instanceof Error
+            ? unknownError.message
+            : "Unknown office calculation error",
+        result: null
+      };
+    }
+  }, [
+    constructorLayout,
+    officeConstructorForm.mode,
+    selectedBoardTapeOption,
+    selectedFaceFilmOption
+  ]);
+  const currentCalculationResult = officeCalculation.result;
+  const currentCalculationError = officeCalculation.error;
 
   useEffect(() => {
     if (!isConstructorPanelOpen) {
-      return;
-    }
-
-    if (!recommendedConstructorFixtureId) {
-      setSelectedFixtureId(null);
-      setFixtureResult(null);
-      setFixtureError(null);
-      setIsFixtureLoading(false);
-      setUnsupportedConstructorMessage(
-        "Для этого варианта расчёт пока не подключён"
-      );
+      setConstructorPreviewMarkup(null);
+      setConstructorPreviewError(null);
+      setConstructorLayout(null);
       return;
     }
 
     let isCurrent = true;
+    const faceFilmColorCode = selectedFaceFilmOption.colorCode;
+    const faceColorHex = getFaceFilmColorHex(faceFilmColorCode);
 
-    setSelectedFixtureId(recommendedConstructorFixtureId);
-    setFixtureResult(null);
-    setFixtureError(null);
-    setUnsupportedConstructorMessage(null);
-    setIsConstructorTechnicalVisible(false);
-    setIsFixtureLoading(true);
+    createKonstruktorTextLayout({
+      referenceLetter: "А",
+      targetHeightMm: officeConstructorForm.heightMm,
+      textObjects: [
+        {
+          boardTapeColorName: selectedBoardTapeOption.colorName,
+          boardWidthMm: selectedBoardTapeOption.widthMm,
+          faceFilmColorCode,
+          heightMm: officeConstructorForm.heightMm,
+          id: "office-text-1",
+          kind: "text",
+          text: officeConstructorForm.text,
+          x: 0,
+          y: 0
+        }
+      ]
+    })
+      .then((layout) => {
+        const model = createKonstruktorPreviewSvg({
+          layout,
+          objectColors: {
+            "office-text-1": {
+              boardColorName: selectedBoardTapeOption.colorName,
+              faceColorCode: faceFilmColorCode,
+              faceColorHex
+            }
+          },
+          scenePan: { x: 0, y: 0 },
+          sceneZoom: 1
+        });
 
-    getCalculationFixtureDebug(recommendedConstructorFixtureId)
-      .then((result) => {
+        return {
+          layout,
+          ...model,
+          markup: fitKonstruktorPreviewMarkupToLayout(model.markup, layout)
+        };
+      })
+      .then((model) => {
         if (isCurrent) {
-          setFixtureResult(result);
-          setFixtureError(null);
+          setConstructorPreviewMarkup(model.markup);
+          setConstructorPreviewError(null);
+          setConstructorLayout(model.layout);
         }
       })
       .catch((unknownError) => {
         if (isCurrent) {
-          setFixtureResult(null);
-          setFixtureError(
+          setConstructorPreviewMarkup(null);
+          setConstructorLayout(null);
+          setConstructorPreviewError(
             unknownError instanceof Error
               ? unknownError.message
-              : "Unknown calculation fixture error"
+              : "Unknown constructor preview error"
           );
-        }
-      })
-      .finally(() => {
-        if (isCurrent) {
-          setIsFixtureLoading(false);
         }
       });
 
     return () => {
       isCurrent = false;
     };
-  }, [isConstructorPanelOpen, recommendedConstructorFixtureId]);
+  }, [
+    isConstructorPanelOpen,
+    officeConstructorForm.heightMm,
+    officeConstructorForm.text,
+    selectedBoardTapeOption,
+    selectedFaceFilmOption
+  ]);
 
   const isHomeScreen = activeSection === "Главная";
   const isDiezOrdersScreen =
@@ -455,13 +721,17 @@ function App() {
     setActiveWorkspace("Диез Имидж");
     setActiveSection("Заказы");
     setIsNewOrderFormOpen(true);
+    setIsDraftOrderDetailsOpen(false);
     setNewOrderStep("start");
     setIsConstructorPanelOpen(false);
+    setEditingDraftOrderItemId(null);
+    setDraftOrderItems([]);
   }
 
   function handleStartVolumeLettersCalculation() {
     setNewOrderStep("calculation");
     setIsConstructorPanelOpen(true);
+    setEditingDraftOrderItemId(null);
   }
 
   function updateDraftOrderForm<Field extends keyof DraftOrderForm>(
@@ -484,37 +754,166 @@ function App() {
     }));
   }
 
-  function handleAddConstructorItem() {
-    if (!fixtureResult) {
+  function handleBoardTapeColorSelect(colorName: string) {
+    const widthOptions = getBoardTapeWidthOptions(colorName);
+    const nextWidthMm = widthOptions.includes(officeConstructorForm.boardWidthMm)
+      ? officeConstructorForm.boardWidthMm
+      : widthOptions[0] ?? DEFAULT_BOARD_TAPE_OPTION.widthMm;
+    const thicknessOptions = getBoardTapeThicknessOptions(colorName, nextWidthMm);
+    const nextThicknessMm = thicknessOptions.includes(
+      officeConstructorForm.boardThicknessMm
+    )
+      ? officeConstructorForm.boardThicknessMm
+      : thicknessOptions[0] ?? DEFAULT_BOARD_TAPE_OPTION.thicknessMm;
+
+    setOfficeConstructorForm((current) => ({
+      ...current,
+      boardTapeColorName: colorName,
+      boardWidthMm: nextWidthMm,
+      boardThicknessMm: nextThicknessMm
+    }));
+    setOpenColorPalette(null);
+  }
+
+  function handleBoardTapeWidthSelect(widthMm: number) {
+    const thicknessOptions = getBoardTapeThicknessOptions(
+      officeConstructorForm.boardTapeColorName,
+      widthMm
+    );
+    const nextThicknessMm = thicknessOptions.includes(
+      officeConstructorForm.boardThicknessMm
+    )
+      ? officeConstructorForm.boardThicknessMm
+      : thicknessOptions[0] ?? DEFAULT_BOARD_TAPE_OPTION.thicknessMm;
+
+    setOfficeConstructorForm((current) => ({
+      ...current,
+      boardWidthMm: widthMm,
+      boardThicknessMm: nextThicknessMm
+    }));
+  }
+
+  function handleFaceFilmColorSelect(colorCode: string) {
+    updateOfficeConstructorForm("faceFilmColorCode", colorCode);
+    setOpenColorPalette(null);
+  }
+
+  function createConstructorDraftOrderItem(
+    id: string,
+    result: OfficeConstructorCalculationResult
+  ): DraftOrderItem {
+    const text = officeConstructorForm.text.trim() || "Без текста";
+    const modeLabel =
+      officeConstructorForm.mode === "light" ? "Световая" : "Несветовая";
+
+    return {
+      id,
+      type: "Конструктор объёмных букв",
+      title: `${modeLabel} ${text} ${officeConstructorForm.heightMm} мм`,
+      text: officeConstructorForm.text,
+      heightMm: officeConstructorForm.heightMm,
+      lightingMode: officeConstructorForm.mode,
+      boardTapeColorName: result.boardTape.colorName,
+      boardWidthMm: result.boardTape.widthMm,
+      boardThicknessMm: result.boardTape.thicknessMm,
+      resolvedBoardTapeMaterialName: result.boardTape.materialName,
+      resolvedBoardTapeThicknessMm: result.boardTape.thicknessMm,
+      faceFilmColorCode: result.faceFilm.colorCode,
+      faceFilmLabel: getFaceFilmColorLabel(result.faceFilm),
+      priceMinor: result.priceMinor,
+      formattedPrice: result.formattedPrice,
+      ledCount: result.ledCount,
+      calculationId: result.calculationId,
+      baselineStatus: "real calculation",
+      checkMode: "real",
+      calculationSource: result.source
+    };
+  }
+
+  function handleSaveConstructorItem() {
+    if (!currentCalculationResult) {
       return;
     }
 
-    const preset = constructorFixturePresets.find(
-      (item) => item.fixtureId === fixtureResult.fixtureId
-    );
+    if (editingDraftOrderItemId) {
+      const updatedItem = createConstructorDraftOrderItem(
+        editingDraftOrderItemId,
+        currentCalculationResult
+      );
+
+      setDraftOrderItems((items) =>
+        items.map((item) =>
+          item.id === editingDraftOrderItemId ? updatedItem : item
+        )
+      );
+      setEditingDraftOrderItemId(null);
+      return;
+    }
 
     setDraftOrderItems((items) => [
       ...items,
-      {
-        id: `${fixtureResult.fixtureId}-${Date.now()}-${items.length}`,
-        type: "Конструктор объёмных букв",
-        title: preset?.title ?? fixtureResult.fixtureId,
-        priceMinor: fixtureResult.calculatedTotalPriceMinor,
-        ledCount: fixtureResult.ledCount,
-        fixtureId: fixtureResult.fixtureId,
-        baselineStatus: fixtureResult.roundedTotalPriceMinorMatches
-          ? "Baseline совпал"
-          : "Есть расхождение",
-        checkMode: fixtureResult.mode,
-        calculationSource:
-          "@diez/calculation-core через API debug endpoint"
-      }
+      createConstructorDraftOrderItem(
+        `office-calculation-${Date.now()}-${items.length}`,
+        currentCalculationResult
+      )
     ]);
-    setIsConstructorPanelOpen(false);
+  }
+
+  function handleAcceptCalculation() {
+    if (!currentCalculationResult) {
+      return;
+    }
+
+    const acceptedItem = createConstructorDraftOrderItem(
+      `office-calculation-${Date.now()}`,
+      currentCalculationResult
+    );
+
+    setDraftOrderItems([acceptedItem]);
+    setEditingDraftOrderItemId(null);
+    setNewOrderStep("details");
   }
 
   function handleRemoveDraftOrderItem(itemId: string) {
-    setDraftOrderItems((items) => items.filter((item) => item.id !== itemId));
+    setDraftOrderItems((items) => {
+      const nextItems = items.filter((item) => item.id !== itemId);
+
+      if (nextItems.length === 0) {
+        setIsDraftOrderDetailsOpen(false);
+      }
+
+      return nextItems;
+    });
+    setEditingDraftOrderItemId((current) =>
+      current === itemId ? null : current
+    );
+  }
+
+  function handleEditDraftOrderItem(item: DraftOrderItem) {
+    setOfficeConstructorForm({
+      boardTapeColorName: item.boardTapeColorName,
+      boardWidthMm: item.boardWidthMm,
+      boardThicknessMm: item.boardThicknessMm,
+      faceFilmColorCode: item.faceFilmColorCode,
+      heightMm: item.heightMm,
+      mode: item.lightingMode,
+      text: item.text
+    });
+    setEditingDraftOrderItemId(item.id);
+    setIsNewOrderFormOpen(true);
+    setIsDraftOrderDetailsOpen(false);
+    setNewOrderStep("calculation");
+    setIsConstructorPanelOpen(true);
+  }
+
+  function handleDuplicateDraftOrderItem(item: DraftOrderItem) {
+    setDraftOrderItems((items) => [
+      ...items,
+      {
+        ...item,
+        id: `${item.calculationId}-${Date.now()}-${items.length}`
+      }
+    ]);
   }
 
   return (
@@ -600,7 +999,25 @@ function App() {
               <p>Здесь будут новые заказы, сообщения, задачи и события.</p>
             </div>
 
-            <div className="activity-feed-empty">Событий пока нет</div>
+            {draftOrderItems.length > 0 ? (
+              <button
+                className="draft-feed-card"
+                onClick={() => {
+                  setActiveWorkspace("Диез Имидж");
+                  setActiveSection("Заказы");
+                  setIsNewOrderFormOpen(false);
+                  setIsDraftOrderDetailsOpen(true);
+                }}
+                type="button"
+              >
+                <strong>Черновик заказа</strong>
+                <span>Позиций: {draftOrderItems.length}</span>
+                <span>Итого: {formatMinorPrice(draftOrderTotalMinor, "RUB")}</span>
+                <em>Статус: формируется</em>
+              </button>
+            ) : (
+              <div className="activity-feed-empty">Событий пока нет</div>
+            )}
           </section>
         </aside>
 
@@ -704,88 +1121,159 @@ function App() {
               </section>
             </section>
           ) : isDiezOrdersScreen ? (
-            <section className="orders-panel">
-              <div className="content-header">
-                <div>
-                  <p className="eyebrow">Диез Имидж / первый этап</p>
-                  <h2>Заказы Диез Имидж</h2>
-                  <p>
-                    Главный рабочий раздел для заказов с сайта, ручных заказов,
-                    клиентов, расчётов и производства.
-                  </p>
-                </div>
-              </div>
+            <section
+              className={
+                isNewOrderFormOpen
+                  ? "orders-panel orders-panel-new-order"
+                  : "orders-panel"
+              }
+            >
+              {!isNewOrderFormOpen && !isDraftOrderDetailsOpen ? (
+                <>
+                  <div className="content-header">
+                    <div>
+                      <p className="eyebrow">Диез Имидж / первый этап</p>
+                      <h2>Заказы Диез Имидж</h2>
+                      <p>
+                        Главный рабочий раздел для заказов с сайта, ручных
+                        заказов, клиентов, расчётов и производства.
+                      </p>
+                    </div>
+                  </div>
 
-              <div className="order-status-grid">
-                {diezOrderStatuses.map((status) => (
-                  <article className="order-status-card" key={status}>
-                    <span>{status}</span>
-                    <strong>0</strong>
-                  </article>
-                ))}
-              </div>
+                  <div className="order-status-grid">
+                    {diezOrderStatuses.map((status) => (
+                      <article className="order-status-card" key={status}>
+                        <span>{status}</span>
+                        <strong>0</strong>
+                      </article>
+                    ))}
+                  </div>
+                </>
+              ) : null}
 
-              {isNewOrderFormOpen ? (
-                <section className="order-form-panel">
+              {isDraftOrderDetailsOpen ? (
+                <section className="order-form-panel draft-order-detail-panel">
                   <div className="section-heading">
                     <div>
-                      <h3>Новый заказ</h3>
-                      <p>
-                        Сначала выберите, что нужно рассчитать или принять в
-                        заказ.
-                      </p>
+                      <p className="eyebrow">Черновик</p>
+                      <h3>Детализация черновика заказа</h3>
                     </div>
                     <button
                       className="secondary-action-button"
-                      onClick={() => setIsNewOrderFormOpen(false)}
+                      onClick={() => setIsDraftOrderDetailsOpen(false)}
                       type="button"
                     >
                       Закрыть
                     </button>
                   </div>
 
-                  {newOrderStep !== "start" ? (
-                    <div className="order-step-tabs">
-                      <span
-                        className={
-                          newOrderStep === "calculation"
-                            ? "order-step-tab order-step-tab-active"
-                            : "order-step-tab"
-                        }
-                      >
-                        <strong>1</strong>
-                        Расчёт
-                      </span>
-                      <span
-                        className={
-                          newOrderStep === "details"
-                            ? "order-step-tab order-step-tab-active"
-                            : "order-step-tab"
-                        }
-                      >
-                        <strong>2</strong>
-                        Оформление
-                      </span>
+                  <section className="draft-items-panel draft-items-panel-detail">
+                    <div className="section-heading">
+                      <h3>Позиции</h3>
                     </div>
-                  ) : null}
+
+                    <ol className="draft-items-list">
+                      {draftOrderItems.map((item, index) => (
+                        <li className="draft-item-row" key={item.id}>
+                          <span>
+                            {index + 1}. {item.title}
+                          </span>
+                          <strong>{item.formattedPrice}</strong>
+                          <button
+                            className="text-action-button"
+                            onClick={() => handleEditDraftOrderItem(item)}
+                            type="button"
+                          >
+                            Редактировать
+                          </button>
+                          <button
+                            className="text-action-button text-action-danger"
+                            onClick={() => handleRemoveDraftOrderItem(item.id)}
+                            type="button"
+                          >
+                            Удалить
+                          </button>
+                        </li>
+                      ))}
+                    </ol>
+
+                    <div className="draft-order-footer">
+                      <div className="draft-total-row">
+                        <span>Итого:</span>
+                        <strong>
+                          {formatMinorPrice(draftOrderTotalMinor, "RUB")}
+                        </strong>
+                      </div>
+
+                      <button className="primary-action-button" disabled type="button">
+                        Оформление заказа позже
+                      </button>
+                    </div>
+
+                    <p className="draft-items-note">
+                      Оформление, клиент и доставка будут подключены следующим
+                      шагом.
+                    </p>
+                  </section>
+                </section>
+              ) : null}
+
+              {isNewOrderFormOpen ? (
+                <section className="order-form-panel">
+                  <div className="section-heading">
+                    {newOrderStep === "start" ? (
+                      <div>
+                        <h3>Новый заказ</h3>
+                        <p>
+                          Выберите услугу, которую нужно рассчитать или принять
+                          в заказ.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="service-heading">
+                        <button
+                          className="service-back-button"
+                          onClick={() => {
+                            setNewOrderStep("start");
+                            setIsConstructorPanelOpen(false);
+                            setEditingDraftOrderItemId(null);
+                          }}
+                          type="button"
+                        >
+                          &lt;
+                        </button>
+                        <span>|</span>
+                        <h3>ОБЪЁМНЫЕ БУКВЫ</h3>
+                      </div>
+                    )}
+                    {newOrderStep === "start" ? (
+                      <button
+                        className="secondary-action-button"
+                        onClick={() => setIsNewOrderFormOpen(false)}
+                        type="button"
+                      >
+                        Закрыть
+                      </button>
+                    ) : null}
+                  </div>
 
                   {newOrderStep === "start" ? (
                     <section className="order-start-panel">
                       <div>
                         <h3>Новый заказ</h3>
                         <p>
-                          Сначала выберите, что нужно рассчитать или принять в
-                          заказ.
+                          Выберите услугу, которую нужно рассчитать или принять
+                          в заказ.
                         </p>
                       </div>
 
                       <div className="order-type-grid">
                         <article className="order-type-card order-type-card-active">
                           <div>
-                            <h4>Объёмные буквы</h4>
+                            <h4>ОБЪЁМНЫЕ БУКВЫ</h4>
                             <p>
-                              Упрощённый офисный конструктор для расчёта
-                              вывески.
+                              Расчёт световых и несветовых объёмных букв.
                             </p>
                           </div>
                           <button
@@ -793,503 +1281,341 @@ function App() {
                             onClick={handleStartVolumeLettersCalculation}
                             type="button"
                           >
-                            Начать расчёт
+                            Выбрать
                           </button>
                         </article>
 
                         <article className="order-type-card order-type-card-disabled">
-                          <h4>DTF / печать</h4>
+                          <h4>DTF-ПЕЧАТЬ</h4>
                           <p>Будет добавлено позже</p>
                         </article>
 
                         <article className="order-type-card order-type-card-disabled">
-                          <h4>Готовый товар</h4>
+                          <h4>ШИРОКОФОРМАТНАЯ ПЕЧАТЬ</h4>
                           <p>Будет добавлено позже</p>
                         </article>
 
                         <article className="order-type-card order-type-card-disabled">
-                          <h4>Ручная позиция</h4>
+                          <h4>ДРУГАЯ УСЛУГА</h4>
                           <p>Будет добавлено позже</p>
                         </article>
                       </div>
                     </section>
                   ) : newOrderStep === "calculation" ? (
-                    <section className="order-step-panel">
-                      <p className="eyebrow">1. Расчёт</p>
-                      <h3>Расчёт вывески</h3>
-                      <p>
-                        Рассчитайте изделие и добавьте позицию в заказ.
-                      </p>
-
-                      {!isConstructorPanelOpen ? (
-                        <section className="constructor-entry-card">
-                          <div>
-                            <h3>Конструктор объёмных букв</h3>
-                            <p>Офисный конструктор для расчёта позиции заказа.</p>
-                          </div>
-                          <button
-                            className="primary-action-button"
-                            onClick={() => setIsConstructorPanelOpen(true)}
-                            type="button"
-                          >
-                            Открыть конструктор
-                          </button>
-                        </section>
-                      ) : null}
-
+                    <section className="service-workspace">
                       {isConstructorPanelOpen ? (
-                        <section className="constructor-debug-panel">
-                          <div className="section-heading">
-                            <div>
-                              <h3>Офисный конструктор</h3>
-                              <p>
-                                Упрощённая офисная версия использует общее
-                                расчётное ядро.
-                              </p>
-                            </div>
-                            <button
-                              className="secondary-action-button"
-                              onClick={() => setIsConstructorPanelOpen(false)}
-                              type="button"
-                            >
-                              Вернуться к заказу
-                            </button>
-                          </div>
-
+                        <>
                           <div className="office-constructor-fields">
-                            <label className="form-field">
-                              <span>Текст</span>
-                              <input
-                                value={officeConstructorForm.text}
-                                onChange={(event) =>
-                                  updateOfficeConstructorForm(
-                                    "text",
-                                    event.target.value
-                                  )
-                                }
-                              />
-                            </label>
-
-                            <label className="form-field">
-                              <span>Высота, мм</span>
-                              <input
-                                value={officeConstructorForm.heightMm}
-                                onChange={(event) =>
-                                  updateOfficeConstructorForm(
-                                    "heightMm",
-                                    event.target.value
-                                  )
-                                }
-                              />
-                            </label>
-
-                            <label className="form-field">
-                              <span>Режим</span>
-                              <select
-                                value={officeConstructorForm.mode}
-                                onChange={(event) =>
-                                  updateOfficeConstructorForm(
-                                    "mode",
-                                    event.target
-                                      .value as OfficeConstructorForm["mode"]
-                                  )
-                                }
-                              >
-                                <option value="light">Световая</option>
-                                <option value="non-light">Несветовая</option>
-                              </select>
-                            </label>
-
-                            <label className="form-field">
-                              <span>Борт</span>
-                              <select
-                                value={officeConstructorForm.boardTape}
-                                onChange={(event) =>
-                                  updateOfficeConstructorForm(
-                                    "boardTape",
-                                    event.target
-                                      .value as OfficeConstructorForm["boardTape"]
-                                  )
-                                }
-                              >
-                                <option value="white-ral-9003-80">
-                                  Белый RAL 9003 / 80 мм
-                                </option>
-                              </select>
-                            </label>
-
-                            <label className="form-field">
-                              <span>Плёнка</span>
-                              <select
-                                value={officeConstructorForm.faceFilm}
-                                onChange={(event) =>
-                                  updateOfficeConstructorForm(
-                                    "faceFilm",
-                                    event.target
-                                      .value as OfficeConstructorForm["faceFilm"]
-                                  )
-                                }
-                              >
-                                <option value="none">Без плёнки</option>
-                                <option value="red-6811">Красная 6811</option>
-                              </select>
-                            </label>
-                          </div>
-
-                          <p className="constructor-helper-text">
-                            Расчёт обновляется автоматически. Сейчас доступны
-                            контрольные варианты.
-                          </p>
-
-                          {unsupportedConstructorMessage ? (
-                            <p className="constructor-warning">
-                              {unsupportedConstructorMessage}
-                            </p>
-                          ) : null}
-
-                          {isFixtureLoading ? (
-                            <div className="constructor-result-card">
-                              Загружаем проверочный расчёт...
-                            </div>
-                          ) : fixtureError ? (
-                            <div className="error-card">{fixtureError}</div>
-                          ) : fixtureResult ? (
-                            <div className="constructor-result-card">
-                              <div className="constructor-result-header">
-                                <div>
-                                  <span>Итоговая цена</span>
-                                  <strong>
-                                    {fixtureResult.formattedTotalPrice}
-                                  </strong>
-                                </div>
-                                <div>
-                                  <span>LED count</span>
-                                  <strong>{fixtureResult.ledCount}</strong>
-                                </div>
-                              </div>
-
-                              <button
-                                className="primary-action-button constructor-add-button"
-                                onClick={handleAddConstructorItem}
-                                type="button"
-                              >
-                                Добавить в заказ
-                              </button>
-
-                              <div className="constructor-technical-panel">
-                                <button
-                                  className="secondary-action-button"
-                                  onClick={() =>
-                                    setIsConstructorTechnicalVisible(
-                                      (isVisible) => !isVisible
+                            <div className="office-constructor-row office-constructor-main-row">
+                              <label className="form-field">
+                                <span>Текст</span>
+                                <input
+                                  value={officeConstructorForm.text}
+                                  onChange={(event) =>
+                                    updateOfficeConstructorForm(
+                                      "text",
+                                      event.target.value
                                     )
                                   }
+                                />
+                              </label>
+
+                              <label className="form-field">
+                                <span>Высота, мм</span>
+                                <input
+                                  value={officeConstructorForm.heightMm}
+                                  onChange={(event) =>
+                                    updateOfficeConstructorForm(
+                                      "heightMm",
+                                      event.target.value
+                                    )
+                                  }
+                                />
+                              </label>
+
+                              <label className="form-field">
+                                <span>Режим</span>
+                                <select
+                                  value={officeConstructorForm.mode}
+                                  onChange={(event) =>
+                                    updateOfficeConstructorForm(
+                                      "mode",
+                                      event.target
+                                        .value as OfficeConstructorForm["mode"]
+                                    )
+                                  }
+                                >
+                                  <option value="light">Световая</option>
+                                  <option value="non-light">Несветовая</option>
+                                </select>
+                              </label>
+                            </div>
+
+                            <div className="office-constructor-row office-constructor-material-row">
+                              <div className="form-field color-picker-field color-picker-field-board">
+                              <span>Цвет борта</span>
+                              <button
+                                aria-expanded={openColorPalette === "board"}
+                                className="color-picker-trigger"
+                                onClick={() =>
+                                  setOpenColorPalette((current) =>
+                                    current === "board" ? null : "board"
+                                  )
+                                }
+                                title={getBoardTapeColorTooltipLabel(
+                                  officeConstructorForm.boardTapeColorName
+                                )}
+                                type="button"
+                              >
+                                <span
+                                  className="color-swatch"
+                                  style={{
+                                    backgroundColor: getBoardTapeColorHex(
+                                      officeConstructorForm.boardTapeColorName
+                                    )
+                                  }}
+                                />
+                                <span>
+                                  {getBoardTapeColorLabel(
+                                    officeConstructorForm.boardTapeColorName
+                                  )}
+                                </span>
+                              </button>
+
+                              {openColorPalette === "board" ? (
+                                <div
+                                  aria-label="Цвет борта"
+                                  className="color-palette-popover"
+                                  role="listbox"
+                                >
+                                  {boardTapeColorOptions.map((colorName) => (
+                                    <button
+                                      aria-selected={
+                                        colorName ===
+                                        officeConstructorForm.boardTapeColorName
+                                      }
+                                    className={
+                                      colorName ===
+                                      officeConstructorForm.boardTapeColorName
+                                        ? "palette-color-card palette-color-card-active"
+                                        : "palette-color-card"
+                                    }
+                                      key={colorName}
+                                      onClick={() =>
+                                        handleBoardTapeColorSelect(colorName)
+                                      }
+                                      type="button"
+                                    >
+                                      <span
+                                        className="palette-color-sample"
+                                        style={{
+                                          backgroundColor:
+                                            getBoardTapeColorHex(colorName)
+                                        }}
+                                      />
+                                      <span className="palette-color-label">
+                                        {getBoardTapeColorLabel(colorName)}
+                                      </span>
+                                    </button>
+                                  ))}
+                                </div>
+                              ) : null}
+                            </div>
+
+                              <label className="form-field">
+                              <span>Ширина борта</span>
+                              <select
+                                value={officeConstructorForm.boardWidthMm}
+                                onChange={(event) =>
+                                  handleBoardTapeWidthSelect(
+                                    Number(event.target.value)
+                                  )
+                                }
+                              >
+                                {boardTapeWidthOptions.map((widthMm) => (
+                                  <option key={widthMm} value={widthMm}>
+                                    {widthMm} мм
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+
+                              <label className="form-field">
+                              <span>Толщина борта</span>
+                              <select
+                                value={officeConstructorForm.boardThicknessMm}
+                                onChange={(event) =>
+                                  updateOfficeConstructorForm(
+                                    "boardThicknessMm",
+                                    Number(event.target.value)
+                                  )
+                                }
+                              >
+                                {boardTapeThicknessOptions.map((thicknessMm) => (
+                                  <option key={thicknessMm} value={thicknessMm}>
+                                    {thicknessMm} мм
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+
+                              <div className="form-field color-picker-field color-picker-field-face">
+                              <span>Цвет лица</span>
+                              <button
+                                aria-expanded={openColorPalette === "face"}
+                                className="color-picker-trigger"
+                                onClick={() =>
+                                  setOpenColorPalette((current) =>
+                                    current === "face" ? null : "face"
+                                  )
+                                }
+                                title={selectedFaceFilmOption.materialName}
+                                type="button"
+                              >
+                                <span
+                                  className={
+                                    selectedFaceFilmOption.colorCode ===
+                                    NO_FACE_FILM_COLOR_CODE
+                                      ? "color-swatch color-swatch-no-film"
+                                      : "color-swatch"
+                                  }
+                                  style={{
+                                    backgroundColor: getFaceFilmColorHex(
+                                      selectedFaceFilmOption.colorCode
+                                    )
+                                  }}
+                                />
+                                <span>
+                                  {getFaceFilmColorLabel(selectedFaceFilmOption)}
+                                </span>
+                              </button>
+
+                              {openColorPalette === "face" ? (
+                                <div
+                                  aria-label="Цвет лица"
+                                  className="color-palette-popover"
+                                  role="listbox"
+                                >
+                                  {faceFilmOptions.map((option) => (
+                                    <button
+                                      aria-selected={
+                                        option.colorCode ===
+                                        officeConstructorForm.faceFilmColorCode
+                                      }
+                                    className={
+                                      option.colorCode ===
+                                      officeConstructorForm.faceFilmColorCode
+                                        ? "palette-color-card palette-color-card-active"
+                                        : "palette-color-card"
+                                    }
+                                      key={option.colorCode}
+                                      onClick={() =>
+                                        handleFaceFilmColorSelect(
+                                          option.colorCode
+                                        )
+                                      }
+                                      type="button"
+                                    >
+                                      <span
+                                        className={
+                                          option.colorCode ===
+                                          NO_FACE_FILM_COLOR_CODE
+                                            ? "palette-color-sample palette-color-sample-no-film"
+                                            : "palette-color-sample"
+                                        }
+                                        style={{
+                                          backgroundColor: getFaceFilmColorHex(
+                                            option.colorCode
+                                          )
+                                        }}
+                                      />
+                                      <span className="palette-color-label">
+                                        {option.colorCode ===
+                                        NO_FACE_FILM_COLOR_CODE
+                                          ? "БЕЗ ПЛЁНКИ"
+                                          : getFaceFilmColorLabel(option)}
+                                      </span>
+                                    </button>
+                                  ))}
+                                </div>
+                              ) : null}
+                            </div>
+                            {currentCalculationError ? (
+                              <div className="constructor-result-card constructor-result-card-compact error-card">
+                                {currentCalculationError}
+                              </div>
+                            ) : currentCalculationResult ? (
+                              <div className="constructor-result-card constructor-result-card-compact">
+                                <div className="constructor-result-header">
+                                  <div>
+                                    <span>Цена</span>
+                                    <strong>
+                                      {currentCalculationResult.formattedPrice}
+                                    </strong>
+                                  </div>
+                                </div>
+
+                                <button
+                                  className="primary-action-button constructor-add-button"
+                                  onClick={handleSaveConstructorItem}
                                   type="button"
                                 >
-                                  {isConstructorTechnicalVisible
-                                    ? "Скрыть технические данные"
-                                    : "Показать технические данные"}
+                                  {editingDraftOrderItemId
+                                    ? "Обновить позицию"
+                                    : "Добавить позицию"}
                                 </button>
-
-                                {isConstructorTechnicalVisible ? (
-                                  <div className="constructor-result-grid">
-                                    <div>
-                                      <span>Baseline status</span>
-                                      <strong>
-                                        {fixtureResult.roundedTotalPriceMinorMatches
-                                          ? "совпал"
-                                          : "есть расхождение"}
-                                      </strong>
-                                    </div>
-                                    <div>
-                                      <span>Fixture id</span>
-                                      <strong>{fixtureResult.fixtureId}</strong>
-                                    </div>
-                                    <div>
-                                      <span>Mode</span>
-                                      <strong>{fixtureResult.mode}</strong>
-                                    </div>
-                                    <div>
-                                      <span>Face film cost</span>
-                                      <strong>
-                                        {fixtureResult.faceFilmCostMinor === null
-                                          ? "нет данных"
-                                          : formatMinorPrice(
-                                              fixtureResult.faceFilmCostMinor,
-                                              "RUB"
-                                            )}
-                                      </strong>
-                                    </div>
-                                    <div>
-                                      <span>LED matches</span>
-                                      <strong>
-                                        {fixtureResult.ledCountMatches
-                                          ? "да"
-                                          : "нет"}
-                                      </strong>
-                                    </div>
-                                    <div>
-                                      <span>Limitation</span>
-                                      <strong>{fixtureResult.limitation}</strong>
-                                    </div>
-                                  </div>
-                                ) : null}
                               </div>
+                            ) : (
+                              <div className="constructor-result-card constructor-result-card-compact">
+                                <p className="constructor-result-muted">
+                                  Расчёт недоступен
+                                </p>
+                              </div>
+                            )}
                             </div>
-                          ) : null}
-                        </section>
+                          </div>
+
+                          <section className="constructor-svg-preview-panel">
+                            <div className="section-heading">
+                              <h3>2D-preview</h3>
+                              <span>
+                                {officeConstructorForm.heightMm.trim() || "0"} мм
+                              </span>
+                            </div>
+
+                            <div className="constructor-svg-preview-canvas">
+                              {constructorPreviewMarkup ? (
+                                <div
+                                  className="constructor-svg-preview-markup"
+                                  dangerouslySetInnerHTML={{
+                                    __html: constructorPreviewMarkup
+                                  }}
+                                />
+                              ) : constructorPreviewError ? (
+                                <p className="constructor-warning">
+                                  {constructorPreviewError}
+                                </p>
+                              ) : (
+                                <p className="muted-text">Готовим SVG preview...</p>
+                              )}
+                            </div>
+
+                            <span className="constructor-preview-mode">
+                              {officeConstructorForm.mode === "light"
+                                ? "Световая"
+                                : "Несветовая"}
+                            </span>
+                          </section>
+
+                        </>
                       ) : null}
 
-                      <div className="accept-order-panel">
-                        <button
-                          className="primary-action-button"
-                          disabled={draftOrderItems.length === 0}
-                          onClick={() => setNewOrderStep("details")}
-                          type="button"
-                        >
-                          Принять заказ
-                        </button>
-                        <p>
-                          {draftOrderItems.length === 0
-                            ? "Добавьте хотя бы одну позицию заказа."
-                            : "Цена рассчитана. Можно перейти к оформлению заказа."}
-                        </p>
-                      </div>
                     </section>
-                  ) : (
-                    <section className="order-step-panel">
-                      <p className="eyebrow">2. Оформление</p>
-                      <h3>Оформление заказа</h3>
-                      <p>Заполните данные клиента и проверьте состав заказа.</p>
-
-                      <div className="order-details-summary">
-                        <div>
-                          <span>Позиций</span>
-                          <strong>{draftOrderItems.length}</strong>
-                        </div>
-                        <div>
-                          <span>Итого</span>
-                          <strong>
-                            {formatMinorPrice(draftOrderTotalMinor, "RUB")}
-                          </strong>
-                        </div>
-                      </div>
-
-                      <form
-                        className="order-form-grid"
-                        onSubmit={(event) => event.preventDefault()}
-                      >
-                        <label className="form-field">
-                          <span>Клиент</span>
-                          <input
-                            value={draftOrderForm.customerName}
-                            onChange={(event) =>
-                              updateDraftOrderForm(
-                                "customerName",
-                                event.target.value
-                              )
-                            }
-                            placeholder="Имя клиента или компания"
-                          />
-                        </label>
-
-                        <label className="form-field">
-                          <span>Телефон</span>
-                          <input
-                            value={draftOrderForm.phone}
-                            onChange={(event) =>
-                              updateDraftOrderForm("phone", event.target.value)
-                            }
-                            placeholder="+7..."
-                          />
-                        </label>
-
-                        <label className="form-field form-field-wide">
-                          <span>Комментарий к заказу</span>
-                          <textarea
-                            value={draftOrderForm.customerComment}
-                            onChange={(event) =>
-                              updateDraftOrderForm(
-                                "customerComment",
-                                event.target.value
-                              )
-                            }
-                            placeholder="Что важно учесть по заказу"
-                          />
-                        </label>
-                      </form>
-
-                      <div className="order-form-actions">
-                        <button
-                          className="secondary-action-button"
-                          onClick={() => setNewOrderStep("calculation")}
-                          type="button"
-                        >
-                          Вернуться к расчёту
-                        </button>
-                        <button
-                          className="primary-action-button"
-                          disabled
-                          title="Сохранение будет подключено после создания таблиц заказов и API"
-                          type="button"
-                        >
-                          Сохранить заказ
-                        </button>
-                        <p>
-                          Сохранение будет подключено после создания таблиц
-                          заказов и API.
-                        </p>
-                      </div>
-                    </section>
-                  )}
-
-                  {newOrderStep !== "start" || draftOrderItems.length > 0 ? (
-                    <>
-                      <section className="draft-items-panel">
-                        <div className="section-heading">
-                          <h3>Позиции заказа</h3>
-                          <span>Локальный черновик</span>
-                        </div>
-
-                        {draftOrderItems.length === 0 ? (
-                          <p className="draft-empty-text">
-                            Позиции пока не добавлены
-                          </p>
-                        ) : (
-                          <div className="draft-items-table-wrap">
-                            <table>
-                              <thead>
-                                <tr>
-                                  <th>№</th>
-                                  <th>Тип</th>
-                                  <th>Название</th>
-                                  <th>Цена</th>
-                                  <th>Статус</th>
-                                  <th></th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {draftOrderItems.map((item, index) => (
-                                  <tr key={item.id}>
-                                    <td>{index + 1}</td>
-                                    <td>{item.type}</td>
-                                    <td>
-                                      <strong>{item.title}</strong>
-                                      <small>
-                                        {item.fixtureId}, LED: {item.ledCount}
-                                      </small>
-                                      <small>{item.calculationSource}</small>
-                                    </td>
-                                    <td>{formatMinorPrice(item.priceMinor, "RUB")}</td>
-                                    <td>{item.baselineStatus}</td>
-                                    <td>
-                                      <button
-                                        className="text-action-button"
-                                        onClick={() =>
-                                          handleRemoveDraftOrderItem(item.id)
-                                        }
-                                        type="button"
-                                      >
-                                        Удалить
-                                      </button>
-                                    </td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
-                        )}
-
-                        <div className="draft-total-row">
-                          <span>Итого:</span>
-                          <strong>
-                            {formatMinorPrice(draftOrderTotalMinor, "RUB")}
-                          </strong>
-                        </div>
-
-                        <p className="constructor-warning">
-                          Черновик не сохраняется в базу. Сохранение будет
-                          подключено после создания таблиц заказов и API.
-                        </p>
-                      </section>
-
-                      <section className="technical-data-panel">
-                        <div>
-                          <p>
-                            Технические данные нужны только для разработки
-                            будущего API сохранения заказа.
-                          </p>
-                        </div>
-                        <button
-                          className="secondary-action-button"
-                          onClick={() =>
-                            setIsDraftJsonVisible((isVisible) => !isVisible)
-                          }
-                          type="button"
-                        >
-                          {isDraftJsonVisible
-                            ? "Скрыть технические данные"
-                            : "Показать технические данные"}
-                        </button>
-
-                        {isDraftJsonVisible ? (
-                          <pre className="order-draft-json">
-                            {JSON.stringify(draftOrderPayload, null, 2)}
-                          </pre>
-                        ) : null}
-                      </section>
-                    </>
                   ) : null}
+
                 </section>
               ) : null}
 
-              <div className="orders-workspace-grid">
-                <section className="orders-table-panel">
-                  <div className="section-heading">
-                    <h3>Список заказов</h3>
-                    <span>Mock / read-only</span>
-                  </div>
-
-                  <div className="orders-table-wrap">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>№</th>
-                          <th>Источник</th>
-                          <th>Клиент</th>
-                          <th>Заказ</th>
-                          <th>Статус</th>
-                          <th>Сумма</th>
-                          <th>Дата</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr className="empty-row">
-                          <td colSpan={7}>
-                            Заказов пока нет. Позже здесь появятся заказы с
-                            сайта, ручные заказы и заказы из других каналов.
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </section>
-
-                <aside className="order-sources-panel">
-                  <p className="eyebrow">Источники заказов</p>
-                  <div className="order-source-list">
-                    {diezOrderSources.map((source) => (
-                      <div className="order-source-item" key={source}>
-                        <span>{source}</span>
-                      </div>
-                    ))}
-                  </div>
-                  <p>
-                    Ozon не смешивается с текущим экраном заказов Диез Имидж.
-                    Ozon-заказы будут отдельным каналом/модулем позже.
-                  </p>
-                </aside>
-              </div>
             </section>
           ) : isOzonWorkspaceSection ? (
             <section className="dashboard-panel">
