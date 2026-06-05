@@ -125,3 +125,31 @@
 * База `diez-data-core` не изменялась.
 * Миграции не создавались.
 * Зависимости не устанавливались.
+
+## Office order workflow decisions
+
+### Documented
+
+- `+ Новый заказ` starts with service selection.
+- The active service is `ОБЪЁМНЫЕ БУКВЫ`.
+- Future services include DTF printing, wide-format printing, and other services as needed.
+- The app must not open the customer form or constructor before service selection.
+- `ОБЪЁМНЫЕ БУКВЫ` is documented as a separate office calculation screen, not a copy of the customer site UI.
+- The service header format is `< | ОБЪЁМНЫЕ БУКВЫ`.
+- The back arrow returns to service selection; `Закрыть` is not needed inside the service screen.
+- The left `Лента` is documented as a future feed for order/draft cards, messages, tasks, and events, not as a menu and not as a position list.
+- The future draft flow is documented: calculate service, add position, update draft card in feed, open details later.
+- Office board tape selection is documented as color, width, and thickness from real material data.
+- Customer-site board tape restrictions must not be used as hidden office restrictions.
+- `diez-data-core` remains the material source of truth.
+- DTF is documented as a future service that must use `@diez/calculation-core/print` from `diez-shared-core`.
+- Shared formula rule is documented: site and desktop must not keep separate formula copies.
+
+### Not changed
+
+- Code was not changed.
+- UI was not changed.
+- `diez-site` was not changed.
+- `diez-shared-core` was not changed.
+- `diez-data-core` was not changed.
+- Migrations were not created.

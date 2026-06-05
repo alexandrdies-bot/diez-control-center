@@ -763,3 +763,124 @@ D:\_ProjectHome\diez-control-center
 * создавать миграции;
 * писать данные через API;
 * хранить реальные секреты в коде или desktop-клиенте.
+
+## Office Order Workflow Decisions
+
+### New order service selection
+
+`+ Новый заказ` must start with service selection.
+
+The currently active service is `ОБЪЁМНЫЕ БУКВЫ`.
+
+Future services are added only when needed, for example:
+
+- `DTF-ПЕЧАТЬ`;
+- `ШИРОКОФОРМАТНАЯ ПЕЧАТЬ`;
+- other services.
+
+The app must not open the customer form or a constructor directly before a service is selected.
+
+### ОБЪЁМНЫЕ БУКВЫ
+
+`ОБЪЁМНЫЕ БУКВЫ` is a separate office calculation screen for one service.
+
+The office UI does not have to copy the customer site one-to-one, but calculation behavior must use existing site/shared-core logic instead of handmade duplicate formulas.
+
+The screen contains:
+
+- text;
+- height;
+- lighting mode;
+- board tape color;
+- board tape width;
+- board tape thickness;
+- face color / film;
+- 2D preview;
+- price;
+- `Добавить позицию`.
+
+### Service navigation
+
+Inside a service screen the header format is:
+
+```text
+< | ОБЪЁМНЫЕ БУКВЫ
+```
+
+The `<` arrow returns to service selection.
+
+The `Закрыть` button is not needed inside the service screen.
+
+The order оформлениe step is not implemented at this stage.
+
+### Left feed
+
+The left `Лента` panel is not a menu.
+
+It is reserved for future:
+
+- new orders;
+- draft orders;
+- messages;
+- tasks;
+- events.
+
+The feed should show a common order/draft block, not a list of positions. Order details, positions, delivery, customer data, and checkout should open later from the order block.
+
+### Positions and checkout
+
+Current work is focused on calculation and adding a position.
+
+Later flow:
+
+1. Manager calculates a service.
+2. Manager clicks `Добавить позицию`.
+3. A common draft order card appears or updates in the left feed.
+4. Clicking the card opens draft order details.
+5. Details will contain positions, editing, customer, delivery, and checkout.
+
+Customer checkout and database saving are not implemented yet.
+
+### Board tape in office UI
+
+For office calculations board tape parameters are:
+
+- color;
+- width;
+- thickness.
+
+Unlike the customer site, the office app should show managers real available options from the material directory. Customer-site restrictions must not become hidden office restrictions.
+
+The source of truth for materials is `diez-data-core`.
+
+If an option does not exist in the data, it must not be manually drawn into the UI.
+
+### DTF
+
+The DTF formula from the site has been moved to the shared package:
+
+```text
+D:\_ProjectHome\diez-shared-core\packages\calculation-core
+```
+
+The site already uses the shared DTF formula through `@diez/calculation-core/print`.
+
+The desktop app must use the same shared formula and must not keep a separate DTF formula copy.
+
+The DTF screen in the desktop app will be added later as a separate service in service selection. Do not copy the customer `/dtf` site page one-to-one into the office app.
+
+Office DTF needs a working calculation flow:
+
+- size;
+- quantity;
+- price;
+- total;
+- add position.
+
+### Shared formula rule
+
+Calculation formulas must not be duplicated between the site and the desktop app.
+
+Shared calculation code must live in `diez-shared-core`.
+
+The site and desktop app must use the shared calculation layer. If a formula changes, it changes in one place.

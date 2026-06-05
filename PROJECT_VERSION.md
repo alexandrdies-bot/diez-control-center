@@ -418,3 +418,23 @@ last sync: 2026-05-31 18:40
 ## Versioning rule
 
 Версии программы должны фиксироваться здесь и в `CHANGELOG.md`.
+
+## Current office order workflow direction
+
+Current decision: `+ Новый заказ` starts with service selection, not with a customer form and not with a constructor.
+
+Active service now: `ОБЪЁМНЫЕ БУКВЫ`.
+
+Future services may include `DTF-ПЕЧАТЬ`, `ШИРОКОФОРМАТНАЯ ПЕЧАТЬ`, and other services.
+
+`ОБЪЁМНЫЕ БУКВЫ` is an office calculation screen with text, height, lighting mode, board color, board width, board thickness, face color/film, 2D preview, price, and `Добавить позицию`.
+
+Navigation inside the service uses `< | ОБЪЁМНЫЕ БУКВЫ`; the arrow returns to service selection. The `Закрыть` button is not needed inside the service screen. Checkout/customer details are not implemented at this stage.
+
+The left `Лента` is not a menu. It is reserved for common order/draft cards, messages, tasks, and events. It should show the order draft as a whole, not separate positions.
+
+Office board tape selection must use real available material data: color, width, and thickness. The office app must not inherit customer-site hidden restrictions. `diez-data-core` remains the material source of truth.
+
+DTF pricing has moved to `diez-shared-core/packages/calculation-core`; the site uses it through `@diez/calculation-core/print`. Desktop DTF must later use the same shared formula as a separate service, without copying the customer `/dtf` page.
+
+Formula rule: calculation formulas must live in one shared place, `diez-shared-core`, and must not be duplicated separately in site and desktop.
