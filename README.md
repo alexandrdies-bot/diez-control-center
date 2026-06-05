@@ -884,3 +884,21 @@ Calculation formulas must not be duplicated between the site and the desktop app
 Shared calculation code must live in `diez-shared-core`.
 
 The site and desktop app must use the shared calculation layer. If a formula changes, it changes in one place.
+
+## Office DTF Service
+
+`DTF-ПЕЧАТЬ` is now active in the `+ Новый заказ` service selection.
+
+The desktop screen is an office workflow, not a copy of the customer `/dtf` page. It currently supports:
+
+- width;
+- height;
+- quantity;
+- A3 `300×400 мм` preset;
+- unit price;
+- total price;
+- adding a local draft order position.
+
+The DTF calculation uses the shared package `@diez/calculation-core/print`.
+
+The desktop app must not keep a separate DTF formula copy. Database saving is not connected yet.

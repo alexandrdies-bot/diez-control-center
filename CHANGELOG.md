@@ -142,7 +142,10 @@
 - Office board tape selection is documented as color, width, and thickness from real material data.
 - Customer-site board tape restrictions must not be used as hidden office restrictions.
 - `diez-data-core` remains the material source of truth.
-- DTF is documented as a future service that must use `@diez/calculation-core/print` from `diez-shared-core`.
+- DTF is documented as an active office service that uses `@diez/calculation-core/print` from `diez-shared-core`.
+- Added the first desktop `DTF-ПЕЧАТЬ` service screen in `+ Новый заказ`.
+- The DTF screen supports width, height, quantity, A3 `300×400 мм` preset, unit price, total price, and local draft position creation.
+- The desktop DTF flow does not copy the customer `/dtf` page and does not create a separate formula.
 - Shared formula rule is documented: site and desktop must not keep separate formula copies.
 
 ### Not changed

@@ -780,6 +780,85 @@ tbody tr {
   align-content: start;
 }
 
+.dtf-service-workspace {
+  max-width: 1120px;
+}
+
+.dtf-calculation-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 14px;
+  align-items: stretch;
+}
+
+.dtf-fields-card,
+.dtf-result-card {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.dtf-form-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(110px, 1fr)) auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.dtf-preset-button {
+  min-height: 44px;
+}
+
+.dtf-result-card {
+  align-content: start;
+}
+
+.dtf-result-card > div:first-child span {
+  display: block;
+  margin-bottom: 4px;
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 13px;
+}
+
+.dtf-result-card > div:first-child strong {
+  color: #ffffff;
+  font-size: 28px;
+  line-height: 1.1;
+}
+
+.dtf-result-list {
+  display: grid;
+  gap: 9px;
+  margin: 0;
+}
+
+.dtf-result-list div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.dtf-result-list dt,
+.dtf-result-list dd {
+  margin: 0;
+  font-size: 13px;
+}
+
+.dtf-result-list dt {
+  color: rgba(255, 255, 255, 0.58);
+}
+
+.dtf-result-list dd {
+  color: rgba(255, 255, 255, 0.9);
+  font-weight: 700;
+  text-align: right;
+}
+
 .primary-action-button {
   flex: 0 0 auto;
   padding: 12px 16px;
@@ -1604,6 +1683,7 @@ tbody tr {
   .dashboard-zone-grid,
   .dashboard-card-grid,
   .dashboard-bottom-grid,
+  .dtf-calculation-panel,
   .order-type-grid,
   .office-constructor-fields,
   .office-constructor-row,
@@ -1633,6 +1713,10 @@ tbody tr {
 
   .constructor-result-card-compact .constructor-add-button {
     width: 100%;
+  }
+
+  .dtf-form-grid {
+    grid-template-columns: 1fr;
   }
 
   .details-panel {

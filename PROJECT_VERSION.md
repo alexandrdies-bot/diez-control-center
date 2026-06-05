@@ -435,6 +435,14 @@ The left `Лента` is not a menu. It is reserved for common order/draft cards
 
 Office board tape selection must use real available material data: color, width, and thickness. The office app must not inherit customer-site hidden restrictions. `diez-data-core` remains the material source of truth.
 
-DTF pricing has moved to `diez-shared-core/packages/calculation-core`; the site uses it through `@diez/calculation-core/print`. Desktop DTF must later use the same shared formula as a separate service, without copying the customer `/dtf` page.
+DTF pricing has moved to `diez-shared-core/packages/calculation-core`; the site uses it through `@diez/calculation-core/print`. Desktop DTF now uses the same shared formula as a separate service, without copying the customer `/dtf` page.
+
+## Current DTF desktop status
+
+`DTF-ПЕЧАТЬ` is active in `+ Новый заказ`.
+
+The first office DTF screen includes width, height, quantity, the A3 `300×400 мм` preset, unit price, total price, and local draft position creation.
+
+The calculation imports from `@diez/calculation-core/print`. Database saving and order checkout are not connected yet.
 
 Formula rule: calculation formulas must live in one shared place, `diez-shared-core`, and must not be duplicated separately in site and desktop.

@@ -21,6 +21,10 @@ import {
   shouldUseKonstruktorFaceFilm
 } from "@diez/calculation-core";
 import {
+  calculateDtfA3PrintCostBreakdown,
+  formatPrintPriceMinor
+} from "@diez/calculation-core/print";
+import {
   DEFAULT_BOARD_TAPE_OPTION,
   getBoardTapeColorHex,
   getBoardTapeColorLabel,
@@ -181,21 +185,27 @@ const diezOrderStatuses = [
 
 type DraftOrderItem = {
   id: string;
-  type: "Конструктор объёмных букв";
+  serviceType: "light-letter" | "dtf-print";
+  type: "Конструктор объёмных букв" | "DTF-печать";
   title: string;
-  text: string;
-  heightMm: string;
-  lightingMode: OfficeConstructorForm["mode"];
-  boardTapeColorName: string;
-  boardWidthMm: number;
-  boardThicknessMm: number;
-  resolvedBoardTapeMaterialName: string;
-  resolvedBoardTapeThicknessMm: number;
-  faceFilmColorCode: string;
-  faceFilmLabel: string;
+  text?: string;
+  heightMm?: string;
+  lightingMode?: OfficeConstructorForm["mode"];
+  boardTapeColorName?: string;
+  boardWidthMm?: number;
+  boardThicknessMm?: number;
+  resolvedBoardTapeMaterialName?: string;
+  resolvedBoardTapeThicknessMm?: number;
+  faceFilmColorCode?: string;
+  faceFilmLabel?: string;
+  widthCm?: number;
+  heightCm?: number;
+  quantity?: number;
+  areaM2?: number;
+  totalPriceMinor?: number;
   priceMinor: number;
   formattedPrice: string;
-  ledCount: number;
+  ledCount?: number;
   calculationId: string;
   baselineStatus: string;
   checkMode: string;
@@ -224,7 +234,13 @@ type OfficeConstructorForm = {
   faceFilmColorCode: string;
 };
 
-type NewOrderStep = "start" | "calculation" | "details";
+type DtfPrintForm = {
+  widthCm: string;
+  heightCm: string;
+  quantity: string;
+};
+
+type NewOrderStep = "start" | "calculation" | "dtf-print" | "details";
 
 type OfficeConstructorCalculationResult = {
   calculationId: string;
@@ -236,11 +252,46 @@ type OfficeConstructorCalculationResult = {
   source: "office-real-calculation";
 };
 
+type DtfPrintCalculationResult = {
+  areaM2: number;
+  calculationId: string;
+  formattedPrice: string;
+  formattedUnitPrice: string;
+  heightCm: number;
+  priceMinor: number;
+  quantity: number;
+  unitPriceMinor: number;
+  widthCm: number;
+};
+
 function formatMinorPrice(value: number, currencyCode: string) {
   return `${(value / 100).toLocaleString("ru-RU", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
   })} ${currencyCode}`;
+}
+
+const DTF_A3_WIDTH_CM = 30;
+const DTF_A3_HEIGHT_CM = 40;
+const DTF_A3_AREA_M2 = 0.3 * 0.4;
+
+function parsePositiveNumber(value: string, fallback: number) {
+  const parsed = Number(value.replace(",", "."));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function formatCompactNumber(value: number) {
+  return value.toLocaleString("ru-RU", {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: Number.isInteger(value) ? 0 : 1
+  });
+}
+
+function formatAreaM2(value: number) {
+  return value.toLocaleString("ru-RU", {
+    maximumFractionDigits: 3,
+    minimumFractionDigits: 3
+  });
 }
 
 function fitKonstruktorPreviewMarkupToLayout(
@@ -319,6 +370,11 @@ function App() {
       boardThicknessMm: DEFAULT_BOARD_TAPE_OPTION.thicknessMm,
       faceFilmColorCode: DEFAULT_FACE_FILM_OPTION.colorCode
     });
+  const [dtfPrintForm, setDtfPrintForm] = useState<DtfPrintForm>({
+    heightCm: String(DTF_A3_HEIGHT_CM),
+    quantity: "1",
+    widthCm: String(DTF_A3_WIDTH_CM)
+  });
   const [draftOrderForm, setDraftOrderForm] = useState<DraftOrderForm>({
     source: "manual",
     customerName: "",
@@ -429,29 +485,41 @@ function App() {
       status: draftOrderForm.status,
       estimatedAmountText: draftOrderForm.estimatedAmount || null,
       requestedWork: draftOrderForm.itemDescription || null,
-        items: draftOrderItems.map((item) => ({
-          type: item.type,
-          title: item.title,
-          priceMinor: item.priceMinor,
-          formattedPrice: item.formattedPrice,
-          text: item.text,
-          heightMm: item.heightMm,
-          lightingMode: item.lightingMode,
-          boardTapeColorName: item.boardTapeColorName,
-          boardWidthMm: item.boardWidthMm,
-          boardThicknessMm: item.boardThicknessMm,
-          resolvedBoardTape: {
-            materialName: item.resolvedBoardTapeMaterialName,
-            thicknessMm: item.resolvedBoardTapeThicknessMm
-          },
-          faceFilmColorCode: item.faceFilmColorCode,
-          faceFilmLabel: item.faceFilmLabel,
-          calculationData: {
-            source: item.calculationSource,
-            calculationId: item.calculationId,
-            ledCount: item.ledCount,
-            baselineStatus: item.baselineStatus,
-            checkMode: item.checkMode
+      items: draftOrderItems.map((item) => ({
+        type: item.type,
+        serviceType: item.serviceType,
+        title: item.title,
+        priceMinor: item.priceMinor,
+        formattedPrice: item.formattedPrice,
+        text: item.text,
+        heightMm: item.heightMm,
+        lightingMode: item.lightingMode,
+        boardTapeColorName: item.boardTapeColorName,
+        boardWidthMm: item.boardWidthMm,
+        boardThicknessMm: item.boardThicknessMm,
+        resolvedBoardTape: item.resolvedBoardTapeMaterialName
+          ? {
+              materialName: item.resolvedBoardTapeMaterialName,
+              thicknessMm: item.resolvedBoardTapeThicknessMm
+            }
+          : null,
+        faceFilmColorCode: item.faceFilmColorCode,
+        faceFilmLabel: item.faceFilmLabel,
+        dtfPrint: item.serviceType === "dtf-print"
+          ? {
+              areaM2: item.areaM2,
+              heightCm: item.heightCm,
+              quantity: item.quantity,
+              totalPriceMinor: item.totalPriceMinor,
+              widthCm: item.widthCm
+            }
+          : null,
+        calculationData: {
+          source: item.calculationSource,
+          calculationId: item.calculationId,
+          ledCount: item.ledCount,
+          baselineStatus: item.baselineStatus,
+          checkMode: item.checkMode
         }
       })),
       totalAmountMinor: draftOrderTotalMinor
@@ -620,6 +688,36 @@ function App() {
   const currentCalculationResult = officeCalculation.result;
   const currentCalculationError = officeCalculation.error;
 
+  const dtfPrintCalculation = useMemo<DtfPrintCalculationResult>(() => {
+    const widthCm = parsePositiveNumber(dtfPrintForm.widthCm, DTF_A3_WIDTH_CM);
+    const heightCm = parsePositiveNumber(dtfPrintForm.heightCm, DTF_A3_HEIGHT_CM);
+    const quantity = Math.max(
+      1,
+      Math.ceil(parsePositiveNumber(dtfPrintForm.quantity, 1))
+    );
+    const areaM2 = (widthCm / 100) * (heightCm / 100);
+    const baseBreakdown = calculateDtfA3PrintCostBreakdown({
+      commercialMarginPercent: 10,
+      printCount: 1
+    });
+    const unitPriceMinor = Math.round(
+      baseBreakdown.totalPricePerPrintMinor * (areaM2 / DTF_A3_AREA_M2)
+    );
+    const priceMinor = unitPriceMinor * quantity;
+
+    return {
+      areaM2,
+      calculationId: `dtf-${Date.now()}`,
+      formattedPrice: formatPrintPriceMinor(priceMinor),
+      formattedUnitPrice: formatPrintPriceMinor(unitPriceMinor),
+      heightCm,
+      priceMinor,
+      quantity,
+      unitPriceMinor,
+      widthCm
+    };
+  }, [dtfPrintForm.heightCm, dtfPrintForm.quantity, dtfPrintForm.widthCm]);
+
   useEffect(() => {
     if (!isConstructorPanelOpen) {
       setConstructorPreviewMarkup(null);
@@ -726,11 +824,22 @@ function App() {
     setIsConstructorPanelOpen(false);
     setEditingDraftOrderItemId(null);
     setDraftOrderItems([]);
+    setDtfPrintForm({
+      heightCm: String(DTF_A3_HEIGHT_CM),
+      quantity: "1",
+      widthCm: String(DTF_A3_WIDTH_CM)
+    });
   }
 
   function handleStartVolumeLettersCalculation() {
     setNewOrderStep("calculation");
     setIsConstructorPanelOpen(true);
+    setEditingDraftOrderItemId(null);
+  }
+
+  function handleStartDtfPrintCalculation() {
+    setNewOrderStep("dtf-print");
+    setIsConstructorPanelOpen(false);
     setEditingDraftOrderItemId(null);
   }
 
@@ -751,6 +860,24 @@ function App() {
     setOfficeConstructorForm((current) => ({
       ...current,
       [field]: value
+    }));
+  }
+
+  function updateDtfPrintForm<Field extends keyof DtfPrintForm>(
+    field: Field,
+    value: DtfPrintForm[Field]
+  ) {
+    setDtfPrintForm((current) => ({
+      ...current,
+      [field]: value
+    }));
+  }
+
+  function handleSetDtfA3Preset() {
+    setDtfPrintForm((current) => ({
+      ...current,
+      heightCm: String(DTF_A3_HEIGHT_CM),
+      widthCm: String(DTF_A3_WIDTH_CM)
     }));
   }
 
@@ -808,6 +935,7 @@ function App() {
 
     return {
       id,
+      serviceType: "light-letter",
       type: "Конструктор объёмных букв",
       title: `${modeLabel} ${text} ${officeConstructorForm.heightMm} мм`,
       text: officeConstructorForm.text,
@@ -827,6 +955,32 @@ function App() {
       baselineStatus: "real calculation",
       checkMode: "real",
       calculationSource: result.source
+    };
+  }
+
+  function createDtfDraftOrderItem(
+    id: string,
+    result: DtfPrintCalculationResult
+  ): DraftOrderItem {
+    const widthLabel = formatCompactNumber(result.widthCm);
+    const heightLabel = formatCompactNumber(result.heightCm);
+
+    return {
+      id,
+      serviceType: "dtf-print",
+      type: "DTF-печать",
+      title: `DTF-печать ${widthLabel}×${heightLabel} см, ${result.quantity} шт.`,
+      widthCm: result.widthCm,
+      heightCm: result.heightCm,
+      quantity: result.quantity,
+      areaM2: result.areaM2,
+      priceMinor: result.priceMinor,
+      totalPriceMinor: result.priceMinor,
+      formattedPrice: result.formattedPrice,
+      calculationId: result.calculationId,
+      baselineStatus: "shared calculation",
+      checkMode: "dtf-print",
+      calculationSource: "@diez/calculation-core/print"
     };
   }
 
@@ -855,6 +1009,16 @@ function App() {
       createConstructorDraftOrderItem(
         `office-calculation-${Date.now()}-${items.length}`,
         currentCalculationResult
+      )
+    ]);
+  }
+
+  function handleSaveDtfPrintItem() {
+    setDraftOrderItems((items) => [
+      ...items,
+      createDtfDraftOrderItem(
+        `dtf-print-${Date.now()}-${items.length}`,
+        dtfPrintCalculation
       )
     ]);
   }
@@ -890,14 +1054,21 @@ function App() {
   }
 
   function handleEditDraftOrderItem(item: DraftOrderItem) {
+    if (item.serviceType !== "light-letter") {
+      return;
+    }
+
     setOfficeConstructorForm({
-      boardTapeColorName: item.boardTapeColorName,
-      boardWidthMm: item.boardWidthMm,
-      boardThicknessMm: item.boardThicknessMm,
-      faceFilmColorCode: item.faceFilmColorCode,
-      heightMm: item.heightMm,
-      mode: item.lightingMode,
-      text: item.text
+      boardTapeColorName:
+        item.boardTapeColorName ?? DEFAULT_BOARD_TAPE_OPTION.colorName,
+      boardWidthMm: item.boardWidthMm ?? DEFAULT_BOARD_TAPE_OPTION.widthMm,
+      boardThicknessMm:
+        item.boardThicknessMm ?? DEFAULT_BOARD_TAPE_OPTION.thicknessMm,
+      faceFilmColorCode:
+        item.faceFilmColorCode ?? DEFAULT_FACE_FILM_OPTION.colorCode,
+      heightMm: item.heightMm ?? "300",
+      mode: item.lightingMode ?? "light",
+      text: item.text ?? "ДИЕЗ"
     });
     setEditingDraftOrderItemId(item.id);
     setIsNewOrderFormOpen(true);
@@ -1180,13 +1351,15 @@ function App() {
                             {index + 1}. {item.title}
                           </span>
                           <strong>{item.formattedPrice}</strong>
-                          <button
-                            className="text-action-button"
-                            onClick={() => handleEditDraftOrderItem(item)}
-                            type="button"
-                          >
-                            Редактировать
-                          </button>
+                          {item.serviceType === "light-letter" ? (
+                            <button
+                              className="text-action-button"
+                              onClick={() => handleEditDraftOrderItem(item)}
+                              type="button"
+                            >
+                              Редактировать
+                            </button>
+                          ) : null}
                           <button
                             className="text-action-button text-action-danger"
                             onClick={() => handleRemoveDraftOrderItem(item.id)}
@@ -1244,7 +1417,11 @@ function App() {
                           &lt;
                         </button>
                         <span>|</span>
-                        <h3>ОБЪЁМНЫЕ БУКВЫ</h3>
+                        <h3>
+                          {newOrderStep === "dtf-print"
+                            ? "DTF-ПЕЧАТЬ"
+                            : "ОБЪЁМНЫЕ БУКВЫ"}
+                        </h3>
                       </div>
                     )}
                     {newOrderStep === "start" ? (
@@ -1285,9 +1462,20 @@ function App() {
                           </button>
                         </article>
 
-                        <article className="order-type-card order-type-card-disabled">
-                          <h4>DTF-ПЕЧАТЬ</h4>
-                          <p>Будет добавлено позже</p>
+                        <article className="order-type-card order-type-card-active">
+                          <div>
+                            <h4>DTF-ПЕЧАТЬ</h4>
+                            <p>
+                              Расчёт DTF-печати по размеру и количеству.
+                            </p>
+                          </div>
+                          <button
+                            className="primary-action-button"
+                            onClick={handleStartDtfPrintCalculation}
+                            type="button"
+                          >
+                            Выбрать
+                          </button>
                         </article>
 
                         <article className="order-type-card order-type-card-disabled">
@@ -1610,6 +1798,106 @@ function App() {
                         </>
                       ) : null}
 
+                    </section>
+                  ) : newOrderStep === "dtf-print" ? (
+                    <section className="service-workspace dtf-service-workspace">
+                      <div className="dtf-calculation-panel">
+                        <section className="dtf-fields-card">
+                          <div className="section-heading">
+                            <h3>Параметры DTF</h3>
+                          </div>
+
+                          <div className="dtf-form-grid">
+                            <label className="form-field">
+                              <span>Ширина, см</span>
+                              <input
+                                inputMode="decimal"
+                                min="1"
+                                type="number"
+                                value={dtfPrintForm.widthCm}
+                                onChange={(event) =>
+                                  updateDtfPrintForm(
+                                    "widthCm",
+                                    event.target.value
+                                  )
+                                }
+                              />
+                            </label>
+
+                            <label className="form-field">
+                              <span>Высота, см</span>
+                              <input
+                                inputMode="decimal"
+                                min="1"
+                                type="number"
+                                value={dtfPrintForm.heightCm}
+                                onChange={(event) =>
+                                  updateDtfPrintForm(
+                                    "heightCm",
+                                    event.target.value
+                                  )
+                                }
+                              />
+                            </label>
+
+                            <label className="form-field">
+                              <span>Количество</span>
+                              <input
+                                inputMode="numeric"
+                                min="1"
+                                type="number"
+                                value={dtfPrintForm.quantity}
+                                onChange={(event) =>
+                                  updateDtfPrintForm(
+                                    "quantity",
+                                    event.target.value
+                                  )
+                                }
+                              />
+                            </label>
+
+                            <button
+                              className="secondary-action-button dtf-preset-button"
+                              onClick={handleSetDtfA3Preset}
+                              type="button"
+                            >
+                              A3 300×400 мм
+                            </button>
+                          </div>
+                        </section>
+
+                        <section className="dtf-result-card">
+                          <div>
+                            <span>Итого</span>
+                            <strong>{dtfPrintCalculation.formattedPrice}</strong>
+                          </div>
+
+                          <dl className="dtf-result-list">
+                            <div>
+                              <dt>Площадь одного отпечатка</dt>
+                              <dd>
+                                {formatAreaM2(dtfPrintCalculation.areaM2)} м²
+                              </dd>
+                            </div>
+                            <div>
+                              <dt>Количество</dt>
+                              <dd>{dtfPrintCalculation.quantity}</dd>
+                            </div>
+                            <div>
+                              <dt>Цена за единицу</dt>
+                              <dd>{dtfPrintCalculation.formattedUnitPrice}</dd>
+                            </div>
+                          </dl>
+
+                          <button
+                            className="primary-action-button constructor-add-button"
+                            onClick={handleSaveDtfPrintItem}
+                            type="button"
+                          >
+                            Добавить позицию
+                          </button>
+                        </section>
+                      </div>
                     </section>
                   ) : null}
 
