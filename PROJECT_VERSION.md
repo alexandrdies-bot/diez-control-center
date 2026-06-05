@@ -446,3 +446,37 @@ The first office DTF screen includes width, height, quantity, the A3 `300×400 �
 The calculation imports from `@diez/calculation-core/print`. Database saving and order checkout are not connected yet.
 
 Formula rule: calculation formulas must live in one shared place, `diez-shared-core`, and must not be duplicated separately in site and desktop.
+
+## Future MAX + AI assistant integration
+
+Future module: MAX must be a communication channel for an AI assistant, not a script-only bot with fixed questions and answers.
+
+Planned flow:
+
+```text
+Клиент пишет в MAX
+-> MAX-бот принимает сообщение / фото / файл
+-> backend/API сохраняет обращение и вложения
+-> AI-модуль анализирует сообщение
+-> ПК-программа показывает менеджеру диалог, вложения и черновик заявки/заказа
+```
+
+Architecture decisions:
+
+* MAX is the communication channel.
+* AI is responsible for request analysis, draft replies, clarification questions, and draft order preparation.
+* Backend/API and the shared database store messages, files, customers, and future draft orders.
+* The desktop app is the manager workspace and must not listen to MAX directly.
+* MAX integration must go through backend/API webhooks so messages are not lost when the manager PC is off.
+* AI provider must be replaceable: OpenAI API, DeepSeek API, local Ollama/local model later.
+* Do not hard-bind the system to one AI provider.
+
+Planned AI modes:
+
+```text
+1 этап: ИИ готовит черновик ответа, менеджер проверяет и отправляет.
+2 этап: ИИ сам отвечает на простые вопросы, сложные заявки передаёт менеджеру.
+3 этап: ИИ помогает автоматически собирать черновик заказа.
+```
+
+Implementation is not started now; this is documented as a future module.

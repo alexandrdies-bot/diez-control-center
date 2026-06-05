@@ -156,3 +156,24 @@
 - `diez-shared-core` was not changed.
 - `diez-data-core` was not changed.
 - Migrations were not created.
+
+## Future MAX AI assistant integration
+
+### Documented
+
+- MAX is documented as a future communication channel for an AI assistant, not a fixed script-only bot.
+- Future flow is documented: MAX message/file intake -> backend/API persistence -> AI analysis -> desktop manager workspace with dialog, attachments, and draft request/order.
+- The desktop app must not listen to MAX directly; MAX must integrate through backend/API webhooks so messages are not lost when a manager PC is off.
+- Future AI capabilities are documented: request type detection, order parameter extraction, draft replies, draft requests/orders, and clarification questions.
+- AI operation stages are documented: manager-reviewed draft replies, simple autonomous answers with manager handoff, and draft order assembly.
+- AI provider must be replaceable: OpenAI API, DeepSeek API, local Ollama/local model later.
+- The module is documented as future work only.
+
+### Not changed
+
+- Code was not changed.
+- UI was not changed.
+- `diez-site` was not changed.
+- `diez-shared-core` was not changed.
+- `diez-data-core` was not changed.
+- Migrations were not created.
