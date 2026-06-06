@@ -480,3 +480,18 @@ Planned AI modes:
 ```
 
 Implementation is not started now; this is documented as a future module.
+
+## API production readiness
+
+`apps/api` now has production scripts:
+
+```text
+pnpm --filter @diez/api build
+pnpm --filter @diez/api start
+```
+
+The build script uses `tsconfig.build.json` and emits compiled API files to `apps/api/dist`.
+
+Debug calculation endpoints are disabled in production by default. They are available only when `DEBUG_ENDPOINTS_ENABLED=true` is set explicitly, or when `NODE_ENV` is not `production`.
+
+This does not deploy the API. A full production env strategy is still required before real server deployment, including `DATABASE_URL`, `API_HOST`, and `API_PORT`.

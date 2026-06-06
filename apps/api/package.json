@@ -4,8 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
     "dev": "tsx src/server.ts",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+    "start": "node dist/server.js"
   },
   "dependencies": {
     "@diez/calculation-core": "file:../../../diez-shared-core/packages/calculation-core",

@@ -943,3 +943,39 @@ AI-провайдер должен быть заменяемым: OpenAI API, De
 Архитектурное правило: ПК-программа не должна напрямую слушать MAX. MAX должен приходить на backend/API через webhook/интеграцию. Если ПК менеджера выключен, сообщения не должны теряться. Все сообщения и вложения должны сохраняться через будущую общую систему заказов/клиентов.
 
 Это future module. Реализация сейчас не выполняется.
+
+## API Production Build
+
+`apps/api` has production scripts:
+
+```text
+pnpm --filter @diez/api build
+pnpm --filter @diez/api start
+```
+
+`build` compiles TypeScript from `apps/api/src` to `apps/api/dist`.
+
+`start` runs:
+
+```text
+node dist/server.js
+```
+
+Debug calculation endpoints are disabled in production by default:
+
+```text
+/debug/calculation/simple-light-text-diez-300
+/debug/calculation/fixtures/:fixtureId
+```
+
+They are registered only when:
+
+```text
+DEBUG_ENDPOINTS_ENABLED=true
+```
+
+or when `NODE_ENV` is not `production`.
+
+For real server deployment, production env strategy is still required. At minimum the API needs production values for `DATABASE_URL`, `API_HOST`, and `API_PORT`.
+
+Deployment was not performed in this step.

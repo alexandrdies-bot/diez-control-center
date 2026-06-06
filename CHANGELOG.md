@@ -177,3 +177,26 @@
 - `diez-shared-core` was not changed.
 - `diez-data-core` was not changed.
 - Migrations were not created.
+
+## API production build and debug route protection
+
+### Added
+
+- Added `build` script for `apps/api`: `tsc -p tsconfig.build.json`.
+- Added `start` script for `apps/api`: `node dist/server.js`.
+- Added `apps/api/tsconfig.build.json` for production TypeScript emit.
+
+### Changed
+
+- Debug calculation endpoints are now registered only outside production by default.
+- `DEBUG_ENDPOINTS_ENABLED=true` can explicitly enable debug calculation endpoints.
+
+### Not changed
+
+- No deployment was performed.
+- Desktop UI was not changed.
+- `diez-site` was not changed.
+- `diez-shared-core` was not changed.
+- `diez-data-core` was not changed.
+- Migrations were not created.
+- `.env` was not changed.

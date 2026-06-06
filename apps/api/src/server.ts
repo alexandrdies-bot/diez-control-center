@@ -4,10 +4,6 @@ import cors from "@fastify/cors";
 import dotenv from "dotenv";
 import Fastify from "fastify";
 import { checkCalculationCoreImport } from "./calculation-core-import-check.js";
-import {
-  checkCalculationFixture,
-  checkSimpleLightTextDiez300Fixture
-} from "./debug-calculation-fixture.js";
 
 const currentFile = fileURLToPath(import.meta.url);
 const currentDir = path.dirname(currentFile);
@@ -21,6 +17,9 @@ const { checkDatabaseConnection, queryDatabase } = await import("./db.js");
 
 const apiHost = process.env.API_HOST ?? "127.0.0.1";
 const apiPort = Number(process.env.API_PORT ?? "3001");
+const debugEndpointsEnabled =
+  process.env.DEBUG_ENDPOINTS_ENABLED === "true" ||
+  process.env.NODE_ENV !== "production";
 
 const app = Fastify({
   logger: true
@@ -42,22 +41,29 @@ app.get("/health/calculation-core", async () => {
   return checkCalculationCoreImport();
 });
 
-app.get("/debug/calculation/simple-light-text-diez-300", async () => {
-  return checkSimpleLightTextDiez300Fixture();
-});
+if (debugEndpointsEnabled) {
+  const {
+    checkCalculationFixture,
+    checkSimpleLightTextDiez300Fixture
+  } = await import("./debug-calculation-fixture.js");
 
-app.get<{ Params: { fixtureId: string } }>(
-  "/debug/calculation/fixtures/:fixtureId",
-  async (request, reply) => {
-    const result = await checkCalculationFixture(request.params.fixtureId);
+  app.get("/debug/calculation/simple-light-text-diez-300", async () => {
+    return checkSimpleLightTextDiez300Fixture();
+  });
 
-    if (!result.ok) {
-      return reply.code(404).send(result);
+  app.get<{ Params: { fixtureId: string } }>(
+    "/debug/calculation/fixtures/:fixtureId",
+    async (request, reply) => {
+      const result = await checkCalculationFixture(request.params.fixtureId);
+
+      if (!result.ok) {
+        return reply.code(404).send(result);
+      }
+
+      return result;
     }
-
-    return result;
-  }
-);
+  );
+}
 
 app.get("/health/db", async (_request, reply) => {
   const result = await checkDatabaseConnection();
