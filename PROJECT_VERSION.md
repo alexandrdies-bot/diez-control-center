@@ -1,4 +1,4 @@
-# Project Version
+﻿# Project Version
 
 ## diez-control-center
 
@@ -369,6 +369,8 @@ Endpoint проверяет 3 baseline fixtures:
 
 Endpoint читает baseline fixture и сверяет доступный расчёт через shared-core по сохранённой geometry.
 
+Hardcoded Windows path к fixtures удалён из API: локальный путь теперь задаётся через `CONSTRUCTOR_FIXTURES_DIR`, а fallback остаётся внутри `apps/api/fixtures/constructor`.
+
 Это не production API.
 
 Полный расчёт из text input ждёт shared text-layout/serializable shape adapter.
@@ -494,4 +496,9 @@ The build script uses `tsconfig.build.json` and emits compiled API files to `app
 
 Debug calculation endpoints are disabled in production by default. They are available only when `DEBUG_ENDPOINTS_ENABLED=true` is set explicitly, or when `NODE_ENV` is not `production`.
 
+Constructor debug fixtures are configured through optional `CONSTRUCTOR_FIXTURES_DIR`; fixtures are not a production dependency of the API.
+
 This does not deploy the API. A full production env strategy is still required before real server deployment, including `DATABASE_URL`, `API_HOST`, and `API_PORT`.
+
+
+

@@ -1,4 +1,4 @@
-# Диез Имидж Control Center
+﻿# Диез Имидж Control Center
 
 Главная ПК-программа / внутренний центр управления экосистемой «Диез Имидж».
 
@@ -602,6 +602,8 @@ Endpoint проверяет 3 baseline fixtures:
 
 Endpoint читает baseline fixture и сверяет доступный расчёт через shared-core по сохранённой geometry.
 
+Путь к fixtures больше не захардкожен в API. Для локальной отладки его можно задать через `CONSTRUCTOR_FIXTURES_DIR`. Если переменная не задана, API использует fallback `apps/api/fixtures/constructor`; эта папка не является production-зависимостью и может отсутствовать.
+
 Это не production API. Полный расчёт из text input ждёт shared text-layout/serializable shape adapter.
 
 Desktop UI и реальные расчёты пока не используют shared-формулу напрямую.
@@ -976,6 +978,11 @@ DEBUG_ENDPOINTS_ENABLED=true
 
 or when `NODE_ENV` is not `production`.
 
+Constructor debug fixtures are optional and configured through `CONSTRUCTOR_FIXTURES_DIR`. The API fallback is `apps/api/fixtures/constructor`, so production does not depend on `diez-site/outputs/constructor-fixtures` or any hardcoded local Windows path.
+
 For real server deployment, production env strategy is still required. At minimum the API needs production values for `DATABASE_URL`, `API_HOST`, and `API_PORT`.
 
 Deployment was not performed in this step.
+
+
+

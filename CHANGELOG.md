@@ -1,4 +1,4 @@
-# Changelog
+﻿# Changelog
 
 ## 0.0.0 — 2026-05-29
 
@@ -112,6 +112,7 @@
 * Добавлен временный debug endpoint `GET /debug/calculation/fixtures/:fixtureId`.
 * Endpoint проверяет 3 baseline fixtures: `simple-light-text-diez-300`, `simple-non-light-text-diez-300`, `face-film-red-text-diez-300`.
 * Endpoint читает baseline fixture и сверяет доступный расчёт через shared-core по сохранённой geometry.
+* Hardcoded Windows path к constructor fixtures удалён из API; локальный путь теперь задаётся через `CONSTRUCTOR_FIXTURES_DIR`, fallback — `apps/api/fixtures/constructor`.
 * Зафиксировано, что endpoint не является production API, а полный расчёт из text input ждёт shared text-layout/serializable shape adapter.
 * Зафиксировано архитектурное правило `server-first + local cache/offline fallback`.
 * Зафиксировано, что главным источником истины остаются сервер, API и общая база `diez-data-core`, а ПК-программа не должна становиться главным источником данных.
@@ -190,6 +191,8 @@
 
 - Debug calculation endpoints are now registered only outside production by default.
 - `DEBUG_ENDPOINTS_ENABLED=true` can explicitly enable debug calculation endpoints.
+- Constructor debug fixture path is now configured through `CONSTRUCTOR_FIXTURES_DIR`; fixtures are not a production dependency and the API no longer points at a hardcoded local Windows site output path.
+- Constructor debug fixture path is now configured through `CONSTRUCTOR_FIXTURES_DIR`; fixtures are not a production dependency and the API no longer points at a hardcoded local Windows site output path.
 
 ### Not changed
 
@@ -200,3 +203,7 @@
 - `diez-data-core` was not changed.
 - Migrations were not created.
 - `.env` was not changed.
+
+
+
+

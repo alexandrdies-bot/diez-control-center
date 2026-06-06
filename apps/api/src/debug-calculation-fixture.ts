@@ -1,5 +1,6 @@
-import { readFile } from "node:fs/promises";
+﻿import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   calculateKonstruktorLedModulesByGeometry,
   calculateKonstruktorLightingCost,
@@ -13,8 +14,12 @@ import {
   type KonstruktorMaterialPricingSource
 } from "@diez/calculation-core";
 
-const fixturesDir =
-  "D:\\_ProjectHome\\diez-site\\outputs\\constructor-fixtures";
+const currentFile = fileURLToPath(import.meta.url);
+const currentDir = path.dirname(currentFile);
+const configuredFixturesDir = process.env.CONSTRUCTOR_FIXTURES_DIR?.trim();
+const fixturesDir = configuredFixturesDir
+  ? path.resolve(configuredFixturesDir)
+  : path.resolve(currentDir, "../fixtures/constructor");
 
 const fixtureFiles = {
   "face-film-red-text-diez-300": "face-film-red-text-diez-300.json",
@@ -118,7 +123,40 @@ export async function checkCalculationFixture(fixtureId: string) {
   }
 
   const fixturePath = path.join(fixturesDir, fixtureFiles[fixtureId]);
-  const fixture = JSON.parse(await readFile(fixturePath, "utf8")) as Fixture;
+  let rawFixture: string;
+
+  try {
+    rawFixture = await readFile(fixturePath, "utf8");
+  } catch (error) {
+    const errorCode =
+      error && typeof error === "object" && "code" in error
+        ? String(error.code)
+        : null;
+
+    return {
+      ok: false,
+      reason: errorCode === "ENOENT" ? "FIXTURE_FILE_NOT_FOUND" : "FIXTURE_READ_FAILED",
+      fixtureId,
+      fixturesDir,
+      fixturePath,
+      supportedFixtureIds: Object.keys(fixtureFiles)
+    };
+  }
+
+  let fixture: Fixture;
+
+  try {
+    fixture = JSON.parse(rawFixture) as Fixture;
+  } catch {
+    return {
+      ok: false,
+      reason: "FIXTURE_PARSE_FAILED",
+      fixtureId,
+      fixturePath,
+      supportedFixtureIds: Object.keys(fixtureFiles)
+    };
+  }
+
   const areaM2 = fixture.geometrySummary.areaM2;
   const materialAreaM2 = fixture.geometrySummary.materialAreaM2;
   const perimeterM = fixture.geometrySummary.perimeterM;
