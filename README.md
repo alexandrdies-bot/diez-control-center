@@ -986,3 +986,30 @@ Deployment was not performed in this step.
 
 
 
+
+## Desktop Bundled SVG Assets
+
+Shared SVG icons are sourced from `diez-shared-core/assets/svg`.
+
+For the installed Tauri desktop app, required icons must also have local bundled copies in:
+
+```text
+apps/desktop/src/assets/svg
+```
+
+Desktop UI imports SVG files from the local `src/assets/svg` folder through Vite, so icons are bundled into the final app and continue working offline.
+
+Do not depend on internet URLs, public site paths, absolute Windows paths, or runtime filesystem access to `diez-shared-core` for icons inside the installed desktop program.
+
+## Office Constructor Layout File Actions
+
+The office `ОБЪЁМНЫЕ БУКВЫ` screen owns layout upload/download actions for managers.
+
+Current state:
+
+- `Загрузить макет` opens an SVG file picker placeholder;
+- `Скачать макет` is reserved for the future production layout export;
+- both actions use local bundled SVG icons copied from `diez-shared-core/assets/svg`;
+- public site debug SVG export must not be shown to customers.
+
+Real layout import/export will be connected as an office workflow later. Calculation logic is not changed by these actions.

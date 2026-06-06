@@ -623,26 +623,33 @@ tbody tr {
   font-size: 22px;
 }
 
-.service-back-button {
-  display: inline-grid;
-  width: 30px;
-  height: 36px;
-  place-items: center;
+.icon-back-button {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
   border: 0;
   border-radius: 0;
   color: #ffffff;
   background: transparent;
   box-shadow: none;
   cursor: pointer;
-  font-size: 32px;
-  font-weight: 900;
-  line-height: 1;
   padding: 0;
 }
 
-.service-back-button:hover {
+.icon-back-button:hover {
   background: transparent;
   color: rgba(255, 255, 255, 0.78);
+  opacity: 0.78;
+}
+
+.icon-back-image {
+  display: block;
+  width: 30px;
+  height: 30px;
+  filter: brightness(0) invert(1);
+  pointer-events: none;
 }
 
 .dashboard-grid {
@@ -778,6 +785,58 @@ tbody tr {
   min-height: 0;
   margin: 8px auto 0;
   align-content: start;
+}
+
+.constructor-file-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.constructor-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  clip-path: inset(50%);
+}
+
+.constructor-file-action-button {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  color: rgba(255, 255, 255, 0.76);
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: none;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.constructor-file-action-button:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.constructor-file-action-icon {
+  display: block;
+  width: 17px;
+  height: 17px;
+  filter: brightness(0) invert(1);
+  opacity: 0.82;
+  pointer-events: none;
+}
+
+.constructor-file-action-status {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 12px;
 }
 
 .dtf-service-workspace {

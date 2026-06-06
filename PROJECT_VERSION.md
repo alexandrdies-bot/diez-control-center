@@ -502,3 +502,18 @@ This does not deploy the API. A full production env strategy is still required b
 
 
 
+
+## Desktop bundled SVG asset rule
+
+Required desktop SVG icons are copied from `diez-shared-core/assets/svg` into `apps/desktop/src/assets/svg` and imported through Vite.
+
+This keeps shared-core as the source of common icons while ensuring the final installed Tauri program works offline and does not depend on runtime access to a sibling repository.
+
+## Office constructor layout actions
+
+The `ОБЪЁМНЫЕ БУКВЫ` office screen now has manager-facing actions for layout files:
+
+- `Загрузить макет`;
+- `Скачать макет`.
+
+These actions use local bundled SVG icons copied from `diez-shared-core/assets/svg`. Real import/export behavior is still a future office workflow. The public site must not expose the old debug SVG export button to customers.

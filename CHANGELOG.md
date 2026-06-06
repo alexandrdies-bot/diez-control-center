@@ -207,3 +207,45 @@
 
 
 
+
+## Desktop back icon unification
+
+### Changed
+
+- Desktop back action now uses the shared `chevron-left.svg` icon from `diez-shared-core`.
+- Back buttons are styled as a frameless icon action without background, border, box-shadow, or button frame.
+- Service back navigation keeps the same behavior for `ОБЪЁМНЫЕ БУКВЫ` and `DTF-ПЕЧАТЬ`.
+
+### Not changed
+
+- Calculation logic was not changed.
+- Desktop API logic was not changed.
+- `diez-site`, `diez-data-core`, and `diez-shared-core` were not changed.
+
+## Desktop bundled back icon asset
+
+### Changed
+
+- Copied `chevron-left.svg` from `diez-shared-core/assets/svg` into `apps/desktop/src/assets/svg`.
+- Desktop now imports the back icon as a local Vite-bundled asset.
+- Back icon styling remains frameless and no longer depends on runtime access to the sibling `diez-shared-core` project.
+
+### Not changed
+
+- Calculation logic was not changed.
+- Desktop API logic was not changed.
+- `diez-site`, `diez-data-core`, and `diez-shared-core` were not changed.
+
+## Office constructor layout file actions
+
+### Changed
+
+- Added compact `Загрузить макет` and `Скачать макет` actions to the office `ОБЪЁМНЫЕ БУКВЫ` screen.
+- Copied `file-upload.svg` and `file-download.svg` from `diez-shared-core/assets/svg` into desktop local bundled assets.
+- The upload action opens an SVG file picker placeholder; production import/export is reserved for the next office workflow step.
+
+### Not changed
+
+- Calculation logic was not changed.
+- Desktop API logic was not changed.
+- `diez-site`, `diez-data-core`, and `diez-shared-core` were not changed.

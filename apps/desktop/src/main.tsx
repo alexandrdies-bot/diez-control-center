@@ -1,5 +1,8 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import chevronLeftIconUrl from "./assets/svg/chevron-left.svg";
+import fileDownloadIconUrl from "./assets/svg/file-download.svg";
+import fileUploadIconUrl from "./assets/svg/file-upload.svg";
 import {
   getApiHealth,
   getMaterialPricingInputs,
@@ -329,6 +332,7 @@ function fitKonstruktorPreviewMarkupToLayout(
 }
 
 function App() {
+  const constructorLayoutFileInputRef = useRef<HTMLInputElement | null>(null);
   const [activeWorkspace, setActiveWorkspace] =
     useState<WorkspaceName>("Диез Имидж");
   const [activeSection, setActiveSection] = useState("Главная");
@@ -355,6 +359,8 @@ function App() {
     useState<string | null>(null);
   const [constructorLayout, setConstructorLayout] =
     useState<KonstruktorTextLayout | null>(null);
+  const [constructorFileActionStatus, setConstructorFileActionStatus] =
+    useState<string | null>(null);
   const [draftOrderItems, setDraftOrderItems] = useState<DraftOrderItem[]>([]);
   const [editingDraftOrderItemId, setEditingDraftOrderItemId] = useState<
     string | null
@@ -835,6 +841,7 @@ function App() {
     setNewOrderStep("calculation");
     setIsConstructorPanelOpen(true);
     setEditingDraftOrderItemId(null);
+    setConstructorFileActionStatus(null);
   }
 
   function handleStartDtfPrintCalculation() {
@@ -923,6 +930,30 @@ function App() {
   function handleFaceFilmColorSelect(colorCode: string) {
     updateOfficeConstructorForm("faceFilmColorCode", colorCode);
     setOpenColorPalette(null);
+  }
+
+  function handleConstructorLayoutUploadClick() {
+    constructorLayoutFileInputRef.current?.click();
+  }
+
+  function handleConstructorLayoutFileChange(
+    event: React.ChangeEvent<HTMLInputElement>
+  ) {
+    const file = event.target.files?.[0];
+
+    if (file) {
+      setConstructorFileActionStatus(
+        "Загрузка макета будет подключена следующим шагом"
+      );
+    }
+
+    event.target.value = "";
+  }
+
+  function handleConstructorLayoutDownloadClick() {
+    setConstructorFileActionStatus(
+      "Скачивание макета будет подключено следующим шагом"
+    );
   }
 
   function createConstructorDraftOrderItem(
@@ -1406,7 +1437,8 @@ function App() {
                     ) : (
                       <div className="service-heading">
                         <button
-                          className="service-back-button"
+                          aria-label="Назад"
+                          className="icon-back-button"
                           onClick={() => {
                             setNewOrderStep("start");
                             setIsConstructorPanelOpen(false);
@@ -1414,7 +1446,11 @@ function App() {
                           }}
                           type="button"
                         >
-                          &lt;
+                          <img
+                            alt=""
+                            className="icon-back-image"
+                            src={chevronLeftIconUrl}
+                          />
                         </button>
                         <span>|</span>
                         <h3>
@@ -1493,6 +1529,45 @@ function App() {
                     <section className="service-workspace">
                       {isConstructorPanelOpen ? (
                         <>
+                          <div className="constructor-file-actions">
+                            <input
+                              ref={constructorLayoutFileInputRef}
+                              accept=".svg,image/svg+xml"
+                              className="constructor-file-input"
+                              onChange={handleConstructorLayoutFileChange}
+                              type="file"
+                            />
+                            <button
+                              className="constructor-file-action-button"
+                              onClick={handleConstructorLayoutUploadClick}
+                              type="button"
+                            >
+                              <img
+                                alt=""
+                                className="constructor-file-action-icon"
+                                src={fileUploadIconUrl}
+                              />
+                              Загрузить макет
+                            </button>
+                            <button
+                              className="constructor-file-action-button"
+                              onClick={handleConstructorLayoutDownloadClick}
+                              type="button"
+                            >
+                              <img
+                                alt=""
+                                className="constructor-file-action-icon"
+                                src={fileDownloadIconUrl}
+                              />
+                              Скачать макет
+                            </button>
+                            {constructorFileActionStatus ? (
+                              <span className="constructor-file-action-status">
+                                {constructorFileActionStatus}
+                              </span>
+                            ) : null}
+                          </div>
+
                           <div className="office-constructor-fields">
                             <div className="office-constructor-row office-constructor-main-row">
                               <label className="form-field">
