@@ -249,3 +249,104 @@
 - Calculation logic was not changed.
 - Desktop API logic was not changed.
 - `diez-site`, `diez-data-core`, and `diez-shared-core` were not changed.
+
+## Desktop settings structure
+
+### Changed
+
+- The settings gear now opens a main `Настройки` screen.
+- Moved the existing materials table behind the `Материалы и цены` settings card.
+- Added disabled future settings cards for `Расчёты`, `Заказы`, `Интеграции`, and `Пользователи и доступ`.
+- Added frameless back navigation from `Материалы и цены` to the main settings screen.
+
+### Not changed
+
+- Materials still come from the current API/data-core source.
+- Database and migrations were not changed.
+- Calculation logic was not changed.
+- Desktop API logic was not changed.
+
+## Materials and prices directory UI
+
+### Changed
+
+- Reworked `Материалы и цены` into a readable office directory screen.
+- Added category filter chips based on loaded material categories.
+- Simplified the materials table: material, category, parameters, unit, price, and status.
+- Hid raw material ID from the main table and kept it only in the selected-material details card.
+- Added readable purchase price formatting without long decimal values.
+- Improved the selected-material card with category, unit, status, purchase data, and parameters.
+
+### Not changed
+
+- Material data still comes from the current API/data-core source.
+- Editing materials was not added.
+- API, database, seeds, and migrations were not changed.
+- Calculation logic was not changed.
+
+## Materials inline price editing
+
+### Added
+
+- Added inline editing for existing purchase prices in the `Материалы и цены` table.
+- Added API update support for existing active material pricing input records.
+- Added desktop API client support for saving edited purchase prices.
+
+### Changed
+
+- Removed the selected-material details card from the main materials screen.
+- The materials table now uses the full available content width.
+- Edited prices update the current table after a successful API save.
+
+### Not changed
+
+- The updated database field is limited to `app.material_pricing_inputs.purchase_price_minor`.
+- New pricing input records are not created from the UI.
+- Material categories, units, specs, seeds, migrations, and calculation formulas were not changed.
+
+## Activity feed panel cleanup
+
+### Changed
+
+- Simplified the left `Лента` panel.
+- Removed static `ДИЕЗ ИМИДЖ`, `Control Center`, and explanatory feed text.
+
+## Local draft order receiving
+
+### Added
+
+- Added temporary frontend/MVP order receiving mode.
+- Added local draft order persistence in `localStorage` under `diez-control-center:draft-orders`.
+- Added draft statuses `receiving` and `awaiting-details`.
+- Added left-feed draft order cards with position count, total, and readable status.
+- Added draft detail actions to add another position to the current receiving draft and finish order receiving.
+- Added quick check and trash icon actions to the left-feed draft card.
+- Added customer and delivery indicators to the left-feed draft card.
+- Added local customer and delivery panels opened from the draft card indicators.
+
+### Changed
+
+- Feed order cards now use the customer name/phone or `Заказчик не заполнен` as the main title instead of generic `Черновик заказа`.
+- Feed order cards now show a short summary from the first order position.
+- Draft statuses are displayed as readable order statuses: `заказ в приёме` and `ждёт оформления`.
+- Displayed order status now reflects actual local order completeness: `без позиций`, `нужен заказчик`, `нужна доставка`, or `оформлен`.
+- Draft order details now show compact customer and delivery summaries above the positions list.
+- Removed the manual `Завершить приём заказа` action from the local MVP order flow.
+- `+ Новый заказ` now moves the active `receiving` draft to `awaiting-details` before starting a new service selection flow.
+- Adding positions from `ОБЪЁМНЫЕ БУКВЫ` and `DTF-ПЕЧАТЬ` now updates the active local draft order instead of a volatile screen-only item list.
+- The check icon finishes order receiving locally; the trash icon deletes the local draft after confirmation.
+- Desktop draft action icons are imported as bundled SVG assets.
+- Draft order item actions now use bundled pencil/trash SVG icons instead of text buttons.
+- Customer and delivery indicators read from the current localStorage draft-order model and use bundled `user`, `truck`, and `truck-off` icons.
+- Customer and delivery edits save only to the `diez-control-center:draft-orders` localStorage MVP state.
+- Draft order customer and delivery summary cards now show bundled thematic icons and pencil edit actions instead of text actions.
+- The customer phone field now normalizes typing and pasted values to `+7 XXX XXX XX XX`.
+- Delivery mode now supports `not-required`, `manual`, and future disabled `cdek`.
+- Existing localStorage `required` delivery mode is normalized to `manual`.
+- The delivery panel now shows `Доставка не требуется`, `Ручная доставка`, and disabled `СДЭК позже`.
+- CDEK remains a future backend/API integration; no CDEK API, tokens, database writes, or migrations were added.
+
+### Not changed
+
+- Customer details, delivery, order save API, and database persistence are not implemented yet.
+- `localStorage` is temporary frontend storage until the shared order database/API is ready.

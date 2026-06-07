@@ -449,6 +449,66 @@ The calculation imports from `@diez/calculation-core/print`. Database saving and
 
 Formula rule: calculation formulas must live in one shared place, `diez-shared-core`, and must not be duplicated separately in site and desktop.
 
+## Local draft order receiving status
+
+The desktop app now keeps temporary frontend/MVP draft orders in `localStorage`.
+
+Storage key:
+
+```text
+diez-control-center:draft-orders
+```
+
+Draft statuses:
+
+- `receiving` — a manager is receiving an order and adding positions.
+- `awaiting-details` — position receiving is finished and the draft waits for customer, delivery, and final order details.
+
+The feed card is no longer headed by a generic `Черновик заказа` label. It uses:
+
+- `customer.name`, then `customer.phone`, then `Заказчик не заполнен` as the main title;
+- the first position title as a short order summary;
+- `заказ в приёме` or `ждёт оформления` as the readable status line.
+
+The readable status now also reflects missing order details:
+
+- `без позиций` when no positions have been added;
+- `нужен заказчик` when positions exist but customer data is missing;
+- `нужна доставка` when customer exists but manual delivery has no address;
+- `оформлен` when positions, customer, and delivery state are complete locally.
+
+The draft detail screen includes compact customer and delivery summaries above the positions list.
+
+The manual `Завершить приём заказа` action is no longer required for local MVP flow. Database/API persistence remains a separate future step.
+
+The left-feed draft card includes quick bundled-icon actions:
+
+- check icon: finish receiving and switch the draft to `awaiting-details`;
+- trash icon: delete the local draft after confirmation.
+
+The draft card also includes local customer and delivery indicators:
+
+- `user.svg` is red until `customer.name` or `customer.phone` is filled;
+- `truck.svg` is red while manual delivery is selected and address is empty;
+- `truck.svg` is green when manual delivery is selected and address is filled;
+- `truck-off.svg` is green when delivery is not required.
+
+These indicators are now clickable. They open local draft panels for customer and delivery data, save back into `diez-control-center:draft-orders`, and do not call API or save to the database.
+
+The customer phone field normalizes input to `+7 XXX XXX XX XX` and strips non-digit characters during typing or paste.
+
+Delivery is still a temporary local MVP. The draft delivery mode now supports `not-required`, `manual`, and future `cdek`.
+
+`manual` replaces the old `required` localStorage value; old saved drafts are normalized from `required` to `manual` when loaded.
+
+CDEK is documented and visible as a disabled future option only. Real CDEK tariff calculation, pickup-point selection, shipment creation, and tracking must be connected later through backend/API, not directly from desktop. No CDEK API, tokens, migrations, or database writes are added now.
+
+Both actions operate only on the temporary `localStorage` MVP state. They do not save anything to the database.
+
+`+ Новый заказ` starts with service selection. If the active draft is still `receiving`, the app automatically moves it to `awaiting-details` before starting a new service selection flow.
+
+New positions for the current order should be added from the draft detail screen. Customer details, delivery, database persistence, and the real order save API are still not implemented.
+
 ## Future MAX + AI assistant integration
 
 Future module: MAX must be a communication channel for an AI assistant, not a script-only bot with fixed questions and answers.
@@ -517,3 +577,31 @@ The `ОБЪЁМНЫЕ БУКВЫ` office screen now has manager-facing actions f
 - `Скачать макет`.
 
 These actions use local bundled SVG icons copied from `diez-shared-core/assets/svg`. Real import/export behavior is still a future office workflow. The public site must not expose the old debug SVG export button to customers.
+
+## Settings screen status
+
+The settings gear now opens the main `Настройки` screen instead of opening the materials table directly.
+
+`Материалы и цены` is a settings subsection and keeps the existing read-only materials table, search, and selected material details. Future settings subsections are visible as disabled structure only: `Расчёты`, `Заказы`, `Интеграции`, and `Пользователи и доступ`.
+
+Database, material source, API, and calculation logic were not changed.
+
+## Materials directory UI status
+
+`Материалы и цены` now uses a calmer directory layout:
+
+- category chips filter the loaded materials;
+- search remains available;
+- the table hides raw ID as a main column;
+- material rows show readable parameters and formatted purchase prices;
+- the selected-material card shows category, unit, status, ID, purchase data, and parameters.
+
+The screen is still read-only. API, database, seeds, migrations, and calculation logic were not changed.
+
+## Materials inline price editing status
+
+`Материалы и цены` now supports inline editing of existing purchase prices.
+
+The edited database field is `app.material_pricing_inputs.purchase_price_minor`. The desktop app saves changes through the API and updates the current table without requiring an app reload.
+
+Only existing active pricing input records are edited. New pricing records, material fields, categories, specs, seeds, migrations, and calculation formulas were not changed.

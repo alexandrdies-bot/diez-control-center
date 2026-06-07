@@ -905,6 +905,73 @@ The DTF calculation uses the shared package `@diez/calculation-core/print`.
 
 The desktop app must not keep a separate DTF formula copy. Database saving is not connected yet.
 
+## Local Draft Order Receiving
+
+The desktop app now has a temporary frontend/MVP order receiving mode.
+
+Local draft orders are stored in `localStorage` under:
+
+```text
+diez-control-center:draft-orders
+```
+
+Draft statuses:
+
+- `receiving` — the manager is receiving an order and adding positions;
+- `awaiting-details` — positions are added and the draft is waiting for customer, delivery, and final order details.
+
+In the left feed, draft order cards are shown as readable order cards rather than a generic `Черновик заказа` title:
+
+- the card title is `customer.name`, then `customer.phone`, then `Заказчик не заполнен`;
+- the short order summary is based on the first position title;
+- the status is shown as `заказ в приёме` or `ждёт оформления`.
+
+The visible order status is derived from the workflow status plus customer and delivery completeness:
+
+- no positions -> `без позиций`;
+- positions exist but customer is empty -> `нужен заказчик`;
+- customer exists but manual delivery is empty -> `нужна доставка`;
+- positions, customer, and manual delivery with address or not-required delivery -> `оформлен`.
+
+The draft details screen shows compact customer and delivery summaries above the positions list. The data is still stored only in `localStorage`.
+
+When a manager adds a position from `ОБЪЁМНЫЕ БУКВЫ` or `DTF-ПЕЧАТЬ`, the app creates or updates the active local draft order and shows it in the left feed. The feed card remains available after switching sections or reopening the frontend.
+
+The draft card has quick local actions:
+
+- check icon: finishes order receiving and moves the draft to `awaiting-details`;
+- trash icon: deletes the local draft after confirmation.
+
+The draft card also shows customer and delivery indicators from the local draft model:
+
+- customer uses `user.svg` and is green when `customer.name` or `customer.phone` is filled;
+- delivery uses red `truck.svg` when manual delivery is selected but empty;
+- delivery uses green `truck.svg` when `delivery.mode` is `manual` and `delivery.address` is filled;
+- delivery uses green `truck-off.svg` when `delivery.mode` is `not-required`.
+
+The customer and delivery indicators are clickable. They open local draft panels for filling customer and delivery data:
+
+- customer: name/company, phone, email, comment;
+- delivery: not required, manual delivery, future CDEK, address, contact name, phone, comment.
+
+The customer phone field automatically normalizes input to `+7 XXX XXX XX XX`; pasted text, extra spaces, `8...`, and `7...` numbers are converted to the same display format.
+
+Current delivery is a temporary local MVP. Delivery modes are:
+
+- `not-required` — delivery is not needed;
+- `manual` — manual delivery with address/contact/phone/comment fields;
+- `cdek` — future CDEK mode, visible as disabled UI only for now.
+
+CDEK tariff calculation, pickup-point selection, shipment creation, and tracking must be implemented later through backend/API, not directly from the desktop app. No CDEK API, tokens, database persistence, or migrations are connected now.
+
+These actions update the current `localStorage` MVP state only. Database saving is not connected yet. Desktop action icons are bundled assets copied into `apps/desktop/src/assets/svg`.
+
+The old manual `Завершить приём заказа` action is no longer needed: local order completion is inferred automatically from positions, customer, and delivery data.
+
+If `+ Новый заказ` is pressed while the active draft is still `receiving`, the current draft is moved to `awaiting-details` and a new service selection flow starts.
+
+Adding more positions to the current draft should happen through the draft detail screen. Customer details, delivery, database saving, and order API persistence are not implemented yet. `localStorage` is only a temporary frontend/MVP solution until the shared orders API and database model are ready.
+
 ## Future MAX + AI Assistant Integration
 
 В будущем MAX должен быть не обычным скриптовым ботом с заранее записанными вопросами и ответами, а каналом общения с ИИ-помощником.
@@ -1013,3 +1080,46 @@ Current state:
 - public site debug SVG export must not be shown to customers.
 
 Real layout import/export will be connected as an office workflow later. Calculation logic is not changed by these actions.
+
+## Desktop Settings Structure
+
+The settings gear opens the main `Настройки` screen first.
+
+Current settings structure:
+
+- `Материалы и цены` opens the existing materials table and purchase pricing details;
+- `Расчёты` is reserved for formula, coefficient, and calculation rule settings;
+- `Заказы` is reserved for order statuses, sources, and workflow settings;
+- `Интеграции` is reserved for site, API, MAX, payments, and external services;
+- `Пользователи и доступ` is reserved for roles, permissions, and cost visibility.
+
+The materials table still uses the current API/data-core source. Materials, pricing data, database schema, and calculation logic are not changed by the settings navigation.
+
+## Materials And Prices Directory
+
+`Материалы и цены` is displayed as an office materials directory, not as a raw database dump.
+
+The directory UI shows:
+
+- category chips built from loaded material categories;
+- search across material names, categories, units, descriptions, and visible parameters;
+- simplified table columns: material, category, parameters, unit, purchase price, and status;
+- formatted purchase prices such as `5 100 ₽`;
+- a readable selected-material card with category, unit, status, ID, purchase data, and parameters.
+
+The screen remains read-only. Material data and purchase pricing still come from the current API/data-core source. Editing, seeds, migrations, API changes, and calculation changes are not part of this screen update.
+
+## Materials Price Inline Editing
+
+`Материалы и цены` supports inline editing of existing purchase prices in the table.
+
+Rules:
+
+- clicking an existing price opens an inline ruble input;
+- `Enter` or blur saves the changed price;
+- `Esc` cancels editing;
+- invalid values are not saved;
+- only existing `app.material_pricing_inputs.purchase_price_minor` records are updated;
+- materials without pricing input records are not auto-created from the UI.
+
+The update is saved through the API into the shared data-core database. Other material fields, categories, units, specs, seeds, migrations, and calculation formulas are not changed.
