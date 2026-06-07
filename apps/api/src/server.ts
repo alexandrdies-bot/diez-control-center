@@ -194,6 +194,87 @@ app.get<{ Params: { id: string } }>("/materials/:id/pricing-inputs", async (requ
   );
 });
 
+app.patch<{
+  Body: { purchasePriceMinor?: unknown };
+  Params: { id: string };
+}>("/materials/:id/pricing-inputs", async (request, reply) => {
+  const materialId = Number(request.params.id);
+
+  if (!Number.isInteger(materialId) || materialId <= 0) {
+    return reply.code(400).send({
+      ok: false,
+      reason: "INVALID_MATERIAL_ID"
+    });
+  }
+
+  const purchasePriceMinor = request.body.purchasePriceMinor;
+
+  if (
+    !Number.isInteger(purchasePriceMinor) ||
+    Number(purchasePriceMinor) < 0
+  ) {
+    return reply.code(400).send({
+      ok: false,
+      reason: "INVALID_PURCHASE_PRICE_MINOR"
+    });
+  }
+
+  const updatedPricingInputs = await queryDatabase<{
+    id: number;
+    material_id: number;
+    supplier_name: string | null;
+    purchase_unit_id: number;
+    purchase_unit_code: string;
+    calculation_unit_id: number;
+    calculation_unit_code: string;
+    purchase_price_minor: number;
+    markup_percent: string;
+    delivery_price_minor: number;
+    work_amount: string;
+    currency_code: string;
+    source_note: string | null;
+    valid_from: string;
+    valid_to: string | null;
+  }>(
+    `
+      update app.material_pricing_inputs mpi
+      set purchase_price_minor = $2
+      from app.units pu, app.units cu
+      where mpi.material_id = $1
+        and mpi.valid_to is null
+        and pu.id = mpi.purchase_unit_id
+        and cu.id = mpi.calculation_unit_id
+      returning
+        mpi.id,
+        mpi.material_id,
+        mpi.supplier_name,
+        mpi.purchase_unit_id,
+        pu.code as purchase_unit_code,
+        mpi.calculation_unit_id,
+        cu.code as calculation_unit_code,
+        mpi.purchase_price_minor,
+        mpi.markup_percent::text as markup_percent,
+        mpi.delivery_price_minor,
+        mpi.work_amount::text as work_amount,
+        mpi.currency_code,
+        mpi.source_note,
+        mpi.valid_from::text as valid_from,
+        mpi.valid_to::text as valid_to
+    `,
+    [materialId, purchasePriceMinor]
+  );
+
+  if (updatedPricingInputs.length === 0) {
+    return reply.code(404).send({
+      ok: false,
+      reason: "MATERIAL_PRICING_INPUT_NOT_FOUND",
+      message: "Закупочная цена для материала ещё не заведена"
+    });
+  }
+
+  return updatedPricingInputs;
+});
+
 app.get("/materials/specs/roll", async () => {
   return queryDatabase<{
     id: number;

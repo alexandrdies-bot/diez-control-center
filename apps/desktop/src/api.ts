@@ -83,6 +83,27 @@ export async function getMaterialPricingInputs(
   return response.json() as Promise<MaterialPricingInput[]>;
 }
 
+export async function updateMaterialPurchasePrice(
+  materialId: number,
+  purchasePriceMinor: number
+): Promise<MaterialPricingInput[]> {
+  const response = await fetch(`${apiBaseUrl}/materials/${materialId}/pricing-inputs`, {
+    body: JSON.stringify({
+      purchasePriceMinor
+    }),
+    headers: {
+      "Content-Type": "application/json"
+    },
+    method: "PATCH"
+  });
+
+  if (!response.ok) {
+    throw new Error(`Material purchase price update failed: ${response.status}`);
+  }
+
+  return response.json() as Promise<MaterialPricingInput[]>;
+}
+
 export async function getCalculationFixtureDebug(
   fixtureId: string
 ): Promise<CalculationFixtureDebugResult> {
