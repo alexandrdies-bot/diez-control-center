@@ -1891,14 +1891,14 @@ tbody tr {
 .draft-summary-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  gap: 10px;
 }
 
 .draft-summary-card {
   display: grid;
-  gap: 8px;
+  gap: 7px;
   min-width: 0;
-  padding: 12px;
+  padding: 10px 12px;
   border-radius: 12px;
   background: rgba(0, 0, 0, 0.16);
 }
@@ -1968,14 +1968,15 @@ tbody tr {
 
 .draft-summary-lines {
   display: grid;
-  gap: 4px;
+  gap: 3px;
   color: rgba(255, 255, 255, 0.68);
   font-size: 13px;
+  line-height: 1.28;
 }
 
 .draft-summary-lines strong {
   color: #ffffff;
-  font-size: 15px;
+  font-size: 14px;
 }
 
 .draft-summary-muted {
@@ -2084,7 +2085,7 @@ tbody tr {
 .draft-order-footer {
   display: flex;
   flex-wrap: wrap;
-  gap: 14px;
+  gap: 12px;
   align-items: center;
   justify-content: flex-end;
 }
@@ -2128,7 +2129,7 @@ tbody tr {
 
 .draft-total-row {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   align-items: baseline;
 }
 
@@ -2137,7 +2138,7 @@ tbody tr {
 }
 
 .draft-total-row strong {
-  font-size: 24px;
+  font-size: 21px;
 }
 
 .accept-order-button {

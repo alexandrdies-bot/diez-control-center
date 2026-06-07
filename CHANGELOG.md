@@ -340,6 +340,7 @@
 - Customer and delivery indicators read from the current localStorage draft-order model and use bundled `user`, `truck`, and `truck-off` icons.
 - Customer and delivery edits save only to the `diez-control-center:draft-orders` localStorage MVP state.
 - Draft order customer and delivery summary cards now show bundled thematic icons and pencil edit actions instead of text actions.
+- Draft order details were tightened visually so customer, delivery, positions, and total stay compact without long service notes.
 - The customer phone field now normalizes typing and pasted values to `+7 XXX XXX XX XX`.
 - Delivery mode now supports `not-required`, `manual`, and future disabled `cdek`.
 - Existing localStorage `required` delivery mode is normalized to `manual`.

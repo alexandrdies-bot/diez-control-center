@@ -2669,13 +2669,6 @@ function App() {
                         </button>
                       </div>
                     </div>
-
-                    {getDraftOrderDisplayStatus(detailDraftOrder) === "оформлен" ? (
-                      <p className="draft-items-note">
-                        Заказ оформлен локально. Сохранение в базу будет
-                        подключено позже.
-                      </p>
-                    ) : null}
                     </section>
                   )}
                 </section>
