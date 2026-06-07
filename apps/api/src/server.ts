@@ -13,7 +13,11 @@ dotenv.config({
   path: path.join(repoRoot, ".env")
 });
 
-const { checkDatabaseConnection, queryDatabase } = await import("./db.js");
+const {
+  checkDatabaseConnection,
+  queryDatabase,
+  withDatabaseTransaction
+} = await import("./db.js");
 
 const apiHost = process.env.API_HOST ?? "127.0.0.1";
 const apiPort = Number(process.env.API_PORT ?? "3001");
@@ -28,6 +32,168 @@ const app = Fastify({
 await app.register(cors, {
   origin: true
 });
+
+type DesktopDraftOrderCustomer = {
+  comment?: unknown;
+  email?: unknown;
+  name?: unknown;
+  phone?: unknown;
+};
+
+type DesktopDraftOrderDelivery = {
+  address?: unknown;
+  comment?: unknown;
+  contactName?: unknown;
+  mode?: unknown;
+  phone?: unknown;
+};
+
+type DesktopDraftOrderItem = {
+  areaM2?: unknown;
+  baselineStatus?: unknown;
+  boardTapeColorName?: unknown;
+  boardThicknessMm?: unknown;
+  boardWidthMm?: unknown;
+  calculationId?: unknown;
+  calculationSource?: unknown;
+  checkMode?: unknown;
+  faceFilmColorCode?: unknown;
+  faceFilmLabel?: unknown;
+  formattedPrice?: unknown;
+  heightCm?: unknown;
+  heightMm?: unknown;
+  id?: unknown;
+  ledCount?: unknown;
+  lightingMode?: unknown;
+  priceMinor?: unknown;
+  quantity?: unknown;
+  resolvedBoardTapeMaterialName?: unknown;
+  resolvedBoardTapeThicknessMm?: unknown;
+  serviceType?: unknown;
+  text?: unknown;
+  title?: unknown;
+  totalPriceMinor?: unknown;
+  type?: unknown;
+  widthCm?: unknown;
+};
+
+type DesktopDraftOrderPayload = {
+  createdAt?: unknown;
+  customer?: DesktopDraftOrderCustomer;
+  delivery?: DesktopDraftOrderDelivery;
+  id?: unknown;
+  items?: unknown;
+  totalPriceMinor?: unknown;
+  updatedAt?: unknown;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function getOptionalString(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function getRequiredString(value: unknown) {
+  const normalizedValue = getOptionalString(value);
+  return normalizedValue ?? "";
+}
+
+function getMinorPrice(value: unknown) {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0
+    ? value
+    : null;
+}
+
+function getPositiveQuantity(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? value
+    : 1;
+}
+
+function mapServiceType(serviceType: string) {
+  switch (serviceType) {
+    case "light-letter":
+      return "light_letters";
+    case "dtf-print":
+      return "dtf_print";
+    case "wide-format-print":
+      return "wide_format_print";
+    case "ready-product":
+      return "ready_product";
+    case "manual":
+      return "manual";
+    default:
+      return "other";
+  }
+}
+
+function normalizeDeliveryMode(mode: unknown) {
+  if (mode === "not-required" || mode === "manual" || mode === "cdek") {
+    return mode;
+  }
+
+  if (mode === "required") {
+    return "manual";
+  }
+
+  return "not-required";
+}
+
+function getDeliveryStatus(mode: string) {
+  return mode === "not-required" ? "not_required" : "pending";
+}
+
+function getOrderItemPriceMinor(item: DesktopDraftOrderItem) {
+  return getMinorPrice(item.totalPriceMinor) ?? getMinorPrice(item.priceMinor);
+}
+
+function getOrderItemParams(item: DesktopDraftOrderItem) {
+  const serviceType = getRequiredString(item.serviceType);
+
+  if (serviceType === "light-letter") {
+    return {
+      boardTapeColorName: getOptionalString(item.boardTapeColorName),
+      boardThicknessMm: item.boardThicknessMm ?? null,
+      boardWidthMm: item.boardWidthMm ?? null,
+      faceFilmColorCode: getOptionalString(item.faceFilmColorCode),
+      faceFilmLabel: getOptionalString(item.faceFilmLabel),
+      heightMm: getOptionalString(item.heightMm),
+      lightingMode: getOptionalString(item.lightingMode),
+      resolvedBoardTapeMaterialName: getOptionalString(
+        item.resolvedBoardTapeMaterialName
+      ),
+      resolvedBoardTapeThicknessMm: item.resolvedBoardTapeThicknessMm ?? null,
+      text: getOptionalString(item.text)
+    };
+  }
+
+  if (serviceType === "dtf-print") {
+    return {
+      areaM2: item.areaM2 ?? null,
+      heightCm: item.heightCm ?? null,
+      quantity: item.quantity ?? null,
+      widthCm: item.widthCm ?? null
+    };
+  }
+
+  return {
+    id: getOptionalString(item.id),
+    type: getOptionalString(item.type)
+  };
+}
+
+function getOrderItemCalculationSnapshot(item: DesktopDraftOrderItem) {
+  return {
+    baselineStatus: getOptionalString(item.baselineStatus),
+    calculationId: getOptionalString(item.calculationId),
+    calculationSource: getOptionalString(item.calculationSource),
+    checkMode: getOptionalString(item.checkMode),
+    formattedPrice: getOptionalString(item.formattedPrice),
+    ledCount: item.ledCount ?? null
+  };
+}
 
 app.get("/health", async () => {
   return {
@@ -71,6 +237,282 @@ app.get("/health/db", async (_request, reply) => {
   if (!result.ok) {
     return reply.code(503).send(result);
   }
+
+  return result;
+});
+
+app.post<{ Body: DesktopDraftOrderPayload }>("/orders", async (request, reply) => {
+  const draftOrder = request.body;
+
+  if (!isRecord(draftOrder)) {
+    return reply.code(400).send({
+      error: "INVALID_ORDER_PAYLOAD",
+      reason: "payload is not an object"
+    });
+  }
+
+  const sourceRef = getRequiredString(draftOrder.id);
+  const totalPriceMinor = getMinorPrice(draftOrder.totalPriceMinor);
+  const items = Array.isArray(draftOrder.items)
+    ? draftOrder.items.filter(isRecord)
+    : [];
+
+  if (!sourceRef) {
+    return reply.code(400).send({
+      error: "INVALID_ORDER_PAYLOAD",
+      reason: "missing id"
+    });
+  }
+
+  if (totalPriceMinor === null) {
+    return reply.code(400).send({
+      error: "INVALID_ORDER_PAYLOAD",
+      reason: "invalid totalPriceMinor"
+    });
+  }
+
+  if (items.length === 0) {
+    return reply.code(400).send({
+      error: "INVALID_ORDER_PAYLOAD",
+      reason: "items is empty"
+    });
+  }
+
+  const normalizedItems = items.map((item) => item as DesktopDraftOrderItem);
+
+  for (const [itemIndex, item] of normalizedItems.entries()) {
+    if (!getRequiredString(item.title)) {
+      return reply.code(400).send({
+        error: "INVALID_ORDER_ITEM",
+        itemIndex,
+        reason: "missing title"
+      });
+    }
+
+    if (!getRequiredString(item.serviceType)) {
+      return reply.code(400).send({
+        error: "INVALID_ORDER_ITEM",
+        itemIndex,
+        reason: "missing serviceType"
+      });
+    }
+
+    if (getOrderItemPriceMinor(item) === null) {
+      return reply.code(400).send({
+        error: "INVALID_ORDER_ITEM",
+        itemIndex,
+        reason: "missing totalPriceMinor / invalid item price"
+      });
+    }
+  }
+
+  const result = await withDatabaseTransaction(async (client) => {
+    const existingOrder = await client.query<{
+      id: number;
+      order_number: string;
+    }>(
+      `
+        select id, order_number
+        from app.orders
+        where source = 'desktop'
+          and source_ref = $1
+        limit 1
+      `,
+      [sourceRef]
+    );
+
+    if (existingOrder.rows[0]) {
+      return {
+        alreadyExists: true,
+        id: existingOrder.rows[0].id,
+        orderNumber: existingOrder.rows[0].order_number
+      };
+    }
+
+    const customer = isRecord(draftOrder.customer) ? draftOrder.customer : {};
+    const delivery = isRecord(draftOrder.delivery) ? draftOrder.delivery : {};
+    const customerName = getOptionalString(customer.name);
+    const customerPhone = getOptionalString(customer.phone);
+    const customerEmail = getOptionalString(customer.email);
+    const customerComment = getOptionalString(customer.comment);
+
+    const customerResult = await client.query<{ id: number }>(
+      `
+        insert into app.customers (
+          customer_type,
+          name,
+          phone,
+          email,
+          comment
+        )
+        values ('person', $1, $2, $3, $4)
+        returning id
+      `,
+      [customerName, customerPhone, customerEmail, customerComment]
+    );
+    const customerId = customerResult.rows[0]?.id ?? null;
+    const customerSnapshot = {
+      comment: customerComment,
+      email: customerEmail,
+      name: customerName,
+      phone: customerPhone
+    };
+
+    const orderResult = await client.query<{
+      id: number;
+      order_number: string;
+    }>(
+      `
+        insert into app.orders (
+          source,
+          source_ref,
+          status,
+          customer_id,
+          customer_snapshot_json,
+          items_total_minor,
+          delivery_total_minor,
+          discount_total_minor,
+          total_price_minor,
+          currency_code,
+          customer_comment,
+          manager_comment
+        )
+        values (
+          'desktop',
+          $1,
+          'new',
+          $2,
+          $3::jsonb,
+          $4,
+          0,
+          0,
+          $5,
+          'RUB',
+          $6,
+          null
+        )
+        returning id, order_number
+      `,
+      [
+        sourceRef,
+        customerId,
+        JSON.stringify(customerSnapshot),
+        totalPriceMinor,
+        totalPriceMinor,
+        customerComment
+      ]
+    );
+    const orderId = orderResult.rows[0].id;
+    const orderNumber = orderResult.rows[0].order_number;
+
+    for (const [index, item] of normalizedItems.entries()) {
+      const itemTotalPriceMinor = getOrderItemPriceMinor(item) ?? 0;
+      const quantity = getPositiveQuantity(item.quantity);
+
+      await client.query(
+        `
+          insert into app.order_items (
+            order_id,
+            service_type,
+            title,
+            quantity,
+            unit_price_minor,
+            total_price_minor,
+            currency_code,
+            params_json,
+            calculation_snapshot_json,
+            sort_order
+          )
+          values (
+            $1,
+            $2,
+            $3,
+            $4,
+            $5,
+            $6,
+            'RUB',
+            $7::jsonb,
+            $8::jsonb,
+            $9
+          )
+        `,
+        [
+          orderId,
+          mapServiceType(getRequiredString(item.serviceType)),
+          getRequiredString(item.title),
+          quantity,
+          Math.round(itemTotalPriceMinor / quantity),
+          itemTotalPriceMinor,
+          JSON.stringify(getOrderItemParams(item)),
+          JSON.stringify(getOrderItemCalculationSnapshot(item)),
+          index + 1
+        ]
+      );
+    }
+
+    const deliveryMode = normalizeDeliveryMode(delivery.mode);
+    await client.query(
+      `
+        insert into app.order_delivery (
+          order_id,
+          delivery_mode,
+          delivery_status,
+          recipient_name,
+          recipient_phone,
+          address_text,
+          comment,
+          price_minor,
+          currency_code,
+          provider_payload_json
+        )
+        values (
+          $1,
+          $2,
+          $3,
+          $4,
+          $5,
+          $6,
+          $7,
+          0,
+          'RUB',
+          '{}'::jsonb
+        )
+      `,
+      [
+        orderId,
+        deliveryMode,
+        getDeliveryStatus(deliveryMode),
+        getOptionalString(delivery.contactName) ?? customerName,
+        getOptionalString(delivery.phone) ?? customerPhone,
+        getOptionalString(delivery.address),
+        getOptionalString(delivery.comment)
+      ]
+    );
+
+    await client.query(
+      `
+        insert into app.order_events (
+          order_id,
+          event_type,
+          actor_type,
+          payload_json
+        )
+        values ($1, 'order_created', 'desktop', $2::jsonb)
+      `,
+      [
+        orderId,
+        JSON.stringify({
+          sourceRef
+        })
+      ]
+    );
+
+    return {
+      alreadyExists: false,
+      id: orderId,
+      orderNumber
+    };
+  });
 
   return result;
 });

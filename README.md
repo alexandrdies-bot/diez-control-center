@@ -192,8 +192,11 @@ MVP-1 API read-only endpoints готовы:
 * `GET /light-letter-specs`
 * `GET /products`
 * `GET /services`
+* `POST /orders`
 
-Endpoint-ы MVP-1 только читают данные.
+`POST /orders` — первый write endpoint для сохранения локального desktop draft-order в общую базу. Он работает через API-транзакцию, защищается от дублей по `source='desktop'` + `source_ref` и сохраняет заказ, позиции, заказчика, доставку и событие создания.
+
+Полный CRUD заказов, оплаты, СДЭК и серверная история статусов пока не реализованы.
 
 Tauri 2 desktop shell добавлен.
 

@@ -49,7 +49,91 @@ export type CalculationFixtureDebugResult = {
   limitation: string;
 };
 
+export type CreateOrderResult = {
+  alreadyExists?: boolean;
+  id: number;
+  orderNumber: string;
+};
+
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:3001";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function getValidMinorPrice(value: unknown) {
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) && Number.isInteger(numberValue)
+    ? numberValue
+    : null;
+}
+
+function getValidQuantity(value: unknown) {
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) && numberValue > 0 ? numberValue : 1;
+}
+
+function parsePriceMinorFromDisplay(value: unknown) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value
+    .replace(/\s+/g, "")
+    .replace("RUB", "")
+    .replace("₽", "")
+    .replace(",", ".")
+    .trim();
+  const numericValue = Number(normalized);
+
+  return Number.isFinite(numericValue) && numericValue > 0
+    ? Math.round(numericValue * 100)
+    : null;
+}
+
+function createOrderDraftPayload(draftOrder: unknown) {
+  if (!isRecord(draftOrder)) {
+    return draftOrder;
+  }
+
+  const items = Array.isArray(draftOrder.items)
+    ? draftOrder.items.filter(isRecord).map((item) => {
+        const itemTotalPriceMinor =
+          getValidMinorPrice(item.totalPriceMinor) ??
+          getValidMinorPrice(item.priceMinor) ??
+          parsePriceMinorFromDisplay(item.formattedPrice) ??
+          parsePriceMinorFromDisplay(item.price);
+
+        if (itemTotalPriceMinor === null || itemTotalPriceMinor <= 0) {
+          throw new Error(
+            `Некорректная цена позиции: ${
+              typeof item.title === "string" && item.title.trim()
+                ? item.title
+                : String(item.id ?? "без названия")
+            }`
+          );
+        }
+
+        return {
+          ...item,
+          priceMinor: itemTotalPriceMinor,
+          quantity: getValidQuantity(item.quantity),
+          totalPriceMinor: itemTotalPriceMinor
+        };
+      })
+    : [];
+  const itemsTotalPriceMinor = items.reduce((total, item) => {
+    return total + (getValidMinorPrice(item.totalPriceMinor) ?? 0);
+  }, 0);
+  const totalPriceMinor =
+    getValidMinorPrice(draftOrder.totalPriceMinor) ?? itemsTotalPriceMinor;
+
+  return {
+    ...draftOrder,
+    items,
+    totalPriceMinor
+  };
+}
 
 export async function getApiHealth(): Promise<ApiHealth> {
   const response = await fetch(`${apiBaseUrl}/health`);
@@ -116,4 +200,25 @@ export async function getCalculationFixtureDebug(
   }
 
   return response.json() as Promise<CalculationFixtureDebugResult>;
+}
+
+export async function createOrderFromDraft(
+  draftOrder: unknown
+): Promise<CreateOrderResult> {
+  const response = await fetch(`${apiBaseUrl}/orders`, {
+    body: JSON.stringify(createOrderDraftPayload(draftOrder)),
+    headers: {
+      "Content-Type": "application/json"
+    },
+    method: "POST"
+  });
+
+  if (!response.ok) {
+    const responseBody = await response.text();
+    throw new Error(
+      `/orders ${response.status}${responseBody ? ` ${responseBody}` : ""}`
+    );
+  }
+
+  return response.json() as Promise<CreateOrderResult>;
 }

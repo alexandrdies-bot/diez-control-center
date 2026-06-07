@@ -1,5 +1,5 @@
 import pg from "pg";
-import type { QueryResultRow } from "pg";
+import type { PoolClient, QueryResultRow } from "pg";
 
 const { Pool } = pg;
 
@@ -55,4 +55,26 @@ export async function queryDatabase<T extends QueryResultRow>(
 
   const result = await dbPool.query<T>(sql, params);
   return result.rows;
+}
+
+export async function withDatabaseTransaction<T>(
+  callback: (client: PoolClient) => Promise<T>
+): Promise<T> {
+  if (!dbPool) {
+    throw new Error("DATABASE_URL is not configured");
+  }
+
+  const client = await dbPool.connect();
+
+  try {
+    await client.query("BEGIN");
+    const result = await callback(client);
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }

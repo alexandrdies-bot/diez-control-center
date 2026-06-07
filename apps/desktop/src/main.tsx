@@ -9,6 +9,7 @@ import truckIconUrl from "./assets/svg/truck.svg";
 import truckOffIconUrl from "./assets/svg/truck-off.svg";
 import userIconUrl from "./assets/svg/user.svg";
 import {
+  createOrderFromDraft,
   getApiHealth,
   getMaterialPricingInputs,
   getMaterials,
@@ -304,6 +305,9 @@ type DraftOrder = {
   customer?: DraftOrderCustomer;
   delivery: DraftOrderDelivery;
   items: DraftOrderItem[];
+  serverOrderId?: number;
+  serverOrderNumber?: string;
+  serverOrderSavedAt?: string;
   totalPriceMinor: number;
   createdAt: string;
   updatedAt: string;
@@ -820,6 +824,9 @@ function App() {
   const [selectedDraftOrderId, setSelectedDraftOrderId] = useState<string | null>(
     null
   );
+  const [draftOrderSaveStatusById, setDraftOrderSaveStatusById] = useState<
+    Record<string, string>
+  >({});
   const [draftOrderPanelMode, setDraftOrderPanelMode] =
     useState<DraftOrderPanelMode>("details");
   const [draftOrderCustomerForm, setDraftOrderCustomerForm] =
@@ -1699,6 +1706,7 @@ function App() {
       faceFilmColorCode: result.faceFilm.colorCode,
       faceFilmLabel: getFaceFilmColorLabel(result.faceFilm),
       priceMinor: result.priceMinor,
+      totalPriceMinor: result.priceMinor,
       formattedPrice: result.formattedPrice,
       ledCount: result.ledCount,
       calculationId: result.calculationId,
@@ -1927,6 +1935,39 @@ function App() {
       setIsDraftOrderDetailsOpen(false);
       setIsNewOrderFormOpen(false);
       setActiveSection("Главная");
+    }
+  }
+
+  async function handleSaveDraftOrderToDatabase(draftOrder: DraftOrder) {
+    setDraftOrderSaveStatusById((current) => ({
+      ...current,
+      [draftOrder.id]: "Сохраняем заказ..."
+    }));
+
+    try {
+      const result = await createOrderFromDraft(draftOrder);
+      const savedAt = new Date().toISOString();
+
+      updateDraftOrder(draftOrder.id, (currentDraftOrder) => ({
+        ...currentDraftOrder,
+        serverOrderId: result.id,
+        serverOrderNumber: result.orderNumber,
+        serverOrderSavedAt: savedAt
+      }));
+
+      setDraftOrderSaveStatusById((current) => ({
+        ...current,
+        [draftOrder.id]: result.alreadyExists
+          ? `Заказ уже сохранён: ${result.orderNumber}`
+          : `Заказ сохранён: ${result.orderNumber}`
+      }));
+    } catch (error) {
+      setDraftOrderSaveStatusById((current) => ({
+        ...current,
+        [draftOrder.id]: `Не удалось сохранить заказ: ${
+          error instanceof Error ? error.message : "неизвестная ошибка"
+        }`
+      }));
     }
   }
 
@@ -2660,6 +2701,17 @@ function App() {
                       </div>
 
                       <div className="draft-order-actions">
+                        {getDraftOrderDisplayStatus(detailDraftOrder) === "оформлен" ? (
+                          <button
+                            className="primary-action-button"
+                            onClick={() =>
+                              handleSaveDraftOrderToDatabase(detailDraftOrder)
+                            }
+                            type="button"
+                          >
+                            Сохранить в базу
+                          </button>
+                        ) : null}
                         <button
                           className="secondary-action-button"
                           onClick={() => handleAddItemToDraftOrder(detailDraftOrder)}
@@ -2668,6 +2720,13 @@ function App() {
                           Добавить позицию
                         </button>
                       </div>
+                      {draftOrderSaveStatusById[detailDraftOrder.id] ||
+                      detailDraftOrder.serverOrderNumber ? (
+                        <p className="draft-order-save-status">
+                          {draftOrderSaveStatusById[detailDraftOrder.id] ??
+                            `Заказ сохранён: ${detailDraftOrder.serverOrderNumber}`}
+                        </p>
+                      ) : null}
                     </div>
                     </section>
                   )}
