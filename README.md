@@ -994,6 +994,8 @@ CDEK tariff calculation, pickup-point selection, shipment creation, and tracking
 
 The detail screen action `Завершить приём заказа` creates the order through `POST /orders` only when positions, customer, and delivery are complete. After success the draft stores `serverOrderId` and `serverOrderNumber`, shows `Заказ создан: ORD-...`, and keeps the local draft available.
 
+After an order is created in the database, local editing is locked until PATCH synchronization is added. Managers cannot add/edit/delete positions or edit customer/delivery locally for a created order, because that would diverge from the database.
+
 The feed trash action has two modes: unsaved local drafts are removed from `localStorage`; saved orders call `DELETE /orders/:id` first and then remove the local draft card after successful API deletion.
 
 If `+ Новый заказ` is pressed while the active draft is still `receiving`, the current draft is moved to `awaiting-details` and a new service selection flow starts.

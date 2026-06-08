@@ -530,6 +530,10 @@ function getDraftOrderDisplayStatus(draftOrder: DraftOrder) {
   return "оформлен";
 }
 
+function isDraftOrderCreatedInDatabase(draftOrder: DraftOrder) {
+  return Boolean(draftOrder.serverOrderId || draftOrder.serverOrderNumber);
+}
+
 function createDraftOrder(items: DraftOrderItem[] = []): DraftOrder {
   const now = new Date().toISOString();
 
@@ -2167,8 +2171,12 @@ function App() {
                               ? "draft-feed-indicator draft-feed-indicator-ok"
                               : "draft-feed-indicator draft-feed-indicator-alert"
                           }
+                          disabled={isDraftOrderCreatedInDatabase(draftOrder)}
                           onClick={(event) => {
                             event.stopPropagation();
+                            if (isDraftOrderCreatedInDatabase(draftOrder)) {
+                              return;
+                            }
                             openDraftOrderCustomerForm(draftOrder);
                           }}
                           title={
@@ -2193,8 +2201,12 @@ function App() {
                               ? "draft-feed-indicator draft-feed-indicator-alert"
                               : "draft-feed-indicator draft-feed-indicator-ok"
                           }
+                          disabled={isDraftOrderCreatedInDatabase(draftOrder)}
                           onClick={(event) => {
                             event.stopPropagation();
+                            if (isDraftOrderCreatedInDatabase(draftOrder)) {
+                              return;
+                            }
                             openDraftOrderDeliveryForm(draftOrder);
                           }}
                           title={
@@ -2610,23 +2622,27 @@ function App() {
                             <img alt="" src={userIconUrl} />
                             <span>Заказчик</span>
                           </h4>
-                          <button
-                            aria-label={
-                              isDraftOrderCustomerFilled(detailDraftOrder.customer)
-                                ? "Изменить заказчика"
-                                : "Заполнить заказчика"
-                            }
-                            className="draft-summary-edit-button"
-                            onClick={() => openDraftOrderCustomerForm(detailDraftOrder)}
-                            title={
-                              isDraftOrderCustomerFilled(detailDraftOrder.customer)
-                                ? "Изменить заказчика"
-                                : "Заполнить заказчика"
-                            }
-                            type="button"
-                          >
-                            <img alt="" src={pencilIconUrl} />
-                          </button>
+                          {!isDraftOrderCreatedInDatabase(detailDraftOrder) ? (
+                            <button
+                              aria-label={
+                                isDraftOrderCustomerFilled(detailDraftOrder.customer)
+                                  ? "Изменить заказчика"
+                                  : "Заполнить заказчика"
+                              }
+                              className="draft-summary-edit-button"
+                              onClick={() =>
+                                openDraftOrderCustomerForm(detailDraftOrder)
+                              }
+                              title={
+                                isDraftOrderCustomerFilled(detailDraftOrder.customer)
+                                  ? "Изменить заказчика"
+                                  : "Заполнить заказчика"
+                              }
+                              type="button"
+                            >
+                              <img alt="" src={pencilIconUrl} />
+                            </button>
+                          ) : null}
                         </div>
                         {isDraftOrderCustomerFilled(detailDraftOrder.customer) ? (
                           <div className="draft-summary-lines">
@@ -2656,25 +2672,29 @@ function App() {
                             <img alt="" src={truckIconUrl} />
                             <span>Доставка</span>
                           </h4>
-                          <button
-                            aria-label={
-                              getDraftOrderDeliveryState(detailDraftOrder.delivery) ===
-                              "missing"
-                                ? "Заполнить доставку"
-                                : "Изменить доставку"
-                            }
-                            className="draft-summary-edit-button"
-                            onClick={() => openDraftOrderDeliveryForm(detailDraftOrder)}
-                            title={
-                              getDraftOrderDeliveryState(detailDraftOrder.delivery) ===
-                              "missing"
-                                ? "Заполнить доставку"
-                                : "Изменить доставку"
-                            }
-                            type="button"
-                          >
-                            <img alt="" src={pencilIconUrl} />
-                          </button>
+                          {!isDraftOrderCreatedInDatabase(detailDraftOrder) ? (
+                            <button
+                              aria-label={
+                                getDraftOrderDeliveryState(detailDraftOrder.delivery) ===
+                                "missing"
+                                  ? "Заполнить доставку"
+                                  : "Изменить доставку"
+                              }
+                              className="draft-summary-edit-button"
+                              onClick={() =>
+                                openDraftOrderDeliveryForm(detailDraftOrder)
+                              }
+                              title={
+                                getDraftOrderDeliveryState(detailDraftOrder.delivery) ===
+                                "missing"
+                                  ? "Заполнить доставку"
+                                  : "Изменить доставку"
+                              }
+                              type="button"
+                            >
+                              <img alt="" src={pencilIconUrl} />
+                            </button>
+                          ) : null}
                         </div>
                         {detailDraftOrder.delivery.mode === "not-required" ? (
                           <p className="draft-summary-muted">Доставка не требуется</p>
@@ -2709,6 +2729,13 @@ function App() {
                       </div>
                     </div>
 
+                    {isDraftOrderCreatedInDatabase(detailDraftOrder) ? (
+                      <p className="draft-order-locked-note">
+                        Заказ создан в базе. Редактирование будет доступно после
+                        добавления синхронизации изменений.
+                      </p>
+                    ) : null}
+
                     <ol className="draft-items-list">
                       {detailDraftOrder.items.map((item, index) => (
                         <li className="draft-item-row" key={item.id}>
@@ -2716,7 +2743,8 @@ function App() {
                             {index + 1}. {item.title}
                           </span>
                           <strong>{item.formattedPrice}</strong>
-                          {item.serviceType === "light-letter" ? (
+                          {item.serviceType === "light-letter" &&
+                          !isDraftOrderCreatedInDatabase(detailDraftOrder) ? (
                             <button
                               aria-label="Редактировать позицию"
                               className="draft-item-action-button draft-item-action-edit"
@@ -2727,15 +2755,17 @@ function App() {
                               <img alt="" src={pencilIconUrl} />
                             </button>
                           ) : null}
-                          <button
-                            aria-label="Удалить позицию"
-                            className="draft-item-action-button draft-item-action-delete"
-                            onClick={() => handleRemoveDraftOrderItem(item.id)}
-                            title="Удалить позицию"
-                            type="button"
-                          >
-                            <img alt="" src={trashIconUrl} />
-                          </button>
+                          {!isDraftOrderCreatedInDatabase(detailDraftOrder) ? (
+                            <button
+                              aria-label="Удалить позицию"
+                              className="draft-item-action-button draft-item-action-delete"
+                              onClick={() => handleRemoveDraftOrderItem(item.id)}
+                              title="Удалить позицию"
+                              type="button"
+                            >
+                              <img alt="" src={trashIconUrl} />
+                            </button>
+                          ) : null}
                         </li>
                       ))}
                     </ol>
@@ -2764,13 +2794,15 @@ function App() {
                             Завершить приём заказа
                           </button>
                         ) : null}
-                        <button
-                          className="secondary-action-button"
-                          onClick={() => handleAddItemToDraftOrder(detailDraftOrder)}
-                          type="button"
-                        >
-                          Добавить позицию
-                        </button>
+                        {!isDraftOrderCreatedInDatabase(detailDraftOrder) ? (
+                          <button
+                            className="secondary-action-button"
+                            onClick={() => handleAddItemToDraftOrder(detailDraftOrder)}
+                            type="button"
+                          >
+                            Добавить позицию
+                          </button>
+                        ) : null}
                       </div>
                       {draftOrderSaveStatusById[detailDraftOrder.id] ||
                       detailDraftOrder.serverOrderNumber ? (

@@ -2104,6 +2104,12 @@ tbody tr {
   text-align: right;
 }
 
+.draft-order-locked-note {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 12px;
+}
+
 .checkbox-field {
   display: inline-flex;
   gap: 10px;
