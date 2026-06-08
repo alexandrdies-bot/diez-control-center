@@ -1006,6 +1006,8 @@ The detail screen action `Завершить приём заказа` creates th
 
 During the development MVP, a created order can still be edited in the desktop UI. Full server-side update synchronization through `PATCH` will be implemented as a separate stage, so current local edits are a temporary development workflow.
 
+Order feed cards and order details are optimized for manager readability: they show the order number when available, customer, phone, positions summary, total, and status. This is a UI-only improvement; server logic and order persistence were not changed. Loading the feed directly from the production database is not implemented while the current database is dev/test.
+
 The feed trash action has two modes: unsaved local drafts are removed from `localStorage`; saved orders call `DELETE /orders/:id` first and then remove the local draft card after successful API deletion.
 
 If `+ Новый заказ` is pressed while the active draft is still `receiving`, the current draft is moved to `awaiting-details` and a new service selection flow starts.

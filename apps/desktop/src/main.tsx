@@ -453,11 +453,23 @@ function getDraftOrderDetailsTitle(draftOrder: DraftOrder) {
   );
 }
 
+function getDraftOrderCustomerNameLabel(draftOrder: DraftOrder) {
+  return draftOrder.customer?.name?.trim() || "Заказчик не заполнен";
+}
+
+function getDraftOrderCustomerPhoneLabel(draftOrder: DraftOrder) {
+  const customerPhone = draftOrder.customer?.phone?.trim();
+
+  return hasRussianPhoneDigits(customerPhone)
+    ? formatRussianPhone(customerPhone!)
+    : "";
+}
+
 function getDraftOrderSummary(draftOrder: DraftOrder) {
   const firstItemTitle = draftOrder.items[0]?.title?.trim();
 
   if (firstItemTitle && draftOrder.items.length > 1) {
-    return `${draftOrder.items.length} позиции · ${firstItemTitle}`;
+    return `${firstItemTitle} · + ещё ${draftOrder.items.length - 1}`;
   }
 
   if (firstItemTitle) {
@@ -469,6 +481,32 @@ function getDraftOrderSummary(draftOrder: DraftOrder) {
   }
 
   return "Позиции не добавлены";
+}
+
+function getDraftOrderItemServiceLabel(item: DraftOrderItem) {
+  if (item.serviceType === "light-letter") {
+    return "ОБЪЁМНЫЕ БУКВЫ";
+  }
+
+  if (item.serviceType === "dtf-print") {
+    return "DTF-ПЕЧАТЬ";
+  }
+
+  return item.type;
+}
+
+function getDraftOrderItemDescription(item: DraftOrderItem) {
+  return item.title;
+}
+
+function getDraftOrderItemQuantityLabel(item: DraftOrderItem) {
+  const quantity = Number(item.quantity);
+
+  if (Number.isFinite(quantity) && quantity > 0) {
+    return `${quantity} шт.`;
+  }
+
+  return "1 шт.";
 }
 
 function isDraftOrderCustomerFilled(customer: DraftOrderCustomer | undefined) {
@@ -2125,9 +2163,14 @@ function App() {
                     >
                       <div className="draft-feed-card-content">
                         {draftOrder.serverOrderNumber ? (
-                          <span>{draftOrder.serverOrderNumber}</span>
+                          <span className="draft-feed-order-number">
+                            {draftOrder.serverOrderNumber}
+                          </span>
                         ) : null}
-                        <strong>{getDraftOrderCustomerTitle(draftOrder)}</strong>
+                        <strong>{getDraftOrderCustomerNameLabel(draftOrder)}</strong>
+                        {getDraftOrderCustomerPhoneLabel(draftOrder) ? (
+                          <span>{getDraftOrderCustomerPhoneLabel(draftOrder)}</span>
+                        ) : null}
                         <span>{getDraftOrderSummary(draftOrder)}</span>
                         <span>
                           Итого: {formatMinorPrice(draftOrder.totalPriceMinor, "RUB")}
@@ -2380,10 +2423,23 @@ function App() {
                       }
                     />
                   </div>
-                  {detailDraftOrder.serverOrderNumber ? (
-                    <p className="draft-order-number-note">
-                      Заказ {detailDraftOrder.serverOrderNumber}
-                    </p>
+                  {draftOrderPanelMode === "details" ? (
+                    <div className="draft-order-overview">
+                      <strong>
+                        {detailDraftOrder.serverOrderNumber ?? "Локальный заказ"}
+                      </strong>
+                      <span>
+                        Заказчик: {getDraftOrderCustomerNameLabel(detailDraftOrder)}
+                      </span>
+                      <span>Позиций: {detailDraftOrder.items.length}</span>
+                      <span>
+                        Итого:{" "}
+                        {formatMinorPrice(detailDraftOrder.totalPriceMinor, "RUB")}
+                      </span>
+                      <em>
+                        Статус: {getDraftOrderDisplayStatus(detailDraftOrder)}
+                      </em>
+                    </div>
                   ) : null}
 
                   {draftOrderPanelMode === "customer" ? (
@@ -2618,6 +2674,17 @@ function App() {
                             <img alt="" src={userIconUrl} />
                             <span>Заказчик</span>
                           </h4>
+                          <span
+                            className={
+                              isDraftOrderCustomerFilled(detailDraftOrder.customer)
+                                ? "draft-summary-state draft-summary-state-ok"
+                                : "draft-summary-state draft-summary-state-alert"
+                            }
+                          >
+                            {isDraftOrderCustomerFilled(detailDraftOrder.customer)
+                              ? "Заполнено"
+                              : "Не заполнено"}
+                          </span>
                           <button
                             aria-label={
                               isDraftOrderCustomerFilled(detailDraftOrder.customer)
@@ -2666,6 +2733,21 @@ function App() {
                             <img alt="" src={truckIconUrl} />
                             <span>Доставка</span>
                           </h4>
+                          <span
+                            className={
+                              getDraftOrderDeliveryState(detailDraftOrder.delivery) ===
+                              "missing"
+                                ? "draft-summary-state draft-summary-state-alert"
+                                : "draft-summary-state draft-summary-state-ok"
+                            }
+                          >
+                            {detailDraftOrder.delivery.mode === "not-required"
+                              ? "Не требуется"
+                              : getDraftOrderDeliveryState(detailDraftOrder.delivery) ===
+                                  "missing"
+                                ? "Не заполнено"
+                                : "Заполнено"}
+                          </span>
                           <button
                             aria-label={
                               getDraftOrderDeliveryState(detailDraftOrder.delivery) ===
@@ -2724,8 +2806,14 @@ function App() {
                     <ol className="draft-items-list">
                       {detailDraftOrder.items.map((item, index) => (
                         <li className="draft-item-row" key={item.id}>
-                          <span>
-                            {index + 1}. {item.title}
+                          <div className="draft-item-main">
+                            <strong>
+                              {index + 1}. {getDraftOrderItemServiceLabel(item)}
+                            </strong>
+                            <span>{getDraftOrderItemDescription(item)}</span>
+                          </div>
+                          <span className="draft-item-quantity">
+                            {getDraftOrderItemQuantityLabel(item)}
                           </span>
                           <strong>{item.formattedPrice}</strong>
                           {item.serviceType === "light-letter" ? (
