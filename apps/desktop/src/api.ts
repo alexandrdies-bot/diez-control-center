@@ -55,6 +55,11 @@ export type CreateOrderResult = {
   orderNumber: string;
 };
 
+export type DeleteOrderResult = {
+  deleted: boolean;
+  id: number;
+};
+
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:3001";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -221,4 +226,27 @@ export async function createOrderFromDraft(
   }
 
   return response.json() as Promise<CreateOrderResult>;
+}
+
+export async function deleteOrder(orderId: number): Promise<DeleteOrderResult> {
+  let response: Response;
+  const url = `${apiBaseUrl}/orders/${orderId}`;
+
+  try {
+    response = await fetch(url, {
+      method: "DELETE"
+    });
+  } catch (error) {
+    console.error("Order delete API request failed", error);
+    throw new Error("Не удалось связаться с API удаления заказа");
+  }
+
+  if (!response.ok) {
+    const responseBody = await response.text();
+    throw new Error(
+      `/orders/${orderId} ${response.status}${responseBody ? ` ${responseBody}` : ""}`
+    );
+  }
+
+  return response.json() as Promise<DeleteOrderResult>;
 }

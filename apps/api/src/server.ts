@@ -30,6 +30,8 @@ const app = Fastify({
 });
 
 await app.register(cors, {
+  allowedHeaders: ["Content-Type"],
+  methods: ["GET", "HEAD", "POST", "PATCH", "DELETE", "OPTIONS"],
   origin: true
 });
 
@@ -515,6 +517,40 @@ app.post<{ Body: DesktopDraftOrderPayload }>("/orders", async (request, reply) =
   });
 
   return result;
+});
+
+app.delete<{ Params: { id: string } }>("/orders/:id", async (request, reply) => {
+  const orderId = Number(request.params.id);
+
+  if (!Number.isInteger(orderId) || orderId <= 0) {
+    return reply.code(400).send({
+      error: "INVALID_ORDER_ID"
+    });
+  }
+
+  const result = await withDatabaseTransaction(async (client) => {
+    const deletedOrder = await client.query<{ id: number }>(
+      `
+        delete from app.orders
+        where id = $1
+        returning id
+      `,
+      [orderId]
+    );
+
+    return deletedOrder.rows[0] ?? null;
+  });
+
+  if (!result) {
+    return reply.code(404).send({
+      error: "ORDER_NOT_FOUND"
+    });
+  }
+
+  return {
+    deleted: true,
+    id: result.id
+  };
 });
 
 app.get("/units", async () => {

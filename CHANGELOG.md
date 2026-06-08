@@ -7,7 +7,8 @@
 * Добавлен первый endpoint `POST /orders` для сохранения локального desktop draft-order в общую базу.
 * Добавлен API transaction helper для атомарного создания заказа, позиций, доставки и события.
 * Добавлена защита от дублей заказов по `source='desktop'` и `source_ref`.
-* В desktop добавлена кнопка `Сохранить в базу` для локально оформленного заказа; localStorage draft при этом не удаляется.
+* В desktop добавлена кнопка `Завершить приём заказа`: заказ создаётся через `POST /orders` только после явного действия менеджера, без автосохранения после первой позиции; localStorage draft при этом не удаляется.
+* Добавлен `DELETE /orders/:id` для удаления уже созданного заказа через корзину; несохранённые черновики по-прежнему удаляются только из localStorage.
 * Зафиксировано, что полный CRUD заказов, оплаты и СДЭК пока не реализованы.
 * Создан начальный каркас проекта `diez-control-center`.
 * Зафиксирована роль проекта как главной ПК-программы экосистемы «Диез Имидж».
@@ -355,5 +356,5 @@
 
 ### Not changed
 
-- Customer details, delivery, order save API, and database persistence are not implemented yet.
-- `localStorage` is temporary frontend storage until the shared order database/API is ready.
+- Full order CRUD, payments, and delivery provider persistence are not implemented yet.
+- `localStorage` remains temporary frontend storage until the manager explicitly creates the order through `POST /orders`.

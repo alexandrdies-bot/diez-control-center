@@ -193,10 +193,15 @@ MVP-1 API read-only endpoints готовы:
 * `GET /products`
 * `GET /services`
 * `POST /orders`
+* `DELETE /orders/:id`
 
-`POST /orders` — первый write endpoint для сохранения локального desktop draft-order в общую базу. Он работает через API-транзакцию, защищается от дублей по `source='desktop'` + `source_ref` и сохраняет заказ, позиции, заказчика, доставку и событие создания.
+`POST /orders` — первый write endpoint для создания заказа из локального desktop draft-order в общей базе. Он вызывается только после явного действия менеджера `Завершить приём заказа`, работает через API-транзакцию, защищается от дублей по `source='desktop'` + `source_ref` и сохраняет заказ, позиции, заказчика, доставку и событие создания.
+
+Автосохранение после первой добавленной позиции не используется: пока менеджер добавляет позиции, заказ остаётся локальным черновиком.
 
 Полный CRUD заказов, оплаты, СДЭК и серверная история статусов пока не реализованы.
+
+`DELETE /orders/:id` удаляет уже созданный заказ и связанные строки заказа через каскадные связи. Несохранённый локальный черновик удаляется только из `localStorage`.
 
 Tauri 2 desktop shell добавлен.
 
@@ -862,9 +867,9 @@ Later flow:
 2. Manager clicks `Добавить позицию`.
 3. A common draft order card appears or updates in the left feed.
 4. Clicking the card opens draft order details.
-5. Details will contain positions, editing, customer, delivery, and checkout.
+5. Details contain positions, editing, customer, delivery, and explicit order creation through `Завершить приём заказа`.
 
-Customer checkout and database saving are not implemented yet.
+Full checkout, payments, and order CRUD are not implemented yet.
 
 ### Board tape in office UI
 
@@ -926,7 +931,7 @@ The desktop screen is an office workflow, not a copy of the customer `/dtf` page
 
 The DTF calculation uses the shared package `@diez/calculation-core/print`.
 
-The desktop app must not keep a separate DTF formula copy. Database saving is not connected yet.
+The desktop app must not keep a separate DTF formula copy. DTF positions can be added to a local draft, and the final order is created through `POST /orders` only after `Завершить приём заказа`.
 
 ## Local Draft Order Receiving
 
@@ -954,15 +959,15 @@ The visible order status is derived from the workflow status plus customer and d
 - no positions -> `без позиций`;
 - positions exist but customer is empty -> `нужен заказчик`;
 - customer exists but manual delivery is empty -> `нужна доставка`;
-- positions, customer, and manual delivery with address or not-required delivery -> `оформлен`.
+- positions, customer, and manual delivery with address or not-required delivery -> `оформлен`;
+- server order number exists -> `заказ создан`.
 
-The draft details screen shows compact customer and delivery summaries above the positions list. The data is still stored only in `localStorage`.
+The draft details screen shows compact customer and delivery summaries above the positions list. The draft stays in `localStorage` until the manager explicitly finishes receiving the order.
 
 When a manager adds a position from `ОБЪЁМНЫЕ БУКВЫ` or `DTF-ПЕЧАТЬ`, the app creates or updates the active local draft order and shows it in the left feed. The feed card remains available after switching sections or reopening the frontend.
 
 The draft card has quick local actions:
 
-- check icon: finishes order receiving and moves the draft to `awaiting-details`;
 - trash icon: deletes the local draft after confirmation.
 
 The draft card also shows customer and delivery indicators from the local draft model:
@@ -987,13 +992,13 @@ Current delivery is a temporary local MVP. Delivery modes are:
 
 CDEK tariff calculation, pickup-point selection, shipment creation, and tracking must be implemented later through backend/API, not directly from the desktop app. No CDEK API, tokens, database persistence, or migrations are connected now.
 
-These actions update the current `localStorage` MVP state only. Database saving is not connected yet. Desktop action icons are bundled assets copied into `apps/desktop/src/assets/svg`.
+The detail screen action `Завершить приём заказа` creates the order through `POST /orders` only when positions, customer, and delivery are complete. After success the draft stores `serverOrderId` and `serverOrderNumber`, shows `Заказ создан: ORD-...`, and keeps the local draft available.
 
-The old manual `Завершить приём заказа` action is no longer needed: local order completion is inferred automatically from positions, customer, and delivery data.
+The feed trash action has two modes: unsaved local drafts are removed from `localStorage`; saved orders call `DELETE /orders/:id` first and then remove the local draft card after successful API deletion.
 
 If `+ Новый заказ` is pressed while the active draft is still `receiving`, the current draft is moved to `awaiting-details` and a new service selection flow starts.
 
-Adding more positions to the current draft should happen through the draft detail screen. Customer details, delivery, database saving, and order API persistence are not implemented yet. `localStorage` is only a temporary frontend/MVP solution until the shared orders API and database model are ready.
+Adding more positions to the current draft should happen through the draft detail screen before pressing `Завершить приём заказа`. Desktop still does not write to PostgreSQL directly; order creation goes through the API.
 
 ## Future MAX + AI Assistant Integration
 

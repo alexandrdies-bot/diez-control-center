@@ -10,6 +10,7 @@ import truckOffIconUrl from "./assets/svg/truck-off.svg";
 import userIconUrl from "./assets/svg/user.svg";
 import {
   createOrderFromDraft,
+  deleteOrder,
   getApiHealth,
   getMaterialPricingInputs,
   getMaterials,
@@ -510,6 +511,10 @@ function normalizeDraftOrderDelivery(
 }
 
 function getDraftOrderDisplayStatus(draftOrder: DraftOrder) {
+  if (draftOrder.serverOrderId || draftOrder.serverOrderNumber) {
+    return "заказ создан";
+  }
+
   if (draftOrder.items.length === 0) {
     return "без позиций";
   }
@@ -1916,9 +1921,44 @@ function App() {
     setDraftOrderPanelMode("details");
   }
 
-  function handleDeleteDraftOrder(draftOrderId: string) {
-    if (!window.confirm("Удалить черновик заказа?")) {
+  async function handleDeleteDraftOrder(draftOrderId: string) {
+    const draftOrder = draftOrders.find((order) => order.id === draftOrderId);
+
+    if (!draftOrder) {
       return;
+    }
+
+    const hasServerOrder = Boolean(
+      draftOrder.serverOrderId || draftOrder.serverOrderNumber
+    );
+    const confirmMessage = hasServerOrder
+      ? `Удалить заказ ${draftOrder.serverOrderNumber ?? ""} из базы?`.trim()
+      : "Удалить черновик заказа?";
+
+    if (!window.confirm(confirmMessage)) {
+      return;
+    }
+
+    if (hasServerOrder) {
+      if (!draftOrder.serverOrderId) {
+        setDraftOrderSaveStatusById((current) => ({
+          ...current,
+          [draftOrder.id]: "Не удалось удалить заказ: нет serverOrderId"
+        }));
+        return;
+      }
+
+      try {
+        await deleteOrder(draftOrder.serverOrderId);
+      } catch (error) {
+        setDraftOrderSaveStatusById((current) => ({
+          ...current,
+          [draftOrder.id]: `Не удалось удалить заказ: ${
+            error instanceof Error ? error.message : "неизвестная ошибка"
+          }`
+        }));
+        return;
+      }
     }
 
     setDraftOrders((orders) =>
@@ -1941,7 +1981,7 @@ function App() {
   async function handleSaveDraftOrderToDatabase(draftOrder: DraftOrder) {
     setDraftOrderSaveStatusById((current) => ({
       ...current,
-      [draftOrder.id]: "Сохраняем заказ..."
+      [draftOrder.id]: "Создаём заказ..."
     }));
 
     try {
@@ -1958,13 +1998,13 @@ function App() {
       setDraftOrderSaveStatusById((current) => ({
         ...current,
         [draftOrder.id]: result.alreadyExists
-          ? `Заказ уже сохранён: ${result.orderNumber}`
-          : `Заказ сохранён: ${result.orderNumber}`
+          ? `Заказ уже создан: ${result.orderNumber}`
+          : `Заказ создан: ${result.orderNumber}`
       }));
     } catch (error) {
       setDraftOrderSaveStatusById((current) => ({
         ...current,
-        [draftOrder.id]: `Не удалось сохранить заказ: ${
+        [draftOrder.id]: `Не удалось завершить приём заказа: ${
           error instanceof Error ? error.message : "неизвестная ошибка"
         }`
       }));
@@ -2095,13 +2135,21 @@ function App() {
                       </div>
                       <div className="draft-feed-card-actions">
                         <button
-                          aria-label="Удалить черновик"
+                          aria-label={
+                            draftOrder.serverOrderId || draftOrder.serverOrderNumber
+                              ? "Удалить заказ"
+                              : "Удалить черновик"
+                          }
                           className="draft-feed-icon-button draft-feed-icon-button-trash"
                           onClick={(event) => {
                             event.stopPropagation();
                             handleDeleteDraftOrder(draftOrder.id);
                           }}
-                          title="Удалить черновик"
+                          title={
+                            draftOrder.serverOrderId || draftOrder.serverOrderNumber
+                              ? "Удалить заказ"
+                              : "Удалить черновик"
+                          }
                           type="button"
                         >
                           <img alt="" src={trashIconUrl} />
@@ -2701,15 +2749,19 @@ function App() {
                       </div>
 
                       <div className="draft-order-actions">
-                        {getDraftOrderDisplayStatus(detailDraftOrder) === "оформлен" ? (
+                        {!detailDraftOrder.serverOrderId &&
+                        !detailDraftOrder.serverOrderNumber ? (
                           <button
                             className="primary-action-button"
+                            disabled={
+                              getDraftOrderDisplayStatus(detailDraftOrder) !== "оформлен"
+                            }
                             onClick={() =>
                               handleSaveDraftOrderToDatabase(detailDraftOrder)
                             }
                             type="button"
                           >
-                            Сохранить в базу
+                            Завершить приём заказа
                           </button>
                         ) : null}
                         <button
@@ -2724,7 +2776,7 @@ function App() {
                       detailDraftOrder.serverOrderNumber ? (
                         <p className="draft-order-save-status">
                           {draftOrderSaveStatusById[detailDraftOrder.id] ??
-                            `Заказ сохранён: ${detailDraftOrder.serverOrderNumber}`}
+                            `Заказ создан: ${detailDraftOrder.serverOrderNumber}`}
                         </p>
                       ) : null}
                     </div>
