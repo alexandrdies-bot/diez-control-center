@@ -203,6 +203,16 @@ MVP-1 API read-only endpoints готовы:
 
 `DELETE /orders/:id` удаляет уже созданный заказ и связанные строки заказа через каскадные связи. Несохранённый локальный черновик удаляется только из `localStorage`.
 
+### Тестовые заказы и production launch
+
+Во время разработки ПК-программа может создавать тестовые заказы в dev/test базе. Эти записи не являются production-данными и не должны попасть в финальную production-базу.
+
+Перед финальным запуском нужен отдельный подтверждённый этап: поднять чистую production-базу с миграциями без тестовых данных или выполнить проверенную очистку тестовых заказов из текущей базы. Очистку тестовых заказов нельзя делать случайно во время разработки.
+
+Номер заказа формируется базой в формате `ORD-YYYYMMDD-000001`, где `YYYYMMDD` — дата создания заказа, а финальный блок — порядковый номер за день. Первый реальный production-заказ должен начинаться с чистой рабочей нумерации за день, например `ORD-YYYYMMDD-000001`.
+
+Внутренний `id` PostgreSQL может не сбрасываться — это нормально. Менеджеру и клиенту виден рабочий `order_number`, а не внутренний технический id.
+
 Tauri 2 desktop shell добавлен.
 
 Приложение открывается как Windows desktop window.
@@ -992,7 +1002,7 @@ Current delivery is a temporary local MVP. Delivery modes are:
 
 CDEK tariff calculation, pickup-point selection, shipment creation, and tracking must be implemented later through backend/API, not directly from the desktop app. No CDEK API, tokens, database persistence, or migrations are connected now.
 
-The detail screen action `Завершить приём заказа` creates the order through `POST /orders` only when positions, customer, and delivery are complete. After success the draft stores `serverOrderId` and `serverOrderNumber`, shows `Заказ создан: ORD-...`, and keeps the local draft available.
+The detail screen action `Завершить приём заказа` creates the order through `POST /orders` only when positions, customer, and delivery are complete. After success the draft stores `serverOrderId` and `serverOrderNumber`, shows `Заказ создан: ORD-...`, and keeps the local draft available. The server order number from `serverOrderNumber` is visible in the feed card and order details.
 
 During the development MVP, a created order can still be edited in the desktop UI. Full server-side update synchronization through `PATCH` will be implemented as a separate stage, so current local edits are a temporary development workflow.
 

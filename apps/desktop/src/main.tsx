@@ -2124,6 +2124,9 @@ function App() {
                       tabIndex={0}
                     >
                       <div className="draft-feed-card-content">
+                        {draftOrder.serverOrderNumber ? (
+                          <span>{draftOrder.serverOrderNumber}</span>
+                        ) : null}
                         <strong>{getDraftOrderCustomerTitle(draftOrder)}</strong>
                         <span>{getDraftOrderSummary(draftOrder)}</span>
                         <span>
@@ -2377,6 +2380,11 @@ function App() {
                       }
                     />
                   </div>
+                  {detailDraftOrder.serverOrderNumber ? (
+                    <p className="draft-order-number-note">
+                      Заказ {detailDraftOrder.serverOrderNumber}
+                    </p>
+                  ) : null}
 
                   {draftOrderPanelMode === "customer" ? (
                     <section className="draft-items-panel draft-items-panel-detail draft-contact-panel">

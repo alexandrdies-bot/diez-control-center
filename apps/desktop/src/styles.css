@@ -2104,6 +2104,13 @@ tbody tr {
   text-align: right;
 }
 
+.draft-order-number-note {
+  margin: -8px 0 0;
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .checkbox-field {
   display: inline-flex;
   gap: 10px;
