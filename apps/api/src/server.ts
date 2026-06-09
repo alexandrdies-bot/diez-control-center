@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import cors from "@fastify/cors";
 import dotenv from "dotenv";
 import Fastify from "fastify";
+import type { FastifyReply, FastifyRequest } from "fastify";
 import { checkCalculationCoreImport } from "./calculation-core-import-check.js";
 
 const currentFile = fileURLToPath(import.meta.url);
@@ -21,18 +22,24 @@ const {
 
 const apiHost = process.env.API_HOST ?? "127.0.0.1";
 const apiPort = Number(process.env.API_PORT ?? "3001");
+const isProduction = process.env.NODE_ENV === "production";
+const corsAllowedOrigins = (process.env.CORS_ALLOWED_ORIGINS ?? "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+const apiWriteKey = process.env.API_WRITE_KEY?.trim();
+const adminApiKey = process.env.ADMIN_API_KEY?.trim();
 const debugEndpointsEnabled =
-  process.env.DEBUG_ENDPOINTS_ENABLED === "true" ||
-  process.env.NODE_ENV !== "production";
+  process.env.DEBUG_ENDPOINTS_ENABLED === "true" || !isProduction;
 
 const app = Fastify({
   logger: true
 });
 
 await app.register(cors, {
-  allowedHeaders: ["Content-Type"],
+  allowedHeaders: ["Content-Type", "x-api-key"],
   methods: ["GET", "HEAD", "POST", "PATCH", "DELETE", "OPTIONS"],
-  origin: true
+  origin: isProduction ? corsAllowedOrigins : true
 });
 
 type DesktopDraftOrderCustomer = {
@@ -91,6 +98,48 @@ type DesktopDraftOrderPayload = {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function getRequestApiKey(request: FastifyRequest) {
+  const headerValue = request.headers["x-api-key"];
+
+  return Array.isArray(headerValue) ? headerValue[0] : headerValue;
+}
+
+function requireApiKey(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  expectedKey: string | undefined
+) {
+  const isRequired = isProduction || Boolean(expectedKey);
+
+  if (!isRequired) {
+    return null;
+  }
+
+  const requestApiKey = getRequestApiKey(request);
+
+  if (!requestApiKey) {
+    return reply.code(401).send({
+      error: "UNAUTHORIZED"
+    });
+  }
+
+  if (!expectedKey || requestApiKey !== expectedKey) {
+    return reply.code(403).send({
+      error: "INVALID_API_KEY"
+    });
+  }
+
+  return null;
+}
+
+function requireWriteKey(request: FastifyRequest, reply: FastifyReply) {
+  return requireApiKey(request, reply, apiWriteKey);
+}
+
+function requireAdminKey(request: FastifyRequest, reply: FastifyReply) {
+  return requireApiKey(request, reply, adminApiKey);
 }
 
 function getOptionalString(value: unknown) {
@@ -244,6 +293,12 @@ app.get("/health/db", async (_request, reply) => {
 });
 
 app.post<{ Body: DesktopDraftOrderPayload }>("/orders", async (request, reply) => {
+  const authError = requireWriteKey(request, reply);
+
+  if (authError) {
+    return authError;
+  }
+
   const draftOrder = request.body;
 
   if (!isRecord(draftOrder)) {
@@ -520,6 +575,12 @@ app.post<{ Body: DesktopDraftOrderPayload }>("/orders", async (request, reply) =
 });
 
 app.delete<{ Params: { id: string } }>("/orders/:id", async (request, reply) => {
+  const authError = requireWriteKey(request, reply);
+
+  if (authError) {
+    return authError;
+  }
+
   const orderId = Number(request.params.id);
 
   if (!Number.isInteger(orderId) || orderId <= 0) {
@@ -676,6 +737,12 @@ app.patch<{
   Body: { purchasePriceMinor?: unknown };
   Params: { id: string };
 }>("/materials/:id/pricing-inputs", async (request, reply) => {
+  const authError = requireAdminKey(request, reply);
+
+  if (authError) {
+    return authError;
+  }
+
   const materialId = Number(request.params.id);
 
   if (!Number.isInteger(materialId) || materialId <= 0) {

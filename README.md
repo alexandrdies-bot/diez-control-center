@@ -203,6 +203,14 @@ MVP-1 API read-only endpoints готовы:
 
 `DELETE /orders/:id` удаляет уже созданный заказ и связанные строки заказа через каскадные связи. Несохранённый локальный черновик удаляется только из `localStorage`.
 
+Production API protection MVP:
+
+- `CORS_ALLOWED_ORIGINS` задаёт explicit CORS allowlist в `NODE_ENV=production`;
+- в dev режиме широкий CORS остаётся для удобной локальной разработки;
+- `POST /orders` и `DELETE /orders/:id` требуют `API_WRITE_KEY` в header `x-api-key`, если production или ключ задан;
+- `PATCH /materials/:id/pricing-inputs` требует `ADMIN_API_KEY` в header `x-api-key`, если production или ключ задан;
+- это временная защита до полноценной auth-модели с пользователями, ролями и audit log.
+
 ### Тестовые заказы и production launch
 
 Во время разработки ПК-программа может создавать тестовые заказы в dev/test базе. Эти записи не являются production-данными и не должны попасть в финальную production-базу.

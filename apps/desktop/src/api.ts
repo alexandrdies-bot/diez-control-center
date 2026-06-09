@@ -61,6 +61,25 @@ export type DeleteOrderResult = {
 };
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:3001";
+const apiWriteKey = import.meta.env.VITE_API_WRITE_KEY?.trim();
+const adminApiKey = import.meta.env.VITE_ADMIN_API_KEY?.trim();
+
+function createApiHeaders(apiKey?: string): Record<string, string> {
+  const headers: Record<string, string> = {};
+
+  if (apiKey) {
+    headers["x-api-key"] = apiKey;
+  }
+
+  return headers;
+}
+
+function createJsonApiHeaders(apiKey?: string): Record<string, string> {
+  return {
+    "Content-Type": "application/json",
+    ...createApiHeaders(apiKey)
+  };
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -180,9 +199,7 @@ export async function updateMaterialPurchasePrice(
     body: JSON.stringify({
       purchasePriceMinor
     }),
-    headers: {
-      "Content-Type": "application/json"
-    },
+    headers: createJsonApiHeaders(adminApiKey),
     method: "PATCH"
   });
 
@@ -212,9 +229,7 @@ export async function createOrderFromDraft(
 ): Promise<CreateOrderResult> {
   const response = await fetch(`${apiBaseUrl}/orders`, {
     body: JSON.stringify(createOrderDraftPayload(draftOrder)),
-    headers: {
-      "Content-Type": "application/json"
-    },
+    headers: createJsonApiHeaders(apiWriteKey),
     method: "POST"
   });
 
@@ -234,6 +249,7 @@ export async function deleteOrder(orderId: number): Promise<DeleteOrderResult> {
 
   try {
     response = await fetch(url, {
+      headers: createApiHeaders(apiWriteKey),
       method: "DELETE"
     });
   } catch (error) {
