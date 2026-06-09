@@ -111,9 +111,7 @@ function requireApiKey(
   reply: FastifyReply,
   expectedKey: string | undefined
 ) {
-  const isRequired = isProduction || Boolean(expectedKey);
-
-  if (!isRequired) {
+  if (!isProduction) {
     return null;
   }
 
