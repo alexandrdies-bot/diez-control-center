@@ -49,6 +49,59 @@ export type CalculationFixtureDebugResult = {
   limitation: string;
 };
 
+export type OrderSummary = {
+  createdAt: string;
+  currencyCode: string;
+  customerEmail: string | null;
+  customerName: string | null;
+  customerPhone: string | null;
+  firstItemTitle: string | null;
+  id: number;
+  itemsCount: number;
+  orderNumber: string;
+  source: string;
+  sourceRef: string | null;
+  status: string;
+  totalPriceMinor: number;
+  updatedAt: string;
+};
+
+export type OrderDetail = OrderSummary & {
+  customer: {
+    comment: string | null;
+    email: string | null;
+    id: number | null;
+    name: string | null;
+    phone: string | null;
+  };
+  customerComment: string | null;
+  customerId: number | null;
+  delivery: {
+    addressText: string | null;
+    comment: string | null;
+    currencyCode: string;
+    deliveryMode: string;
+    deliveryStatus: string;
+    id: number;
+    priceMinor: number;
+    recipientName: string | null;
+    recipientPhone: string | null;
+    trackingNumber: string | null;
+  } | null;
+  items: Array<{
+    calculationSnapshot: unknown;
+    currencyCode: string;
+    id: number;
+    params: unknown;
+    quantity: string;
+    serviceType: string;
+    sortOrder: number;
+    title: string;
+    totalPriceMinor: number;
+    unitPriceMinor: number;
+  }>;
+};
+
 export type CreateOrderResult = {
   alreadyExists?: boolean;
   id: number;
@@ -222,6 +275,26 @@ export async function getCalculationFixtureDebug(
   }
 
   return response.json() as Promise<CalculationFixtureDebugResult>;
+}
+
+export async function getOrders(): Promise<OrderSummary[]> {
+  const response = await fetch(`${apiBaseUrl}/orders`);
+
+  if (!response.ok) {
+    throw new Error(`Orders request failed: ${response.status}`);
+  }
+
+  return response.json() as Promise<OrderSummary[]>;
+}
+
+export async function getOrder(orderId: number): Promise<OrderDetail> {
+  const response = await fetch(`${apiBaseUrl}/orders/${orderId}`);
+
+  if (!response.ok) {
+    throw new Error(`Order request failed: ${response.status}`);
+  }
+
+  return response.json() as Promise<OrderDetail>;
 }
 
 export async function createOrderFromDraft(

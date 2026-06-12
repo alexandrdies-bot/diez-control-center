@@ -96,6 +96,54 @@ type DesktopDraftOrderPayload = {
   updatedAt?: unknown;
 };
 
+type ApiOrderSummaryRow = {
+  createdAt: string;
+  currencyCode: string;
+  customerEmail: string | null;
+  customerName: string | null;
+  customerPhone: string | null;
+  firstItemTitle: string | null;
+  id: number;
+  itemsCount: number;
+  orderNumber: string;
+  source: string;
+  sourceRef: string | null;
+  status: string;
+  totalPriceMinor: number;
+  updatedAt: string;
+};
+
+type ApiOrderDetailRow = ApiOrderSummaryRow & {
+  customerComment: string | null;
+  customerId: number | null;
+};
+
+type ApiOrderDeliveryRow = {
+  addressText: string | null;
+  comment: string | null;
+  currencyCode: string;
+  deliveryMode: string;
+  deliveryStatus: string;
+  id: number;
+  priceMinor: number;
+  recipientName: string | null;
+  recipientPhone: string | null;
+  trackingNumber: string | null;
+};
+
+type ApiOrderItemRow = {
+  calculationSnapshot: unknown;
+  currencyCode: string;
+  id: number;
+  params: unknown;
+  quantity: string;
+  serviceType: string;
+  sortOrder: number;
+  title: string;
+  totalPriceMinor: number;
+  unitPriceMinor: number;
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -288,6 +336,153 @@ app.get("/health/db", async (_request, reply) => {
   }
 
   return result;
+});
+
+app.get("/orders", async () => {
+  return queryDatabase<ApiOrderSummaryRow>(
+    `
+      select
+        o.id,
+        o.order_number as "orderNumber",
+        o.status,
+        o.source,
+        o.source_ref as "sourceRef",
+        o.total_price_minor as "totalPriceMinor",
+        o.currency_code as "currencyCode",
+        o.created_at::text as "createdAt",
+        o.updated_at::text as "updatedAt",
+        c.name as "customerName",
+        c.phone as "customerPhone",
+        c.email as "customerEmail",
+        item_stats.items_count as "itemsCount",
+        first_item.title as "firstItemTitle"
+      from app.orders o
+      left join app.customers c on c.id = o.customer_id
+      left join lateral (
+        select count(*)::int as items_count
+        from app.order_items oi
+        where oi.order_id = o.id
+      ) item_stats on true
+      left join lateral (
+        select oi.title
+        from app.order_items oi
+        where oi.order_id = o.id
+        order by oi.sort_order, oi.id
+        limit 1
+      ) first_item on true
+      order by o.created_at desc, o.id desc
+    `
+  );
+});
+
+app.get<{ Params: { id: string } }>("/orders/:id", async (request, reply) => {
+  const orderId = Number(request.params.id);
+
+  if (!Number.isInteger(orderId) || orderId <= 0) {
+    return reply.code(400).send({
+      error: "INVALID_ORDER_ID"
+    });
+  }
+
+  const orders = await queryDatabase<ApiOrderDetailRow>(
+    `
+      select
+        o.id,
+        o.order_number as "orderNumber",
+        o.status,
+        o.source,
+        o.source_ref as "sourceRef",
+        o.customer_id as "customerId",
+        o.total_price_minor as "totalPriceMinor",
+        o.currency_code as "currencyCode",
+        o.customer_comment as "customerComment",
+        o.created_at::text as "createdAt",
+        o.updated_at::text as "updatedAt",
+        c.name as "customerName",
+        c.phone as "customerPhone",
+        c.email as "customerEmail",
+        item_stats.items_count as "itemsCount",
+        first_item.title as "firstItemTitle"
+      from app.orders o
+      left join app.customers c on c.id = o.customer_id
+      left join lateral (
+        select count(*)::int as items_count
+        from app.order_items oi
+        where oi.order_id = o.id
+      ) item_stats on true
+      left join lateral (
+        select oi.title
+        from app.order_items oi
+        where oi.order_id = o.id
+        order by oi.sort_order, oi.id
+        limit 1
+      ) first_item on true
+      where o.id = $1
+      limit 1
+    `,
+    [orderId]
+  );
+  const order = orders[0];
+
+  if (!order) {
+    return reply.code(404).send({
+      error: "ORDER_NOT_FOUND"
+    });
+  }
+
+  const [delivery, items] = await Promise.all([
+    queryDatabase<ApiOrderDeliveryRow>(
+      `
+        select
+          id,
+          delivery_mode as "deliveryMode",
+          delivery_status as "deliveryStatus",
+          recipient_name as "recipientName",
+          recipient_phone as "recipientPhone",
+          address_text as "addressText",
+          comment,
+          price_minor as "priceMinor",
+          currency_code as "currencyCode",
+          tracking_number as "trackingNumber"
+        from app.order_delivery
+        where order_id = $1
+        limit 1
+      `,
+      [orderId]
+    ),
+    queryDatabase<ApiOrderItemRow>(
+      `
+        select
+          id,
+          service_type as "serviceType",
+          title,
+          quantity::text as quantity,
+          unit_price_minor as "unitPriceMinor",
+          total_price_minor as "totalPriceMinor",
+          currency_code as "currencyCode",
+          params_json as params,
+          calculation_snapshot_json as "calculationSnapshot",
+          sort_order as "sortOrder"
+        from app.order_items
+        where order_id = $1
+        order by sort_order, id
+      `,
+      [orderId]
+    )
+  ]);
+
+  return {
+    ...order,
+    customer: {
+      comment: order.customerComment,
+      email: order.customerEmail,
+      id: order.customerId,
+      name: order.customerName,
+      phone: order.customerPhone
+    },
+    delivery: delivery[0] ?? null,
+    items
+  };
 });
 
 app.post<{ Body: DesktopDraftOrderPayload }>("/orders", async (request, reply) => {

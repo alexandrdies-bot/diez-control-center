@@ -215,6 +215,8 @@ MVP-1 API read-only endpoints готовы:
 
 `DELETE /orders/:id` удаляет уже созданный заказ и связанные строки заказа через каскадные связи. Несохранённый локальный черновик удаляется только из `localStorage`.
 
+`GET /orders` и `GET /orders/:id` добавлены как read-only endpoints для будущей загрузки заказов из общей базы. В desktop API client подготовлены методы `getOrders()` и `getOrder(orderId)`, но текущая лента заказов пока остаётся на `localStorage` и не заменяется серверной загрузкой.
+
 Production API protection MVP:
 
 - `CORS_ALLOWED_ORIGINS` задаёт explicit CORS allowlist в `NODE_ENV=production`;
@@ -1033,6 +1035,8 @@ The feed trash action has two modes: unsaved local drafts are removed from `loca
 If `+ Новый заказ` is pressed while the active draft is still `receiving`, the current draft is moved to `awaiting-details` and a new service selection flow starts.
 
 Adding more positions to the current draft should happen through the draft detail screen before pressing `Завершить приём заказа`. Desktop still does not write to PostgreSQL directly; order creation goes through the API.
+
+Read-only order loading is prepared at the API/client layer through `GET /orders`, `GET /orders/:id`, `getOrders()`, and `getOrder(orderId)`. The desktop feed is not switched from `localStorage` yet; server-loaded feed integration remains a separate next step.
 
 ## Future MAX + AI Assistant Integration
 
