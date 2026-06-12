@@ -41,6 +41,14 @@ Ozon, расчёты, сайт-заказы и чат должны стать о
 
 Первый серверный запуск выполнен: сайт доступен на `https://diezimg.ru`, API доступен на `https://api.diezimg.ru`, оба процесса запускаются через `systemd`, PostgreSQL развёрнут локально на VPS. Это рабочая server-база для дальнейшей настройки, но не означает завершённую production-готовность всех бизнес-модулей.
 
+## Temporary private access
+
+Первый server launch выполнен, но сайт и API временно закрыты Basic Auth на уровне nginx. Это сделано, чтобы посторонние посетители не могли пользоваться недоделанным сайтом и API до завершения настройки, отладки и production-hardening.
+
+Без логина/пароля `https://diezimg.ru`, `https://www.diezimg.ru` и `https://api.diezimg.ru` возвращают `401 Unauthorized`. С корректным Basic Auth доступом сайт отвечает `200 OK`, а `https://api.diezimg.ru/health` отвечает `ok:true`.
+
+Секреты Basic Auth хранятся только на сервере в `/etc/nginx/.htpasswd_diez` и не коммитятся. Логин/пароль Basic Auth нельзя фиксировать в `README.md`, `PROJECT_VERSION.md`, `CHANGELOG.md`, `outputs` или других файлах репозитория. Basic Auth — временная защита до готовности production/auth модели.
+
 Текущий экран "Материалы" — временный технический MVP-экран только для проверки связки:
 
 ```text

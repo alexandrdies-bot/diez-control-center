@@ -26,6 +26,10 @@ API и сайт переведены на `systemd` автозапуск.
 
 После reboot подтверждено: `diez-api` и `diez-site` active (running), `https://diezimg.ru` и `https://api.diezimg.ru/health` отвечают.
 
+После первого server launch сайт и API временно закрыты Basic Auth на уровне nginx.
+
+Проверено: без авторизации `https://diezimg.ru` и `https://api.diezimg.ru/health` возвращают `401`; с авторизацией сайт отвечает `200 OK`, API health отвечает `ok:true`.
+
 MVP-1 API read-only endpoints готовы.
 
 Tauri 2 desktop shell готов.
