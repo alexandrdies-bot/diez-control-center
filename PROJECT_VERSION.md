@@ -20,6 +20,12 @@ Date: 2026-05-29
 
 ## Current status
 
+Выполнен первый server launch на VPS: DNS, nginx, SSL, PostgreSQL, API и сайт подняты.
+
+API и сайт переведены на `systemd` автозапуск.
+
+После reboot подтверждено: `diez-api` и `diez-site` active (running), `https://diezimg.ru` и `https://api.diezimg.ru/health` отвечают.
+
 MVP-1 API read-only endpoints готовы.
 
 Tauri 2 desktop shell готов.

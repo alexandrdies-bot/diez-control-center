@@ -4,6 +4,7 @@
 
 ### Added
 
+* Зафиксирован первый успешный server launch: VPS, PostgreSQL, миграции, минимальные seeds, nginx, SSL, systemd, сайт и API.
 * Добавлен первый endpoint `POST /orders` для сохранения локального desktop draft-order в общую базу.
 * Добавлен API transaction helper для атомарного создания заказа, позиций, доставки и события.
 * Добавлена защита от дублей заказов по `source='desktop'` и `source_ref`.
