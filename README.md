@@ -201,6 +201,9 @@ MVP-1 API read-only endpoints готовы:
 
 * `GET /health`
 * `GET /health/db`
+* `POST /auth/login`
+* `POST /auth/logout`
+* `GET /auth/me`
 * `GET /units`
 * `GET /material-categories`
 * `GET /materials`
@@ -214,6 +217,15 @@ MVP-1 API read-only endpoints готовы:
 * `GET /services`
 * `POST /orders`
 * `DELETE /orders/:id`
+
+Auth/session MVP:
+
+- `POST /auth/login` creates a server-side session in `app.user_sessions` and returns a bearer token plus safe public user fields;
+- `POST /auth/logout` revokes the current bearer session and is idempotent;
+- `GET /auth/me` checks the bearer session and returns the current active user;
+- session tokens are stored in the database only as hashes;
+- Basic Auth on nginx is still enabled for temporary private server access;
+- order endpoints are not moved to bearer auth yet and still use the existing `API_WRITE_KEY` guard for write/delete production protection.
 
 `POST /orders` — первый write endpoint для создания заказа из локального desktop draft-order в общей базе. Он вызывается только после явного действия менеджера `Завершить приём заказа`, работает через API-транзакцию, защищается от дублей по `source='desktop'` + `source_ref` и сохраняет заказ, позиции, заказчика, доставку и событие создания.
 

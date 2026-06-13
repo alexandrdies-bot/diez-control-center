@@ -1,3 +1,4 @@
+import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import cors from "@fastify/cors";
@@ -37,10 +38,37 @@ const app = Fastify({
 });
 
 await app.register(cors, {
-  allowedHeaders: ["Content-Type", "x-api-key"],
+  allowedHeaders: ["Authorization", "Content-Type", "x-api-key"],
   methods: ["GET", "HEAD", "POST", "PATCH", "DELETE", "OPTIONS"],
   origin: isProduction ? corsAllowedOrigins : true
 });
+
+type AuthLoginPayload = {
+  clientName?: unknown;
+  login?: unknown;
+  password?: unknown;
+};
+
+type PublicAuthUser = {
+  displayName: string;
+  email: string | null;
+  id: number;
+  login: string;
+  role: "manager" | "admin";
+};
+
+type AuthUserRow = {
+  displayName: string;
+  email: string | null;
+  id: string;
+  login: string;
+  passwordHash: string;
+  role: "manager" | "admin";
+};
+
+type AuthSessionRow = AuthUserRow & {
+  expiresAt: string;
+};
 
 type DesktopDraftOrderCustomer = {
   comment?: unknown;
@@ -186,6 +214,71 @@ function requireWriteKey(request: FastifyRequest, reply: FastifyReply) {
 
 function requireAdminKey(request: FastifyRequest, reply: FastifyReply) {
   return requireApiKey(request, reply, adminApiKey);
+}
+
+function getBearerToken(request: FastifyRequest) {
+  const headerValue = request.headers.authorization;
+  const normalizedHeader = Array.isArray(headerValue) ? headerValue[0] : headerValue;
+
+  if (!normalizedHeader) {
+    return null;
+  }
+
+  const [scheme, token] = normalizedHeader.trim().split(/\s+/, 2);
+
+  if (scheme?.toLowerCase() !== "bearer" || !token) {
+    return null;
+  }
+
+  return token;
+}
+
+function hashSessionToken(rawToken: string) {
+  return createHash("sha256").update(rawToken, "utf8").digest("hex");
+}
+
+function generateSessionToken() {
+  return randomBytes(32).toString("base64url");
+}
+
+function normalizeLogin(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function buildPublicAuthUser(row: AuthUserRow): PublicAuthUser {
+  return {
+    displayName: row.displayName,
+    email: row.email,
+    id: Number(row.id),
+    login: row.login,
+    role: row.role
+  };
+}
+
+function verifyPassword(password: string, passwordHash: string) {
+  const [format, saltHex, keyHex] = passwordHash.split(":");
+
+  if (format !== "scrypt" || !saltHex || !keyHex) {
+    return false;
+  }
+
+  try {
+    const expectedKey = Buffer.from(keyHex, "hex");
+    const salt = Buffer.from(saltHex, "hex");
+
+    if (expectedKey.length === 0 || salt.length === 0) {
+      return false;
+    }
+
+    const derivedKey = scryptSync(password, salt, expectedKey.length);
+
+    return (
+      derivedKey.length === expectedKey.length &&
+      timingSafeEqual(derivedKey, expectedKey)
+    );
+  } catch {
+    return false;
+  }
 }
 
 function getOptionalString(value: unknown) {
@@ -336,6 +429,159 @@ app.get("/health/db", async (_request, reply) => {
   }
 
   return result;
+});
+
+app.post<{ Body: AuthLoginPayload }>("/auth/login", async (request, reply) => {
+  const login = normalizeLogin(request.body?.login);
+  const password = request.body?.password;
+
+  if (!login || typeof password !== "string" || password.length === 0) {
+    return reply.code(400).send({
+      error: "INVALID_AUTH_PAYLOAD"
+    });
+  }
+
+  const users = await queryDatabase<AuthUserRow>(
+    `
+      select
+        id::text as id,
+        login,
+        email,
+        display_name as "displayName",
+        password_hash as "passwordHash",
+        role
+      from app.users
+      where lower(login) = lower($1)
+        and is_active = true
+      limit 1
+    `,
+    [login]
+  );
+  const user = users[0];
+
+  if (!user || !verifyPassword(password, user.passwordHash)) {
+    return reply.code(401).send({
+      error: "INVALID_LOGIN_OR_PASSWORD"
+    });
+  }
+
+  const token = generateSessionToken();
+  const tokenHash = hashSessionToken(token);
+  const clientName = getOptionalString(request.body?.clientName);
+  const userAgent = getOptionalString(request.headers["user-agent"]);
+
+  const session = await withDatabaseTransaction(async (client) => {
+    const sessionResult = await client.query<{ expiresAt: string }>(
+      `
+        insert into app.user_sessions (
+          user_id,
+          token_hash,
+          expires_at,
+          user_agent,
+          client_name
+        )
+        values ($1, $2, now() + interval '7 days', $3, $4)
+        returning expires_at::text as "expiresAt"
+      `,
+      [user.id, tokenHash, userAgent, clientName]
+    );
+
+    await client.query(
+      `
+        update app.users
+        set last_login_at = now()
+        where id = $1
+      `,
+      [user.id]
+    );
+
+    return sessionResult.rows[0];
+  });
+
+  return {
+    expiresAt: session.expiresAt,
+    token,
+    user: buildPublicAuthUser(user)
+  };
+});
+
+app.post("/auth/logout", async (request) => {
+  const token = getBearerToken(request);
+
+  if (!token) {
+    return {
+      ok: true
+    };
+  }
+
+  await queryDatabase(
+    `
+      update app.user_sessions
+      set revoked_at = now()
+      where token_hash = $1
+        and revoked_at is null
+    `,
+    [hashSessionToken(token)]
+  );
+
+  return {
+    ok: true
+  };
+});
+
+app.get("/auth/me", async (request, reply) => {
+  const token = getBearerToken(request);
+
+  if (!token) {
+    return reply.code(401).send({
+      error: "UNAUTHORIZED"
+    });
+  }
+
+  const tokenHash = hashSessionToken(token);
+  const sessions = await queryDatabase<AuthSessionRow>(
+    `
+      select
+        u.id::text as id,
+        u.login,
+        u.email,
+        u.display_name as "displayName",
+        u.password_hash as "passwordHash",
+        u.role,
+        s.expires_at::text as "expiresAt"
+      from app.user_sessions s
+      join app.users u on u.id = s.user_id
+      where s.token_hash = $1
+        and s.revoked_at is null
+        and s.expires_at > now()
+        and u.is_active = true
+      limit 1
+    `,
+    [tokenHash]
+  );
+  const session = sessions[0];
+
+  if (!session) {
+    return reply.code(401).send({
+      error: "UNAUTHORIZED"
+    });
+  }
+
+  await queryDatabase(
+    `
+      update app.user_sessions
+      set last_seen_at = now()
+      where token_hash = $1
+    `,
+    [tokenHash]
+  );
+
+  return {
+    session: {
+      expiresAt: session.expiresAt
+    },
+    user: buildPublicAuthUser(session)
+  };
 });
 
 app.get("/orders", async () => {

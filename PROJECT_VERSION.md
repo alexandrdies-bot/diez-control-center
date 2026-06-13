@@ -36,6 +36,8 @@ MVP-1 API read-only endpoints готовы.
 
 Для следующего этапа desktop/API интеграции добавлены read-only endpoints `GET /orders` и `GET /orders/:id`, а в desktop API client подготовлены методы `getOrders()` и `getOrder(orderId)`. Текущая лента заказов пока остаётся на `localStorage` и не заменяется серверной загрузкой.
 
+Добавлен первый API auth/session layer: `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`. Сессии хранятся в `app.user_sessions` только как hash токена, Basic Auth на nginx пока не снят, а order write/delete endpoints ещё не переведены на bearer auth и остаются на текущем production guard.
+
 Tauri 2 desktop shell готов.
 
 Приложение открывается как Windows desktop window.
