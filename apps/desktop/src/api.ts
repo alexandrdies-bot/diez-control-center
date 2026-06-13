@@ -102,6 +102,27 @@ export type OrderDetail = OrderSummary & {
   }>;
 };
 
+export type AuthUser = {
+  displayName: string;
+  email: string | null;
+  id: number;
+  login: string;
+  role: "manager" | "admin";
+};
+
+export type AuthLoginResult = {
+  expiresAt: string;
+  token: string;
+  user: AuthUser;
+};
+
+export type AuthMeResult = {
+  session: {
+    expiresAt: string;
+  };
+  user: AuthUser;
+};
+
 export type CreateOrderResult = {
   alreadyExists?: boolean;
   id: number;
@@ -131,6 +152,19 @@ function createJsonApiHeaders(apiKey?: string): Record<string, string> {
   return {
     "Content-Type": "application/json",
     ...createApiHeaders(apiKey)
+  };
+}
+
+export function createBearerHeaders(token: string): Record<string, string> {
+  return {
+    Authorization: `Bearer ${token}`
+  };
+}
+
+export function createJsonBearerHeaders(token: string): Record<string, string> {
+  return {
+    "Content-Type": "application/json",
+    ...createBearerHeaders(token)
   };
 }
 
@@ -277,8 +311,67 @@ export async function getCalculationFixtureDebug(
   return response.json() as Promise<CalculationFixtureDebugResult>;
 }
 
-export async function getOrders(): Promise<OrderSummary[]> {
-  const response = await fetch(`${apiBaseUrl}/orders`);
+export async function login(
+  loginValue: string,
+  password: string
+): Promise<AuthLoginResult> {
+  const response = await fetch(`${apiBaseUrl}/auth/login`, {
+    body: JSON.stringify({
+      clientName: "diez-control-center-desktop",
+      login: loginValue,
+      password
+    }),
+    headers: {
+      "Content-Type": "application/json"
+    },
+    method: "POST"
+  });
+
+  if (!response.ok) {
+    const responseBody = await response.text();
+    throw new Error(
+      `/auth/login ${response.status}${responseBody ? ` ${responseBody}` : ""}`
+    );
+  }
+
+  return response.json() as Promise<AuthLoginResult>;
+}
+
+export async function logout(token: string): Promise<{ ok: boolean }> {
+  const response = await fetch(`${apiBaseUrl}/auth/logout`, {
+    headers: createBearerHeaders(token),
+    method: "POST"
+  });
+
+  if (!response.ok) {
+    const responseBody = await response.text();
+    throw new Error(
+      `/auth/logout ${response.status}${responseBody ? ` ${responseBody}` : ""}`
+    );
+  }
+
+  return response.json() as Promise<{ ok: boolean }>;
+}
+
+export async function getCurrentUser(token: string): Promise<AuthMeResult> {
+  const response = await fetch(`${apiBaseUrl}/auth/me`, {
+    headers: createBearerHeaders(token)
+  });
+
+  if (!response.ok) {
+    const responseBody = await response.text();
+    throw new Error(
+      `/auth/me ${response.status}${responseBody ? ` ${responseBody}` : ""}`
+    );
+  }
+
+  return response.json() as Promise<AuthMeResult>;
+}
+
+export async function getOrders(token?: string): Promise<OrderSummary[]> {
+  const response = await fetch(`${apiBaseUrl}/orders`, {
+    headers: token ? createBearerHeaders(token) : undefined
+  });
 
   if (!response.ok) {
     throw new Error(`Orders request failed: ${response.status}`);
@@ -287,8 +380,13 @@ export async function getOrders(): Promise<OrderSummary[]> {
   return response.json() as Promise<OrderSummary[]>;
 }
 
-export async function getOrder(orderId: number): Promise<OrderDetail> {
-  const response = await fetch(`${apiBaseUrl}/orders/${orderId}`);
+export async function getOrder(
+  orderId: number,
+  token?: string
+): Promise<OrderDetail> {
+  const response = await fetch(`${apiBaseUrl}/orders/${orderId}`, {
+    headers: token ? createBearerHeaders(token) : undefined
+  });
 
   if (!response.ok) {
     throw new Error(`Order request failed: ${response.status}`);

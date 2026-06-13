@@ -276,6 +276,14 @@ The password must not be written in chat, committed, stored in `.env`, saved in 
 
 `GET /orders` и `GET /orders/:id` добавлены как read-only endpoints для будущей загрузки заказов из общей базы. Эти endpoints требуют bearer session token пользователя с ролью `manager` или `admin`. В desktop API client подготовлены методы `getOrders()` и `getOrder(orderId)`, но текущая лента заказов пока остаётся на `localStorage` и не заменяется серверной загрузкой.
 
+Desktop auth API client:
+
+- desktop API client has `login(login, password)`, `logout(token)`, and `getCurrentUser(token)` for the API auth/session layer;
+- `getOrders(token?)` and `getOrder(orderId, token?)` can send an optional bearer token;
+- token storage and login UI are not implemented yet;
+- Basic Auth credentials, `DATABASE_URL`, PostgreSQL secrets, and server env values must not be added to desktop;
+- existing `x-api-key` flows for order create/delete and material price update remain unchanged.
+
 Production API protection MVP:
 
 - `CORS_ALLOWED_ORIGINS` задаёт explicit CORS allowlist в `NODE_ENV=production`;

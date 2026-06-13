@@ -42,6 +42,8 @@ MVP-1 API read-only endpoints готовы.
 
 Read-only order endpoints `GET /orders` и `GET /orders/:id` теперь защищены bearer auth session и доступны только ролям `manager`/`admin`. Write/delete order endpoints пока остаются на временном `API_WRITE_KEY`, Basic Auth nginx не снят.
 
+Desktop API client подготовлен к auth/session: добавлены методы `login`, `logout`, `getCurrentUser`, bearer header helpers и optional bearer token для `getOrders`/`getOrder`. UI входа и хранение токена пока не реализованы, localStorage-лента не переключалась.
+
 Tauri 2 desktop shell готов.
 
 Приложение открывается как Windows desktop window.
