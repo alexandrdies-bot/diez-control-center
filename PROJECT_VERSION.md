@@ -34,15 +34,21 @@ API и сайт переведены на `systemd` автозапуск.
 
 MVP-1 API read-only endpoints готовы.
 
-Для следующего этапа desktop/API интеграции добавлены read-only endpoints `GET /orders` и `GET /orders/:id`, а в desktop API client подготовлены методы `getOrders()` и `getOrder(orderId)`. Текущая лента заказов пока остаётся на `localStorage` и не заменяется серверной загрузкой.
+Для online-mode desktop/API интеграции desktop по умолчанию смотрит на `https://api.diezimg.ru`, выполняет вход через API auth/session по телефону и 4-значному коду и загружает server orders через `GET /orders` с Bearer token. `localStorage` остаётся для локальных черновиков/резерва.
+
+Добавлен MVP-режим `Запомнить это устройство`: desktop может сохранить session token, безопасные public user fields, срок действия и телефон в `localStorage`, проверить сессию через `GET /auth/me` при запуске и открыть приложение без повторного ввода кода. 4-значный код, Basic Auth пароль, `DATABASE_URL` и PostgreSQL секреты не сохраняются; позже это хранение нужно заменить на Windows Credential Manager / Tauri secure storage.
 
 Добавлен первый API auth/session layer: `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`. Сессии хранятся в `app.user_sessions` только как hash токена, Basic Auth на nginx пока не снят, а order write/delete endpoints ещё не переведены на bearer auth и остаются на текущем production guard.
 
 Добавлен production-safe CLI bootstrap для первого `admin`/`manager` пользователя: `pnpm --filter @diez/api bootstrap:admin`. Пользователь автоматически не создавался; пароль передаётся только временными env-переменными shell и не хранится в repo, `.env` или seed.
 
-Read-only order endpoints `GET /orders` и `GET /orders/:id` теперь защищены bearer auth session и доступны только ролям `manager`/`admin`. Write/delete order endpoints пока остаются на временном `API_WRITE_KEY`, Basic Auth nginx не снят.
+Order endpoints `GET /orders`, `GET /orders/:id`, `POST /orders` и `DELETE /orders/:id` теперь используют bearer auth session для ролей `manager`/`admin` в desktop online-mode. Basic Auth nginx не снят полностью: открыты только нужные API auth/order routes.
 
-Desktop API client подготовлен к auth/session: добавлены методы `login`, `logout`, `getCurrentUser`, bearer header helpers и optional bearer token для `getOrders`/`getOrder`. UI входа и хранение токена пока не реализованы, localStorage-лента не переключалась.
+Desktop UI получил MVP login/logout и отдельный блок server orders. Первый администратор создаётся при настройке системы, а сотрудников администратор добавит позже в настройках. Создание и удаление заказов из desktop передают текущий Bearer token; material price update пока остаётся на существующем admin `x-api-key` flow.
+
+Production CORS для `api.diezimg.ru` должен включать локальный dev origin `http://127.0.0.1:5173`, чтобы Tauri/Vite desktop мог обращаться к открытым auth/order routes во время online-mode проверки.
+
+Startup проверки `/health` и `/materials` в desktop больше не блокируют login/online orders: если общие API routes остаются под Basic Auth, приложение показывает статус материалов, но вход и загрузка server orders идут через открытые auth/orders routes.
 
 Tauri 2 desktop shell готов.
 
@@ -179,7 +185,7 @@ Read-only загрузка заказов подготовлена через `G
 
 Карточка заказа в ленте и экран деталей улучшены для менеджера: показываются номер заказа, заказчик, телефон, краткое содержание позиций, итог и статус. Серверная логика не менялась; загрузка ленты из production-БД пока не реализуется, потому что текущая БД dev/test.
 
-Добавлена MVP production protection для API: в production CORS работает через `CORS_ALLOWED_ORIGINS`, `POST /orders` и `DELETE /orders/:id` защищаются `API_WRITE_KEY`, а `PATCH /materials/:id/pricing-inputs` защищается `ADMIN_API_KEY`. Dev режим остаётся открытым даже при наличии локальных ключей в `.env`.
+Добавлена MVP production protection для API: в production CORS работает через `CORS_ALLOWED_ORIGINS`; order read/create/delete endpoints в online-mode защищаются bearer session для ролей `manager`/`admin`, а `PATCH /materials/:id/pricing-inputs` остаётся на `ADMIN_API_KEY`. Dev режим остаётся открытым даже при наличии локальных ключей в `.env`.
 
 Полный CRUD заказов, оплаты и СДЭК пока не реализованы.
 

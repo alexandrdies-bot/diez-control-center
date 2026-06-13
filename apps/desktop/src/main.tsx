@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import chevronLeftIconUrl from "./assets/svg/chevron-left.svg";
+import cloudNetworkIconUrl from "./assets/svg/cloud-network.svg";
 import fileDownloadIconUrl from "./assets/svg/file-download.svg";
 import fileUploadIconUrl from "./assets/svg/file-upload.svg";
 import pencilIconUrl from "./assets/svg/pencil.svg";
@@ -12,12 +13,17 @@ import {
   createOrderFromDraft,
   deleteOrder,
   getApiHealth,
+  getCurrentUser,
   getMaterialPricingInputs,
   getMaterials,
+  getOrders,
+  login as loginToApi,
   updateMaterialPurchasePrice,
   type ApiHealth,
+  type AuthUser,
   type Material,
-  type MaterialPricingInput
+  type MaterialPricingInput,
+  type OrderSummary
 } from "./api";
 import {
   analyzeKonstruktorGeometry,
@@ -68,15 +74,6 @@ import "./styles.css";
 const workspaceNames = ["Диез Имидж", "Ozon"] as const;
 
 type WorkspaceName = (typeof workspaceNames)[number];
-
-const roleLabels = {
-  admin: "Админ",
-  manager: "Менеджер",
-  designer: "Дизайнер",
-  production: "Производство",
-  accountant: "Бухгалтерия",
-  viewer: "Просмотр"
-} as const;
 
 // TODO: заменить mock-роль на реального пользователя после добавления авторизации.
 const currentUserRole = "admin";
@@ -389,6 +386,8 @@ type DtfPrintCalculationResult = {
 };
 
 const DRAFT_ORDERS_STORAGE_KEY = "diez-control-center:draft-orders";
+const REMEMBERED_AUTH_STORAGE_KEY = "diez-control-center:auth-session";
+const REMEMBERED_PHONE_STORAGE_KEY = "diez-control-center:auth-phone";
 
 function formatMinorPrice(value: number, currencyCode: string) {
   return `${(value / 100).toLocaleString("ru-RU", {
@@ -429,6 +428,94 @@ function formatRussianPhone(value: string) {
 
 function hasRussianPhoneDigits(value: string | undefined) {
   return Boolean(value && normalizeRussianPhoneDigits(value).length > 0);
+}
+
+function normalizeAuthPhoneLogin(value: string) {
+  const digits = value.replace(/\D/g, "");
+
+  if (digits.length === 11 && digits.startsWith("8")) {
+    return `7${digits.slice(1)}`;
+  }
+
+  if (digits.length === 11 && digits.startsWith("7")) {
+    return digits;
+  }
+
+  if (digits.length === 10) {
+    return `7${digits}`;
+  }
+
+  return null;
+}
+
+function normalizeAuthCode(value: string) {
+  return value.replace(/\D/g, "").slice(0, 4);
+}
+
+type RememberedAuthSession = {
+  expiresAt: string;
+  phone: string;
+  token: string;
+  user: AuthUser;
+};
+
+function isRememberedAuthUser(value: unknown): value is AuthUser {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const user = value as Partial<AuthUser>;
+
+  return (
+    typeof user.id === "number" &&
+    typeof user.login === "string" &&
+    typeof user.displayName === "string" &&
+    (typeof user.email === "string" || user.email === null) &&
+    (user.role === "manager" || user.role === "admin")
+  );
+}
+
+function readRememberedAuth() {
+  try {
+    const rawValue = window.localStorage.getItem(REMEMBERED_AUTH_STORAGE_KEY);
+
+    if (!rawValue) {
+      return null;
+    }
+
+    const parsedValue = JSON.parse(rawValue) as Partial<RememberedAuthSession>;
+
+    if (
+      typeof parsedValue.token !== "string" ||
+      typeof parsedValue.expiresAt !== "string" ||
+      !isRememberedAuthUser(parsedValue.user)
+    ) {
+      return null;
+    }
+
+    const phone =
+      window.localStorage.getItem(REMEMBERED_PHONE_STORAGE_KEY) ??
+      (typeof parsedValue.phone === "string" ? parsedValue.phone : "");
+
+    return {
+      expiresAt: parsedValue.expiresAt,
+      phone,
+      token: parsedValue.token,
+      user: parsedValue.user
+    };
+  } catch {
+    return null;
+  }
+}
+
+function saveRememberedAuth(session: RememberedAuthSession) {
+  window.localStorage.setItem(REMEMBERED_AUTH_STORAGE_KEY, JSON.stringify(session));
+  window.localStorage.setItem(REMEMBERED_PHONE_STORAGE_KEY, session.phone);
+}
+
+function clearRememberedAuth() {
+  window.localStorage.removeItem(REMEMBERED_AUTH_STORAGE_KEY);
+  window.localStorage.removeItem(REMEMBERED_PHONE_STORAGE_KEY);
 }
 
 function getDraftOrderCustomerTitle(draftOrder: DraftOrder) {
@@ -817,6 +904,7 @@ function fitKonstruktorPreviewMarkupToLayout(
 
 function App() {
   const constructorLayoutFileInputRef = useRef<HTMLInputElement | null>(null);
+  const authCodeInputRefs = useRef<Array<HTMLInputElement | null>>([]);
   const skipMaterialPriceBlurSaveRef = useRef(false);
   const [activeWorkspace, setActiveWorkspace] =
     useState<WorkspaceName>("Диез Имидж");
@@ -824,6 +912,22 @@ function App() {
   const [activeSettingsSection, setActiveSettingsSection] = useState(
     settingsHomeSection
   );
+  const [authToken, setAuthToken] = useState<string | null>(null);
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [authPhone, setAuthPhone] = useState("");
+  const [authCode, setAuthCode] = useState("");
+  const [authStatus, setAuthStatus] = useState<string | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState(false);
+  const [rememberDevice, setRememberDevice] = useState(true);
+  const [isRestoringAuth, setIsRestoringAuth] = useState(true);
+  const [serverOrders, setServerOrders] = useState<OrderSummary[]>([]);
+  const [serverOrdersStatus, setServerOrdersStatus] = useState<string | null>(
+    null
+  );
+  const [isServerOrdersLoading, setIsServerOrdersLoading] = useState(false);
+  const [serverConnectionState, setServerConnectionState] = useState<
+    "connected" | "disconnected"
+  >("disconnected");
   const [health, setHealth] = useState<ApiHealth | null>(null);
   const [materials, setMaterials] = useState<Material[]>([]);
   const [selectedMaterialId, setSelectedMaterialId] = useState<number | null>(null);
@@ -919,23 +1023,89 @@ function App() {
   });
 
   useEffect(() => {
-    Promise.all([getApiHealth(), getMaterials()])
-      .then(([healthResult, materialsResult]) => {
+    getApiHealth()
+      .then((healthResult) => {
         setHealth(healthResult);
+      })
+      .catch(() => {
+        setHealth(null);
+      });
+
+    getMaterials()
+      .then((materialsResult) => {
         setMaterials(materialsResult);
         setSelectedMaterialId(materialsResult[0]?.id ?? null);
         setError(null);
       })
       .catch((unknownError) => {
-        setHealth(null);
         setMaterials([]);
         setSelectedMaterialId(null);
         setError(
           unknownError instanceof Error
-            ? unknownError.message
-            : "Unknown API error"
+            ? `Материалы недоступны: ${unknownError.message}`
+            : "Материалы временно недоступны"
         );
       });
+  }, []);
+
+  useEffect(() => {
+    let isCurrent = true;
+    const rememberedAuth = readRememberedAuth();
+    const rememberedPhone = window.localStorage.getItem(REMEMBERED_PHONE_STORAGE_KEY);
+
+    if (rememberedPhone) {
+      setAuthPhone(formatRussianPhone(rememberedPhone));
+    }
+
+    if (!rememberedAuth) {
+      setIsRestoringAuth(false);
+      return () => {
+        isCurrent = false;
+      };
+    }
+
+    const rememberedSession = rememberedAuth;
+
+    setAuthStatus("Проверяем вход...");
+
+    async function restoreAuth() {
+      try {
+        const currentUser = await getCurrentUser(rememberedSession.token);
+
+        if (!isCurrent) {
+          return;
+        }
+
+        setAuthToken(rememberedSession.token);
+        setAuthUser(currentUser.user);
+        setAuthPhone(formatRussianPhone(rememberedSession.phone));
+        setAuthStatus(null);
+        await loadServerOrders(rememberedSession.token);
+      } catch {
+        clearRememberedAuth();
+
+        if (!isCurrent) {
+          return;
+        }
+
+        setAuthToken(null);
+        setAuthUser(null);
+        setServerOrders([]);
+        setServerOrdersStatus(null);
+        setServerConnectionState("disconnected");
+        setAuthStatus("Сессия истекла. Введите код снова.");
+      } finally {
+        if (isCurrent) {
+          setIsRestoringAuth(false);
+        }
+      }
+    }
+
+    void restoreAuth();
+
+    return () => {
+      isCurrent = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -1959,6 +2129,131 @@ function App() {
     setDraftOrderPanelMode("details");
   }
 
+  async function loadServerOrders(sessionToken = authToken) {
+    if (!sessionToken) {
+      setServerOrdersStatus("Войдите");
+      setServerConnectionState("disconnected");
+      return;
+    }
+
+    setIsServerOrdersLoading(true);
+    setServerOrdersStatus("Загрузка...");
+    setServerConnectionState("disconnected");
+
+    try {
+      const orders = await getOrders(sessionToken);
+
+      setServerOrders(orders);
+      setServerOrdersStatus(`Обновлено: ${orders.length}`);
+      setServerConnectionState("connected");
+    } catch {
+      setServerOrders([]);
+      setServerOrdersStatus("Ошибка загрузки");
+      setServerConnectionState("disconnected");
+    } finally {
+      setIsServerOrdersLoading(false);
+    }
+  }
+
+  function focusAuthCodeInput(index: number) {
+    authCodeInputRefs.current[index]?.focus();
+  }
+
+  function updateAuthCodeDigit(index: number, value: string) {
+    const digit = value.replace(/\D/g, "").slice(-1);
+    const digits = authCode.padEnd(4, " ").slice(0, 4).split("");
+
+    digits[index] = digit;
+    setAuthCode(digits.join(""));
+
+    if (digit && index < 3) {
+      focusAuthCodeInput(index + 1);
+    }
+  }
+
+  function handleAuthCodeKeyDown(
+    event: React.KeyboardEvent<HTMLInputElement>,
+    index: number
+  ) {
+    if (event.key !== "Backspace") {
+      return;
+    }
+
+    if (authCode[index]?.trim()) {
+      const digits = authCode.padEnd(4, " ").slice(0, 4).split("");
+
+      digits[index] = " ";
+      setAuthCode(digits.join(""));
+      return;
+    }
+
+    if (index > 0) {
+      event.preventDefault();
+      focusAuthCodeInput(index - 1);
+    }
+  }
+
+  function handleAuthCodePaste(event: React.ClipboardEvent<HTMLInputElement>) {
+    const pastedCode = normalizeAuthCode(event.clipboardData.getData("text"));
+
+    if (!pastedCode) {
+      return;
+    }
+
+    event.preventDefault();
+    setAuthCode(pastedCode);
+    focusAuthCodeInput(Math.min(pastedCode.length, 3));
+  }
+
+  async function handleAuthSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (isAuthLoading) {
+      return;
+    }
+
+    const normalizedPhone = normalizeAuthPhoneLogin(authPhone);
+    const normalizedCode = normalizeAuthCode(authCode);
+
+    if (!normalizedPhone || normalizedCode.length !== 4) {
+      setAuthStatus("Введите телефон и 4-значный код.");
+      return;
+    }
+
+    setIsAuthLoading(true);
+    setAuthStatus("Входим...");
+
+    try {
+      const result = await loginToApi(normalizedPhone, normalizedCode);
+      const currentUser = await getCurrentUser(result.token);
+
+      setAuthToken(result.token);
+      setAuthUser(currentUser.user);
+      setAuthCode("");
+      setAuthStatus("Вход выполнен");
+      if (rememberDevice) {
+        saveRememberedAuth({
+          expiresAt: result.expiresAt,
+          phone: normalizedPhone,
+          token: result.token,
+          user: currentUser.user
+        });
+      } else {
+        clearRememberedAuth();
+      }
+      await loadServerOrders(result.token);
+    } catch {
+        setAuthToken(null);
+        setAuthUser(null);
+        setServerOrders([]);
+        setServerOrdersStatus(null);
+        setServerConnectionState("disconnected");
+        setAuthStatus("Не удалось войти. Проверьте телефон и код.");
+    } finally {
+      setIsAuthLoading(false);
+    }
+  }
+
   async function handleDeleteDraftOrder(draftOrderId: string) {
     const draftOrder = draftOrders.find((order) => order.id === draftOrderId);
 
@@ -1986,8 +2281,17 @@ function App() {
         return;
       }
 
+      if (!authToken) {
+        setDraftOrderSaveStatusById((current) => ({
+          ...current,
+          [draftOrder.id]: "Не удалось удалить заказ: сначала войдите"
+        }));
+        return;
+      }
+
       try {
-        await deleteOrder(draftOrder.serverOrderId);
+        await deleteOrder(draftOrder.serverOrderId, authToken);
+        void loadServerOrders(authToken);
       } catch (error) {
         setDraftOrderSaveStatusById((current) => ({
           ...current,
@@ -2017,13 +2321,21 @@ function App() {
   }
 
   async function handleSaveDraftOrderToDatabase(draftOrder: DraftOrder) {
+    if (!authToken) {
+      setDraftOrderSaveStatusById((current) => ({
+        ...current,
+        [draftOrder.id]: "Не удалось завершить приём заказа: сначала войдите"
+      }));
+      return;
+    }
+
     setDraftOrderSaveStatusById((current) => ({
       ...current,
       [draftOrder.id]: "Создаём заказ..."
     }));
 
     try {
-      const result = await createOrderFromDraft(draftOrder);
+      const result = await createOrderFromDraft(draftOrder, authToken);
       const savedAt = new Date().toISOString();
 
       updateDraftOrder(draftOrder.id, (currentDraftOrder) => ({
@@ -2039,6 +2351,7 @@ function App() {
           ? `Заказ уже создан: ${result.orderNumber}`
           : `Заказ создан: ${result.orderNumber}`
       }));
+      void loadServerOrders(authToken);
     } catch (error) {
       setDraftOrderSaveStatusById((current) => ({
         ...current,
@@ -2051,6 +2364,99 @@ function App() {
 
   function handleAddItemToDraftOrder(draftOrder: DraftOrder) {
     openServiceSelectionForDraft(draftOrder.id);
+  }
+
+  if (isRestoringAuth && !authToken && !authUser) {
+    return (
+      <main className="auth-screen">
+        <section className="auth-panel">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Диез Имидж</p>
+              <h1>Проверяем вход...</h1>
+              <p>Если сессия действительна, приложение откроется автоматически.</p>
+            </div>
+          </div>
+        </section>
+      </main>
+    );
+  }
+
+  if (!authToken || !authUser) {
+    return (
+      <main className="auth-screen">
+        <section className="auth-panel">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Диез Имидж</p>
+              <h1>Вход в Control Center</h1>
+              <p>Введите номер телефона и код</p>
+            </div>
+          </div>
+
+          <form className="auth-form" onSubmit={handleAuthSubmit}>
+            <label className="form-field">
+              <span>Телефон</span>
+              <input
+                autoComplete="tel"
+                inputMode="tel"
+                onChange={(event) => setAuthPhone(formatRussianPhone(event.target.value))}
+                placeholder="+7 999 000 00 00"
+                value={authPhone}
+              />
+            </label>
+
+            <label className="form-field">
+              <span>Код</span>
+              <div className="auth-code-row">
+                {Array.from({ length: 4 }).map((_, index) => (
+                  <input
+                    aria-label={`Цифра кода ${index + 1}`}
+                    autoComplete={index === 0 ? "one-time-code" : "off"}
+                    className="auth-code-input"
+                    inputMode="numeric"
+                    key={index}
+                    maxLength={1}
+                    onChange={(event) => updateAuthCodeDigit(index, event.target.value)}
+                    onKeyDown={(event) => handleAuthCodeKeyDown(event, index)}
+                    onPaste={handleAuthCodePaste}
+                    ref={(element) => {
+                      authCodeInputRefs.current[index] = element;
+                    }}
+                    type="text"
+                    value={authCode[index]?.trim() ?? ""}
+                  />
+                ))}
+              </div>
+            </label>
+
+            <label className="auth-remember-row">
+              <input
+                checked={rememberDevice}
+                onChange={(event) => setRememberDevice(event.target.checked)}
+                type="checkbox"
+              />
+              <span>Запомнить это устройство</span>
+            </label>
+
+            <p className="auth-small-note">
+              Код не сохраняется.
+            </p>
+
+            {authStatus ? <p className="auth-status">{authStatus}</p> : null}
+
+            <button
+              className="primary-action-button"
+              disabled={isAuthLoading}
+              type="submit"
+            >
+              {isAuthLoading ? "Входим..." : "Войти"}
+            </button>
+          </form>
+
+        </section>
+      </main>
+    );
   }
 
   return (
@@ -2100,9 +2506,19 @@ function App() {
             </button>
           ) : null}
           <span
-            className={health?.ok ? "api-dot api-dot-online" : "api-dot"}
-            title={health?.ok ? "API online" : "API checking"}
-          />
+            className={
+              serverConnectionState === "connected"
+                ? "server-db-status-icon server-db-status-icon-connected"
+                : "server-db-status-icon server-db-status-icon-disconnected"
+            }
+            title={
+              serverConnectionState === "connected"
+                ? "Подключено к базе данных на сервере"
+                : "Нет подключения к базе данных на сервере"
+            }
+          >
+            <img alt="" src={cloudNetworkIconUrl} />
+          </span>
           <button
             className="icon-button"
             onClick={() => console.log("notifications")}
@@ -2129,145 +2545,185 @@ function App() {
       <div className="app-layout">
         <aside className="sidebar">
           <section className="activity-feed-panel">
-            <div>
+            <div className="feed-title-row">
               <h2>Лента</h2>
+              {serverOrdersStatus ? (
+                <span className="feed-sync-status">{serverOrdersStatus}</span>
+              ) : null}
             </div>
 
-            {draftOrders.length > 0 ? (
-              <div className="draft-feed-list">
-                {draftOrders.map((draftOrder) => {
-                  const isCustomerFilled = isDraftOrderCustomerFilled(
-                    draftOrder.customer
-                  );
-                  const deliveryState = getDraftOrderDeliveryState(
-                    draftOrder.delivery
-                  );
-
-                  return (
-                    <div
-                      className={
-                        draftOrder.id === selectedDraftOrderId
-                          ? "draft-feed-card draft-feed-card-active"
-                          : "draft-feed-card"
-                      }
-                      key={draftOrder.id}
-                      onClick={() => handleSelectDraftOrder(draftOrder.id)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          handleSelectDraftOrder(draftOrder.id);
-                        }
-                      }}
-                      role="button"
-                      tabIndex={0}
-                    >
-                      <div className="draft-feed-card-content">
-                        {draftOrder.serverOrderNumber ? (
-                          <span className="draft-feed-order-number">
-                            {draftOrder.serverOrderNumber}
-                          </span>
-                        ) : null}
-                        <strong>{getDraftOrderCustomerNameLabel(draftOrder)}</strong>
-                        {getDraftOrderCustomerPhoneLabel(draftOrder) ? (
-                          <span>{getDraftOrderCustomerPhoneLabel(draftOrder)}</span>
-                        ) : null}
-                        <span>{getDraftOrderSummary(draftOrder)}</span>
-                        <span>
-                          Итого: {formatMinorPrice(draftOrder.totalPriceMinor, "RUB")}
-                        </span>
-                        <em>
-                          Статус: {getDraftOrderDisplayStatus(draftOrder)}
-                        </em>
-                      </div>
-                      <div className="draft-feed-card-actions">
-                        <button
-                          aria-label={
-                            draftOrder.serverOrderId || draftOrder.serverOrderNumber
-                              ? "Удалить заказ"
-                              : "Удалить черновик"
-                          }
-                          className="draft-feed-icon-button draft-feed-icon-button-trash"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            handleDeleteDraftOrder(draftOrder.id);
-                          }}
-                          title={
-                            draftOrder.serverOrderId || draftOrder.serverOrderNumber
-                              ? "Удалить заказ"
-                              : "Удалить черновик"
-                          }
-                          type="button"
-                        >
-                          <img alt="" src={trashIconUrl} />
-                        </button>
-                      </div>
-                      <div className="draft-feed-card-indicators">
-                        <button
-                          aria-label={
-                            isCustomerFilled
-                              ? "Заказчик заполнен"
-                              : "Заказчик не заполнен"
-                          }
-                          className={
-                            isCustomerFilled
-                              ? "draft-feed-indicator draft-feed-indicator-ok"
-                              : "draft-feed-indicator draft-feed-indicator-alert"
-                          }
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            openDraftOrderCustomerForm(draftOrder);
-                          }}
-                          title={
-                            isCustomerFilled
-                              ? "Заказчик заполнен"
-                              : "Заказчик не заполнен"
-                          }
-                          type="button"
-                        >
-                          <img alt="" src={userIconUrl} />
-                        </button>
-                        <button
-                          aria-label={
-                            deliveryState === "not-required"
-                              ? "Доставка не требуется"
-                              : deliveryState === "filled"
-                                ? "Доставка заполнена"
-                                : "Доставка не заполнена"
-                          }
-                          className={
-                            deliveryState === "missing"
-                              ? "draft-feed-indicator draft-feed-indicator-alert"
-                              : "draft-feed-indicator draft-feed-indicator-ok"
-                          }
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            openDraftOrderDeliveryForm(draftOrder);
-                          }}
-                          title={
-                            deliveryState === "not-required"
-                              ? "Доставка не требуется"
-                              : deliveryState === "filled"
-                                ? "Доставка заполнена"
-                              : "Доставка не заполнена"
-                          }
-                          type="button"
-                        >
-                          <img
-                            alt=""
-                            src={
-                              deliveryState === "not-required"
-                                ? truckOffIconUrl
-                              : truckIconUrl
-                            }
-                          />
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
+            <div className="feed-order-section">
+              <div className="feed-section-heading">
+                <strong>Заказы с сервера</strong>
               </div>
-            ) : (
-              <div className="activity-feed-empty">Событий пока нет</div>
+
+              {serverOrders.length > 0 ? (
+                <div className="feed-order-list">
+                  {serverOrders.map((order) => (
+                    <article className="server-order-card feed-order-card" key={order.id}>
+                      <strong>{order.orderNumber}</strong>
+                      <span>
+                        {order.customerName?.trim() || "Заказчик не заполнен"}
+                      </span>
+                      {order.customerPhone ? <span>{order.customerPhone}</span> : null}
+                      <span>{order.firstItemTitle ?? "Позиции не указаны"}</span>
+                      {order.itemsCount > 1 ? (
+                        <span>+ ещё {order.itemsCount - 1}</span>
+                      ) : null}
+                      <em>
+                        Итого:{" "}
+                        {formatMinorPrice(order.totalPriceMinor, order.currencyCode)}
+                      </em>
+                      <small>Статус: {order.status}</small>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <p className="server-orders-empty">
+                  {isServerOrdersLoading ? "Загружаем заказы..." : "Заказов с сервера пока нет"}
+                </p>
+              )}
+            </div>
+
+            {draftOrders.length > 0 && (
+              <div className="feed-order-section">
+                <div className="feed-section-heading">
+                  <strong>Локальные черновики</strong>
+                </div>
+
+                <div className="draft-feed-list">
+                  {draftOrders.map((draftOrder) => {
+                    const isCustomerFilled = isDraftOrderCustomerFilled(
+                      draftOrder.customer
+                    );
+                    const deliveryState = getDraftOrderDeliveryState(
+                      draftOrder.delivery
+                    );
+
+                    return (
+                      <div
+                        className={
+                          draftOrder.id === selectedDraftOrderId
+                            ? "draft-feed-card draft-feed-card-active"
+                            : "draft-feed-card"
+                        }
+                        key={draftOrder.id}
+                        onClick={() => handleSelectDraftOrder(draftOrder.id)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            handleSelectDraftOrder(draftOrder.id);
+                          }
+                        }}
+                        role="button"
+                        tabIndex={0}
+                      >
+                        <div className="draft-feed-card-content">
+                          {draftOrder.serverOrderNumber ? (
+                            <span className="draft-feed-order-number">
+                              {draftOrder.serverOrderNumber}
+                            </span>
+                          ) : null}
+                          <strong>{getDraftOrderCustomerNameLabel(draftOrder)}</strong>
+                          {getDraftOrderCustomerPhoneLabel(draftOrder) ? (
+                            <span>{getDraftOrderCustomerPhoneLabel(draftOrder)}</span>
+                          ) : null}
+                          <span>{getDraftOrderSummary(draftOrder)}</span>
+                          <span>
+                            Итого: {formatMinorPrice(draftOrder.totalPriceMinor, "RUB")}
+                          </span>
+                          <em>
+                            Статус: {getDraftOrderDisplayStatus(draftOrder)}
+                          </em>
+                        </div>
+                        <div className="draft-feed-card-actions">
+                          <button
+                            aria-label={
+                              draftOrder.serverOrderId || draftOrder.serverOrderNumber
+                                ? "Удалить заказ"
+                                : "Удалить черновик"
+                            }
+                            className="draft-feed-icon-button draft-feed-icon-button-trash"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleDeleteDraftOrder(draftOrder.id);
+                            }}
+                            title={
+                              draftOrder.serverOrderId || draftOrder.serverOrderNumber
+                                ? "Удалить заказ"
+                                : "Удалить черновик"
+                            }
+                            type="button"
+                          >
+                            <img alt="" src={trashIconUrl} />
+                          </button>
+                        </div>
+                        <div className="draft-feed-card-indicators">
+                          <button
+                            aria-label={
+                              isCustomerFilled
+                                ? "Заказчик заполнен"
+                                : "Заказчик не заполнен"
+                            }
+                            className={
+                              isCustomerFilled
+                                ? "draft-feed-indicator draft-feed-indicator-ok"
+                                : "draft-feed-indicator draft-feed-indicator-alert"
+                            }
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              openDraftOrderCustomerForm(draftOrder);
+                            }}
+                            title={
+                              isCustomerFilled
+                                ? "Заказчик заполнен"
+                                : "Заказчик не заполнен"
+                            }
+                            type="button"
+                          >
+                            <img alt="" src={userIconUrl} />
+                          </button>
+                          <button
+                            aria-label={
+                              deliveryState === "not-required"
+                                ? "Доставка не требуется"
+                                : deliveryState === "filled"
+                                  ? "Доставка заполнена"
+                                  : "Доставка не заполнена"
+                            }
+                            className={
+                              deliveryState === "missing"
+                                ? "draft-feed-indicator draft-feed-indicator-alert"
+                                : "draft-feed-indicator draft-feed-indicator-ok"
+                            }
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              openDraftOrderDeliveryForm(draftOrder);
+                            }}
+                            title={
+                              deliveryState === "not-required"
+                                ? "Доставка не требуется"
+                                : deliveryState === "filled"
+                                  ? "Доставка заполнена"
+                                : "Доставка не заполнена"
+                            }
+                            type="button"
+                          >
+                            <img
+                              alt=""
+                              src={
+                                deliveryState === "not-required"
+                                  ? truckOffIconUrl
+                                : truckIconUrl
+                              }
+                            />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             )}
           </section>
         </aside>

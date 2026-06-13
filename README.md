@@ -225,8 +225,8 @@ Auth/session MVP:
 - `GET /auth/me` checks the bearer session and returns the current active user;
 - session tokens are stored in the database only as hashes;
 - Basic Auth on nginx is still enabled for temporary private server access;
-- read-only order endpoints `GET /orders` and `GET /orders/:id` require `Authorization: Bearer <session-token>` with `manager` or `admin` role;
-- order write/delete endpoints are not moved to bearer auth yet and still use the existing `API_WRITE_KEY` guard for production protection.
+- order read/create/delete endpoints require `Authorization: Bearer <session-token>` with `manager` or `admin` role;
+- `API_WRITE_KEY` remains a temporary/internal mechanism and must not be used as the desktop user authentication model.
 
 ### First auth user bootstrap
 
@@ -274,21 +274,28 @@ The password must not be written in chat, committed, stored in `.env`, saved in 
 
 `DELETE /orders/:id` удаляет уже созданный заказ и связанные строки заказа через каскадные связи. Несохранённый локальный черновик удаляется только из `localStorage`.
 
-`GET /orders` и `GET /orders/:id` добавлены как read-only endpoints для будущей загрузки заказов из общей базы. Эти endpoints требуют bearer session token пользователя с ролью `manager` или `admin`. В desktop API client подготовлены методы `getOrders()` и `getOrder(orderId)`, но текущая лента заказов пока остаётся на `localStorage` и не заменяется серверной загрузкой.
+Desktop online mode uses `https://api.diezimg.ru` by default and can still be overridden with `VITE_API_BASE_URL` for explicit dev/testing tasks.
+
+`GET /orders` и `GET /orders/:id` загружают серверные заказы из production API и требуют bearer session token пользователя с ролью `manager` или `admin`. Desktop после входа вызывает `GET /orders` с Bearer token и показывает серверные заказы отдельным блоком; `localStorage` остаётся для локальных черновиков/резерва и не считается основной server order feed.
 
 Desktop auth API client:
 
 - desktop API client has `login(login, password)`, `logout(token)`, and `getCurrentUser(token)` for the API auth/session layer;
-- `getOrders(token?)` and `getOrder(orderId, token?)` can send an optional bearer token;
-- token storage and login UI are not implemented yet;
-- Basic Auth credentials, `DATABASE_URL`, PostgreSQL secrets, and server env values must not be added to desktop;
-- existing `x-api-key` flows for order create/delete and material price update remain unchanged.
+- desktop has an MVP login screen that asks for phone number and 4-digit code, normalizes the phone before `POST /auth/login`, and keeps the backend compatible with the old `login/password` payload shape;
+- the first administrator is created during system setup, and employees will be added later by the administrator in settings;
+- `getOrders(token?)`, `getOrder(orderId, token?)`, `createOrderFromDraft(draftOrder, token?)`, and `deleteOrder(orderId, token?)` can send a bearer token;
+- order create/delete from the desktop UI now pass the current bearer token instead of using a local DB path;
+- `Запомнить это устройство` is an MVP convenience option: when enabled, desktop stores the session token, safe public user fields, expiry, and phone in `localStorage`, then validates the session through `GET /auth/me` on startup;
+- the 4-digit code, Basic Auth credentials, `DATABASE_URL`, PostgreSQL secrets, and server env values must never be stored in desktop;
+- this MVP token storage must later be replaced with Windows Credential Manager or Tauri secure storage;
+- startup `/health` and `/materials` checks are non-blocking for login and server order loading;
+- material price update remains on the existing admin `x-api-key` flow until a separate admin-auth patch.
 
 Production API protection MVP:
 
 - `CORS_ALLOWED_ORIGINS` задаёт explicit CORS allowlist в `NODE_ENV=production`;
 - в dev режиме широкий CORS остаётся для удобной локальной разработки;
-- `POST /orders` и `DELETE /orders/:id` требуют `API_WRITE_KEY` в header `x-api-key` только в production;
+- order read/create/delete endpoints use bearer sessions for the desktop online-mode; `API_WRITE_KEY` remains only as a temporary/internal helper and must not be treated as desktop user auth;
 - `PATCH /materials/:id/pricing-inputs` требует `ADMIN_API_KEY` в header `x-api-key` только в production;
 - это временная защита до полноценной auth-модели с пользователями, ролями и audit log.
 

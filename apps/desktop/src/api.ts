@@ -134,7 +134,7 @@ export type DeleteOrderResult = {
   id: number;
 };
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:3001";
+const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "https://api.diezimg.ru";
 const apiWriteKey = import.meta.env.VITE_API_WRITE_KEY?.trim();
 const adminApiKey = import.meta.env.VITE_ADMIN_API_KEY?.trim();
 
@@ -396,11 +396,12 @@ export async function getOrder(
 }
 
 export async function createOrderFromDraft(
-  draftOrder: unknown
+  draftOrder: unknown,
+  token?: string
 ): Promise<CreateOrderResult> {
   const response = await fetch(`${apiBaseUrl}/orders`, {
     body: JSON.stringify(createOrderDraftPayload(draftOrder)),
-    headers: createJsonApiHeaders(apiWriteKey),
+    headers: token ? createJsonBearerHeaders(token) : createJsonApiHeaders(apiWriteKey),
     method: "POST"
   });
 
@@ -414,13 +415,16 @@ export async function createOrderFromDraft(
   return response.json() as Promise<CreateOrderResult>;
 }
 
-export async function deleteOrder(orderId: number): Promise<DeleteOrderResult> {
+export async function deleteOrder(
+  orderId: number,
+  token?: string
+): Promise<DeleteOrderResult> {
   let response: Response;
   const url = `${apiBaseUrl}/orders/${orderId}`;
 
   try {
     response = await fetch(url, {
-      headers: createApiHeaders(apiWriteKey),
+      headers: token ? createBearerHeaders(token) : createApiHeaders(apiWriteKey),
       method: "DELETE"
     });
   } catch (error) {

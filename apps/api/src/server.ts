@@ -261,6 +261,28 @@ function normalizeLogin(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+function normalizePhoneLogin(value: unknown) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const digits = value.replace(/\D/g, "");
+
+  if (digits.length === 11 && digits.startsWith("8")) {
+    return `7${digits.slice(1)}`;
+  }
+
+  if (digits.length === 11 && digits.startsWith("7")) {
+    return digits;
+  }
+
+  if (digits.length === 10) {
+    return `7${digits}`;
+  }
+
+  return null;
+}
+
 function buildPublicAuthUser(row: AuthPublicUserRow): PublicAuthUser {
   return {
     displayName: row.displayName,
@@ -540,6 +562,7 @@ app.get("/health/db", async (_request, reply) => {
 
 app.post<{ Body: AuthLoginPayload }>("/auth/login", async (request, reply) => {
   const login = normalizeLogin(request.body?.login);
+  const phoneLogin = normalizePhoneLogin(request.body?.login);
   const password = request.body?.password;
 
   if (!login || typeof password !== "string" || password.length === 0) {
@@ -558,11 +581,11 @@ app.post<{ Body: AuthLoginPayload }>("/auth/login", async (request, reply) => {
         password_hash as "passwordHash",
         role
       from app.users
-      where lower(login) = lower($1)
+      where (lower(login) = lower($1) or ($2::text is not null and login = $2))
         and is_active = true
       limit 1
     `,
-    [login]
+    [login, phoneLogin]
   );
   const user = users[0];
 
@@ -811,10 +834,10 @@ app.get<{ Params: { id: string } }>("/orders/:id", async (request, reply) => {
 });
 
 app.post<{ Body: DesktopDraftOrderPayload }>("/orders", async (request, reply) => {
-  const authError = requireWriteKey(request, reply);
+  const authSession = await requireRole(request, reply, ["manager", "admin"]);
 
-  if (authError) {
-    return authError;
+  if (!authSession) {
+    return null;
   }
 
   const draftOrder = request.body;
@@ -1093,10 +1116,10 @@ app.post<{ Body: DesktopDraftOrderPayload }>("/orders", async (request, reply) =
 });
 
 app.delete<{ Params: { id: string } }>("/orders/:id", async (request, reply) => {
-  const authError = requireWriteKey(request, reply);
+  const authSession = await requireRole(request, reply, ["manager", "admin"]);
 
-  if (authError) {
-    return authError;
+  if (!authSession) {
+    return null;
   }
 
   const orderId = Number(request.params.id);
