@@ -134,6 +134,12 @@ export type DeleteOrderResult = {
   id: number;
 };
 
+export type UpdateOrderResult = {
+  id: number;
+  orderNumber: string;
+  updated: boolean;
+};
+
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "https://api.diezimg.ru";
 const apiWriteKey = import.meta.env.VITE_API_WRITE_KEY?.trim();
 const adminApiKey = import.meta.env.VITE_ADMIN_API_KEY?.trim();
@@ -413,6 +419,27 @@ export async function createOrderFromDraft(
   }
 
   return response.json() as Promise<CreateOrderResult>;
+}
+
+export async function updateOrderFromDraft(
+  orderId: number,
+  draftOrder: unknown,
+  token: string
+): Promise<UpdateOrderResult> {
+  const response = await fetch(`${apiBaseUrl}/orders/${orderId}`, {
+    body: JSON.stringify(createOrderDraftPayload(draftOrder)),
+    headers: createJsonBearerHeaders(token),
+    method: "PATCH"
+  });
+
+  if (!response.ok) {
+    const responseBody = await response.text();
+    throw new Error(
+      `/orders/${orderId} ${response.status}${responseBody ? ` ${responseBody}` : ""}`
+    );
+  }
+
+  return response.json() as Promise<UpdateOrderResult>;
 }
 
 export async function deleteOrder(

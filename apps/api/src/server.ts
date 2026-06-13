@@ -5,6 +5,7 @@ import cors from "@fastify/cors";
 import dotenv from "dotenv";
 import Fastify from "fastify";
 import type { FastifyReply, FastifyRequest } from "fastify";
+import type { PoolClient } from "pg";
 import { checkCalculationCoreImport } from "./calculation-core-import-check.js";
 
 const currentFile = fileURLToPath(import.meta.url);
@@ -514,6 +515,296 @@ function getOrderItemCalculationSnapshot(item: DesktopDraftOrderItem) {
   };
 }
 
+type DesktopDraftOrderValidationOptions = {
+  requireItems: boolean;
+  requireSourceRef: boolean;
+};
+
+type ValidDesktopDraftOrderPayload = {
+  customer: Record<string, unknown>;
+  customerComment: string | null;
+  customerEmail: string | null;
+  customerName: string | null;
+  customerPhone: string | null;
+  customerSnapshot: {
+    comment: string | null;
+    email: string | null;
+    name: string | null;
+    phone: string | null;
+  };
+  delivery: Record<string, unknown>;
+  normalizedItems: DesktopDraftOrderItem[];
+  sourceRef: string | null;
+  totalPriceMinor: number;
+};
+
+type DesktopDraftOrderValidationResult =
+  | {
+      ok: true;
+      payload: ValidDesktopDraftOrderPayload;
+    }
+  | {
+      ok: false;
+      body: {
+        error: string;
+        itemIndex?: number;
+        reason: string;
+      };
+      statusCode: 400;
+    };
+
+function validateDesktopDraftOrderPayload(
+  draftOrder: unknown,
+  options: DesktopDraftOrderValidationOptions
+): DesktopDraftOrderValidationResult {
+  if (!isRecord(draftOrder)) {
+    return {
+      body: {
+        error: "INVALID_ORDER_PAYLOAD",
+        reason: "payload is not an object"
+      },
+      ok: false,
+      statusCode: 400
+    };
+  }
+
+  const sourceRef = getRequiredString(draftOrder.id);
+  const totalPriceMinor = getMinorPrice(draftOrder.totalPriceMinor);
+  const items = Array.isArray(draftOrder.items)
+    ? draftOrder.items.filter(isRecord)
+    : [];
+
+  if (options.requireSourceRef && !sourceRef) {
+    return {
+      body: {
+        error: "INVALID_ORDER_PAYLOAD",
+        reason: "missing id"
+      },
+      ok: false,
+      statusCode: 400
+    };
+  }
+
+  if (totalPriceMinor === null) {
+    return {
+      body: {
+        error: "INVALID_ORDER_PAYLOAD",
+        reason: "invalid totalPriceMinor"
+      },
+      ok: false,
+      statusCode: 400
+    };
+  }
+
+  if (options.requireItems && items.length === 0) {
+    return {
+      body: {
+        error: "INVALID_ORDER_PAYLOAD",
+        reason: "items is empty"
+      },
+      ok: false,
+      statusCode: 400
+    };
+  }
+
+  const normalizedItems = items.map((item) => item as DesktopDraftOrderItem);
+
+  for (const [itemIndex, item] of normalizedItems.entries()) {
+    if (!getRequiredString(item.title)) {
+      return {
+        body: {
+          error: "INVALID_ORDER_ITEM",
+          itemIndex,
+          reason: "missing title"
+        },
+        ok: false,
+        statusCode: 400
+      };
+    }
+
+    if (!getRequiredString(item.serviceType)) {
+      return {
+        body: {
+          error: "INVALID_ORDER_ITEM",
+          itemIndex,
+          reason: "missing serviceType"
+        },
+        ok: false,
+        statusCode: 400
+      };
+    }
+
+    if (getOrderItemPriceMinor(item) === null) {
+      return {
+        body: {
+          error: "INVALID_ORDER_ITEM",
+          itemIndex,
+          reason: "missing totalPriceMinor / invalid item price"
+        },
+        ok: false,
+        statusCode: 400
+      };
+    }
+  }
+
+  const customer = isRecord(draftOrder.customer) ? draftOrder.customer : {};
+  const delivery = isRecord(draftOrder.delivery) ? draftOrder.delivery : {};
+  const customerName = getOptionalString(customer.name);
+  const customerPhone = getOptionalString(customer.phone);
+  const customerEmail = getOptionalString(customer.email);
+  const customerComment = getOptionalString(customer.comment);
+
+  return {
+    ok: true,
+    payload: {
+      customer,
+      customerComment,
+      customerEmail,
+      customerName,
+      customerPhone,
+      customerSnapshot: {
+        comment: customerComment,
+        email: customerEmail,
+        name: customerName,
+        phone: customerPhone
+      },
+      delivery,
+      normalizedItems,
+      sourceRef: sourceRef || null,
+      totalPriceMinor
+    }
+  };
+}
+
+async function insertOrderItems(
+  client: PoolClient,
+  orderId: number,
+  normalizedItems: DesktopDraftOrderItem[]
+) {
+  for (const [index, item] of normalizedItems.entries()) {
+    const itemTotalPriceMinor = getOrderItemPriceMinor(item) ?? 0;
+    const quantity = getPositiveQuantity(item.quantity);
+
+    await client.query(
+      `
+        insert into app.order_items (
+          order_id,
+          service_type,
+          title,
+          quantity,
+          unit_price_minor,
+          total_price_minor,
+          currency_code,
+          params_json,
+          calculation_snapshot_json,
+          sort_order
+        )
+        values (
+          $1,
+          $2,
+          $3,
+          $4,
+          $5,
+          $6,
+          'RUB',
+          $7::jsonb,
+          $8::jsonb,
+          $9
+        )
+      `,
+      [
+        orderId,
+        mapServiceType(getRequiredString(item.serviceType)),
+        getRequiredString(item.title),
+        quantity,
+        Math.round(itemTotalPriceMinor / quantity),
+        itemTotalPriceMinor,
+        JSON.stringify(getOrderItemParams(item)),
+        JSON.stringify(getOrderItemCalculationSnapshot(item)),
+        index + 1
+      ]
+    );
+  }
+}
+
+async function upsertOrderDelivery(
+  client: PoolClient,
+  orderId: number,
+  delivery: Record<string, unknown>,
+  customerName: string | null,
+  customerPhone: string | null
+) {
+  const deliveryMode = normalizeDeliveryMode(delivery.mode);
+  const values = [
+    orderId,
+    deliveryMode,
+    getDeliveryStatus(deliveryMode),
+    getOptionalString(delivery.contactName) ?? customerName,
+    getOptionalString(delivery.phone) ?? customerPhone,
+    getOptionalString(delivery.address),
+    getOptionalString(delivery.comment)
+  ];
+  const existingDelivery = await client.query<{ id: number }>(
+    `
+      select id
+      from app.order_delivery
+      where order_id = $1
+      limit 1
+    `,
+    [orderId]
+  );
+
+  if (existingDelivery.rows[0]) {
+    await client.query(
+      `
+        update app.order_delivery
+        set
+          delivery_mode = $2,
+          delivery_status = $3,
+          recipient_name = $4,
+          recipient_phone = $5,
+          address_text = $6,
+          comment = $7,
+          price_minor = 0,
+          currency_code = 'RUB'
+        where order_id = $1
+      `,
+      values
+    );
+    return;
+  }
+
+  await client.query(
+    `
+      insert into app.order_delivery (
+        order_id,
+        delivery_mode,
+        delivery_status,
+        recipient_name,
+        recipient_phone,
+        address_text,
+        comment,
+        price_minor,
+        currency_code,
+        provider_payload_json
+      )
+      values (
+        $1,
+        $2,
+        $3,
+        $4,
+        $5,
+        $6,
+        $7,
+        0,
+        'RUB',
+        '{}'::jsonb
+      )
+    `,
+    values
+  );
+}
+
 app.get("/health", async () => {
   return {
     ok: true,
@@ -840,69 +1131,26 @@ app.post<{ Body: DesktopDraftOrderPayload }>("/orders", async (request, reply) =
     return null;
   }
 
-  const draftOrder = request.body;
+  const validation = validateDesktopDraftOrderPayload(request.body, {
+    requireItems: true,
+    requireSourceRef: true
+  });
 
-  if (!isRecord(draftOrder)) {
-    return reply.code(400).send({
-      error: "INVALID_ORDER_PAYLOAD",
-      reason: "payload is not an object"
-    });
+  if (!validation.ok) {
+    return reply.code(validation.statusCode).send(validation.body);
   }
 
-  const sourceRef = getRequiredString(draftOrder.id);
-  const totalPriceMinor = getMinorPrice(draftOrder.totalPriceMinor);
-  const items = Array.isArray(draftOrder.items)
-    ? draftOrder.items.filter(isRecord)
-    : [];
-
-  if (!sourceRef) {
-    return reply.code(400).send({
-      error: "INVALID_ORDER_PAYLOAD",
-      reason: "missing id"
-    });
-  }
-
-  if (totalPriceMinor === null) {
-    return reply.code(400).send({
-      error: "INVALID_ORDER_PAYLOAD",
-      reason: "invalid totalPriceMinor"
-    });
-  }
-
-  if (items.length === 0) {
-    return reply.code(400).send({
-      error: "INVALID_ORDER_PAYLOAD",
-      reason: "items is empty"
-    });
-  }
-
-  const normalizedItems = items.map((item) => item as DesktopDraftOrderItem);
-
-  for (const [itemIndex, item] of normalizedItems.entries()) {
-    if (!getRequiredString(item.title)) {
-      return reply.code(400).send({
-        error: "INVALID_ORDER_ITEM",
-        itemIndex,
-        reason: "missing title"
-      });
-    }
-
-    if (!getRequiredString(item.serviceType)) {
-      return reply.code(400).send({
-        error: "INVALID_ORDER_ITEM",
-        itemIndex,
-        reason: "missing serviceType"
-      });
-    }
-
-    if (getOrderItemPriceMinor(item) === null) {
-      return reply.code(400).send({
-        error: "INVALID_ORDER_ITEM",
-        itemIndex,
-        reason: "missing totalPriceMinor / invalid item price"
-      });
-    }
-  }
+  const {
+    customerComment,
+    customerEmail,
+    customerName,
+    customerPhone,
+    customerSnapshot,
+    delivery,
+    normalizedItems,
+    sourceRef,
+    totalPriceMinor
+  } = validation.payload;
 
   const result = await withDatabaseTransaction(async (client) => {
     const existingOrder = await client.query<{
@@ -927,13 +1175,6 @@ app.post<{ Body: DesktopDraftOrderPayload }>("/orders", async (request, reply) =
       };
     }
 
-    const customer = isRecord(draftOrder.customer) ? draftOrder.customer : {};
-    const delivery = isRecord(draftOrder.delivery) ? draftOrder.delivery : {};
-    const customerName = getOptionalString(customer.name);
-    const customerPhone = getOptionalString(customer.phone);
-    const customerEmail = getOptionalString(customer.email);
-    const customerComment = getOptionalString(customer.comment);
-
     const customerResult = await client.query<{ id: number }>(
       `
         insert into app.customers (
@@ -949,12 +1190,6 @@ app.post<{ Body: DesktopDraftOrderPayload }>("/orders", async (request, reply) =
       [customerName, customerPhone, customerEmail, customerComment]
     );
     const customerId = customerResult.rows[0]?.id ?? null;
-    const customerSnapshot = {
-      comment: customerComment,
-      email: customerEmail,
-      name: customerName,
-      phone: customerPhone
-    };
 
     const orderResult = await client.query<{
       id: number;
@@ -1003,89 +1238,8 @@ app.post<{ Body: DesktopDraftOrderPayload }>("/orders", async (request, reply) =
     const orderId = orderResult.rows[0].id;
     const orderNumber = orderResult.rows[0].order_number;
 
-    for (const [index, item] of normalizedItems.entries()) {
-      const itemTotalPriceMinor = getOrderItemPriceMinor(item) ?? 0;
-      const quantity = getPositiveQuantity(item.quantity);
-
-      await client.query(
-        `
-          insert into app.order_items (
-            order_id,
-            service_type,
-            title,
-            quantity,
-            unit_price_minor,
-            total_price_minor,
-            currency_code,
-            params_json,
-            calculation_snapshot_json,
-            sort_order
-          )
-          values (
-            $1,
-            $2,
-            $3,
-            $4,
-            $5,
-            $6,
-            'RUB',
-            $7::jsonb,
-            $8::jsonb,
-            $9
-          )
-        `,
-        [
-          orderId,
-          mapServiceType(getRequiredString(item.serviceType)),
-          getRequiredString(item.title),
-          quantity,
-          Math.round(itemTotalPriceMinor / quantity),
-          itemTotalPriceMinor,
-          JSON.stringify(getOrderItemParams(item)),
-          JSON.stringify(getOrderItemCalculationSnapshot(item)),
-          index + 1
-        ]
-      );
-    }
-
-    const deliveryMode = normalizeDeliveryMode(delivery.mode);
-    await client.query(
-      `
-        insert into app.order_delivery (
-          order_id,
-          delivery_mode,
-          delivery_status,
-          recipient_name,
-          recipient_phone,
-          address_text,
-          comment,
-          price_minor,
-          currency_code,
-          provider_payload_json
-        )
-        values (
-          $1,
-          $2,
-          $3,
-          $4,
-          $5,
-          $6,
-          $7,
-          0,
-          'RUB',
-          '{}'::jsonb
-        )
-      `,
-      [
-        orderId,
-        deliveryMode,
-        getDeliveryStatus(deliveryMode),
-        getOptionalString(delivery.contactName) ?? customerName,
-        getOptionalString(delivery.phone) ?? customerPhone,
-        getOptionalString(delivery.address),
-        getOptionalString(delivery.comment)
-      ]
-    );
+    await insertOrderItems(client, orderId, normalizedItems);
+    await upsertOrderDelivery(client, orderId, delivery, customerName, customerPhone);
 
     await client.query(
       `
@@ -1114,6 +1268,171 @@ app.post<{ Body: DesktopDraftOrderPayload }>("/orders", async (request, reply) =
 
   return result;
 });
+
+app.patch<{ Body: DesktopDraftOrderPayload; Params: { id: string } }>(
+  "/orders/:id",
+  async (request, reply) => {
+    const authSession = await requireRole(request, reply, ["manager", "admin"]);
+
+    if (!authSession) {
+      return null;
+    }
+
+    const orderId = Number(request.params.id);
+
+    if (!Number.isInteger(orderId) || orderId <= 0) {
+      return reply.code(400).send({
+        error: "INVALID_ORDER_ID"
+      });
+    }
+
+    const validation = validateDesktopDraftOrderPayload(request.body, {
+      requireItems: false,
+      requireSourceRef: false
+    });
+
+    if (!validation.ok) {
+      return reply.code(validation.statusCode).send(validation.body);
+    }
+
+    const {
+      customerComment,
+      customerEmail,
+      customerName,
+      customerPhone,
+      customerSnapshot,
+      delivery,
+      normalizedItems,
+      totalPriceMinor
+    } = validation.payload;
+
+    const result = await withDatabaseTransaction(async (client) => {
+      const existingOrder = await client.query<{
+        customer_id: number | null;
+        id: number;
+        order_number: string;
+      }>(
+        `
+          select id, order_number, customer_id
+          from app.orders
+          where id = $1
+          for update
+        `,
+        [orderId]
+      );
+      const order = existingOrder.rows[0];
+
+      if (!order) {
+        return null;
+      }
+
+      let customerId = order.customer_id;
+
+      if (customerId) {
+        await client.query(
+          `
+            update app.customers
+            set
+              name = $2,
+              phone = $3,
+              email = $4,
+              comment = $5,
+              updated_at = now()
+            where id = $1
+          `,
+          [customerId, customerName, customerPhone, customerEmail, customerComment]
+        );
+      } else {
+        const customerResult = await client.query<{ id: number }>(
+          `
+            insert into app.customers (
+              customer_type,
+              name,
+              phone,
+              email,
+              comment
+            )
+            values ('person', $1, $2, $3, $4)
+            returning id
+          `,
+          [customerName, customerPhone, customerEmail, customerComment]
+        );
+
+        customerId = customerResult.rows[0]?.id ?? null;
+      }
+
+      await client.query(
+        `
+          update app.orders
+          set
+            customer_id = $2,
+            customer_snapshot_json = $3::jsonb,
+            items_total_minor = $4,
+            delivery_total_minor = 0,
+            discount_total_minor = 0,
+            total_price_minor = $5,
+            customer_comment = $6,
+            updated_at = now()
+          where id = $1
+        `,
+        [
+          orderId,
+          customerId,
+          JSON.stringify(customerSnapshot),
+          totalPriceMinor,
+          totalPriceMinor,
+          customerComment
+        ]
+      );
+
+      await client.query("delete from app.order_items where order_id = $1", [
+        orderId
+      ]);
+      await insertOrderItems(client, orderId, normalizedItems);
+      await upsertOrderDelivery(
+        client,
+        orderId,
+        delivery,
+        customerName,
+        customerPhone
+      );
+
+      await client.query(
+        `
+          insert into app.order_events (
+            order_id,
+            event_type,
+            actor_type,
+            actor_user_id,
+            payload_json
+          )
+          values ($1, 'order_updated', 'desktop', $2, $3::jsonb)
+        `,
+        [
+          orderId,
+          authSession.user.id,
+          JSON.stringify({
+            source: "desktop_patch"
+          })
+        ]
+      );
+
+      return {
+        id: order.id,
+        orderNumber: order.order_number,
+        updated: true
+      };
+    });
+
+    if (!result) {
+      return reply.code(404).send({
+        error: "ORDER_NOT_FOUND"
+      });
+    }
+
+    return result;
+  }
+);
 
 app.delete<{ Params: { id: string } }>("/orders/:id", async (request, reply) => {
   const authSession = await requireRole(request, reply, ["manager", "admin"]);

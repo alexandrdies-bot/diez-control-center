@@ -20,6 +20,7 @@ import {
   getOrders,
   login as loginToApi,
   updateMaterialPurchasePrice,
+  updateOrderFromDraft,
   type ApiHealth,
   type AuthUser,
   type Material,
@@ -1782,6 +1783,56 @@ function App() {
     );
   }
 
+  async function syncSavedDraftOrder(draftOrder: DraftOrder) {
+    if (!draftOrder.serverOrderId) {
+      return;
+    }
+
+    if (!authToken) {
+      setDraftOrderSaveStatusById((current) => ({
+        ...current,
+        [draftOrder.id]: "Нет подключения к серверу"
+      }));
+      return;
+    }
+
+    setDraftOrderSaveStatusById((current) => ({
+      ...current,
+      [draftOrder.id]: "Сохраняем изменения..."
+    }));
+
+    try {
+      const result = await updateOrderFromDraft(
+        draftOrder.serverOrderId,
+        draftOrder,
+        authToken
+      );
+      const savedAt = new Date().toISOString();
+
+      setDraftOrders((orders) =>
+        orders.map((currentDraftOrder) =>
+          currentDraftOrder.id === draftOrder.id
+            ? {
+                ...currentDraftOrder,
+                serverOrderNumber: result.orderNumber,
+                serverOrderSavedAt: savedAt
+              }
+            : currentDraftOrder
+        )
+      );
+      setDraftOrderSaveStatusById((current) => ({
+        ...current,
+        [draftOrder.id]: "Изменения сохранены"
+      }));
+      await loadServerOrders(authToken);
+    } catch {
+      setDraftOrderSaveStatusById((current) => ({
+        ...current,
+        [draftOrder.id]: "Не удалось сохранить изменения"
+      }));
+    }
+  }
+
   function addDraftOrderItem(item: DraftOrderItem) {
     const currentActiveDraftOrder = draftOrders.find(
       (draftOrder) => draftOrder.id === activeDraftOrderId
@@ -1794,51 +1845,83 @@ function App() {
       return;
     }
 
+    const nextDraftOrder = normalizeDraftOrder({
+      ...currentActiveDraftOrder,
+      items: [...currentActiveDraftOrder.items, item]
+    });
+
     setDraftOrders((orders) =>
       orders.map((draftOrder) =>
         draftOrder.id === currentActiveDraftOrder.id
-          ? normalizeDraftOrder({
-              ...draftOrder,
-              items: [...draftOrder.items, item]
-            })
+          ? nextDraftOrder
           : draftOrder
       )
     );
+    void syncSavedDraftOrder(nextDraftOrder);
   }
 
   function updateDraftOrderItem(itemId: string, nextItem: DraftOrderItem) {
+    const currentDraftOrder = draftOrders.find((draftOrder) =>
+      draftOrder.items.some((item) => item.id === itemId)
+    );
+
+    if (!currentDraftOrder) {
+      return;
+    }
+
+    const nextDraftOrder = normalizeDraftOrder({
+      ...currentDraftOrder,
+      items: currentDraftOrder.items.map((item) =>
+        item.id === itemId ? nextItem : item
+      )
+    });
+
     setDraftOrders((orders) =>
       orders.map((draftOrder) =>
-        draftOrder.items.some((item) => item.id === itemId)
-          ? normalizeDraftOrder({
-              ...draftOrder,
-              items: draftOrder.items.map((item) =>
-                item.id === itemId ? nextItem : item
-              )
-            })
-          : draftOrder
+        draftOrder.id === currentDraftOrder.id ? nextDraftOrder : draftOrder
       )
     );
+    void syncSavedDraftOrder(nextDraftOrder);
   }
 
   function updateDraftOrder(
     draftOrderId: string,
     update: (draftOrder: DraftOrder) => DraftOrder
   ) {
+    const currentDraftOrder = draftOrders.find(
+      (draftOrder) => draftOrder.id === draftOrderId
+    );
+
+    if (!currentDraftOrder) {
+      return null;
+    }
+
+    const nextDraftOrder = normalizeDraftOrder(update(currentDraftOrder));
+
     setDraftOrders((orders) =>
       orders.map((draftOrder) =>
-        draftOrder.id === draftOrderId
-          ? normalizeDraftOrder(update(draftOrder))
-          : draftOrder
+        draftOrder.id === draftOrderId ? nextDraftOrder : draftOrder
       )
     );
+
+    return nextDraftOrder;
   }
 
   function removeDraftOrderItem(itemId: string) {
-    const removedDraftOrderId =
-      draftOrders.find((draftOrder) =>
-        draftOrder.items.some((item) => item.id === itemId)
-      )?.id ?? null;
+    const currentDraftOrder = draftOrders.find((draftOrder) =>
+      draftOrder.items.some((item) => item.id === itemId)
+    );
+    const removedDraftOrderId = currentDraftOrder?.id ?? null;
+    const nextItems =
+      currentDraftOrder?.items.filter((item) => item.id !== itemId) ?? [];
+    const nextDraftOrder =
+      currentDraftOrder &&
+      !(nextItems.length === 0 && currentDraftOrder.status === "receiving")
+        ? normalizeDraftOrder({
+            ...currentDraftOrder,
+            items: nextItems
+          })
+        : null;
 
     setDraftOrders((orders) =>
       orders.flatMap((draftOrder) => {
@@ -1846,20 +1929,16 @@ function App() {
           return [draftOrder];
         }
 
-        const nextItems = draftOrder.items.filter((item) => item.id !== itemId);
-
         if (nextItems.length === 0 && draftOrder.status === "receiving") {
           return [];
         }
 
-        return [
-          normalizeDraftOrder({
-            ...draftOrder,
-            items: nextItems
-          })
-        ];
+        return nextDraftOrder ? [nextDraftOrder] : [];
       })
     );
+    if (nextDraftOrder) {
+      void syncSavedDraftOrder(nextDraftOrder);
+    }
 
     setEditingDraftOrderItemId((current) =>
       current === itemId ? null : current
@@ -2202,7 +2281,7 @@ function App() {
   function handleSaveDraftOrderCustomer(draftOrderId: string) {
     const formattedPhone = formatRussianPhone(draftOrderCustomerForm.phone);
 
-    updateDraftOrder(draftOrderId, (draftOrder) => ({
+    const nextDraftOrder = updateDraftOrder(draftOrderId, (draftOrder) => ({
       ...draftOrder,
       customer: {
         comment: draftOrderCustomerForm.comment.trim() || undefined,
@@ -2211,13 +2290,16 @@ function App() {
         phone: hasRussianPhoneDigits(formattedPhone) ? formattedPhone : undefined
       }
     }));
+    if (nextDraftOrder) {
+      void syncSavedDraftOrder(nextDraftOrder);
+    }
     setDraftOrderPanelMode("details");
   }
 
   function handleSaveDraftOrderDelivery(draftOrderId: string) {
     const formattedPhone = formatRussianPhone(draftOrderDeliveryForm.phone);
 
-    updateDraftOrder(draftOrderId, (draftOrder) => ({
+    const nextDraftOrder = updateDraftOrder(draftOrderId, (draftOrder) => ({
       ...draftOrder,
       delivery: {
         address:
@@ -2237,6 +2319,9 @@ function App() {
             : undefined
       }
     }));
+    if (nextDraftOrder) {
+      void syncSavedDraftOrder(nextDraftOrder);
+    }
     setDraftOrderPanelMode("details");
   }
 
