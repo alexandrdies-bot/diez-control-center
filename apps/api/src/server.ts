@@ -54,20 +54,36 @@ type PublicAuthUser = {
   email: string | null;
   id: number;
   login: string;
-  role: "manager" | "admin";
+  role: AuthUserRole;
 };
 
-type AuthUserRow = {
+type AuthUserRole = "manager" | "admin";
+
+type AuthPublicUserRow = {
   displayName: string;
   email: string | null;
   id: string;
   login: string;
-  passwordHash: string;
-  role: "manager" | "admin";
+  role: AuthUserRole;
 };
 
-type AuthSessionRow = AuthUserRow & {
+type AuthUserRow = AuthPublicUserRow & {
+  passwordHash: string;
+};
+
+type AuthSessionRow = AuthPublicUserRow & {
   expiresAt: string;
+  sessionId: string;
+};
+
+type AuthenticatedUser = PublicAuthUser;
+
+type AuthSessionContext = {
+  session: {
+    expiresAt: string;
+    id: number;
+  };
+  user: AuthenticatedUser;
 };
 
 type DesktopDraftOrderCustomer = {
@@ -245,7 +261,7 @@ function normalizeLogin(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function buildPublicAuthUser(row: AuthUserRow): PublicAuthUser {
+function buildPublicAuthUser(row: AuthPublicUserRow): PublicAuthUser {
   return {
     displayName: row.displayName,
     email: row.email,
@@ -279,6 +295,97 @@ function verifyPassword(password: string, passwordHash: string) {
   } catch {
     return false;
   }
+}
+
+async function getAuthSession(
+  request: FastifyRequest
+): Promise<AuthSessionContext | null> {
+  const token = getBearerToken(request);
+
+  if (!token) {
+    return null;
+  }
+
+  const tokenHash = hashSessionToken(token);
+  const sessions = await queryDatabase<AuthSessionRow>(
+    `
+      select
+        s.id::text as "sessionId",
+        s.expires_at::text as "expiresAt",
+        u.id::text as id,
+        u.login,
+        u.email,
+        u.display_name as "displayName",
+        u.role
+      from app.user_sessions s
+      join app.users u on u.id = s.user_id
+      where s.token_hash = $1
+        and s.revoked_at is null
+        and s.expires_at > now()
+        and u.is_active = true
+      limit 1
+    `,
+    [tokenHash]
+  );
+  const session = sessions[0];
+
+  if (!session) {
+    return null;
+  }
+
+  await queryDatabase(
+    `
+      update app.user_sessions
+      set last_seen_at = now()
+      where id = $1
+    `,
+    [session.sessionId]
+  );
+
+  return {
+    session: {
+      expiresAt: session.expiresAt,
+      id: Number(session.sessionId)
+    },
+    user: buildPublicAuthUser(session)
+  };
+}
+
+async function requireAuthSession(
+  request: FastifyRequest,
+  reply: FastifyReply
+) {
+  const authSession = await getAuthSession(request);
+
+  if (!authSession) {
+    reply.code(401).send({
+      error: "UNAUTHORIZED"
+    });
+    return null;
+  }
+
+  return authSession;
+}
+
+async function requireRole(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  allowedRoles: readonly AuthUserRole[]
+) {
+  const authSession = await requireAuthSession(request, reply);
+
+  if (!authSession) {
+    return null;
+  }
+
+  if (!allowedRoles.includes(authSession.user.role)) {
+    reply.code(403).send({
+      error: "FORBIDDEN"
+    });
+    return null;
+  }
+
+  return authSession;
 }
 
 function getOptionalString(value: unknown) {
@@ -530,61 +637,27 @@ app.post("/auth/logout", async (request) => {
 });
 
 app.get("/auth/me", async (request, reply) => {
-  const token = getBearerToken(request);
+  const authSession = await requireAuthSession(request, reply);
 
-  if (!token) {
-    return reply.code(401).send({
-      error: "UNAUTHORIZED"
-    });
+  if (!authSession) {
+    return null;
   }
-
-  const tokenHash = hashSessionToken(token);
-  const sessions = await queryDatabase<AuthSessionRow>(
-    `
-      select
-        u.id::text as id,
-        u.login,
-        u.email,
-        u.display_name as "displayName",
-        u.password_hash as "passwordHash",
-        u.role,
-        s.expires_at::text as "expiresAt"
-      from app.user_sessions s
-      join app.users u on u.id = s.user_id
-      where s.token_hash = $1
-        and s.revoked_at is null
-        and s.expires_at > now()
-        and u.is_active = true
-      limit 1
-    `,
-    [tokenHash]
-  );
-  const session = sessions[0];
-
-  if (!session) {
-    return reply.code(401).send({
-      error: "UNAUTHORIZED"
-    });
-  }
-
-  await queryDatabase(
-    `
-      update app.user_sessions
-      set last_seen_at = now()
-      where token_hash = $1
-    `,
-    [tokenHash]
-  );
 
   return {
     session: {
-      expiresAt: session.expiresAt
+      expiresAt: authSession.session.expiresAt
     },
-    user: buildPublicAuthUser(session)
+    user: authSession.user
   };
 });
 
-app.get("/orders", async () => {
+app.get("/orders", async (request, reply) => {
+  const authSession = await requireRole(request, reply, ["manager", "admin"]);
+
+  if (!authSession) {
+    return null;
+  }
+
   return queryDatabase<ApiOrderSummaryRow>(
     `
       select
@@ -622,6 +695,12 @@ app.get("/orders", async () => {
 });
 
 app.get<{ Params: { id: string } }>("/orders/:id", async (request, reply) => {
+  const authSession = await requireRole(request, reply, ["manager", "admin"]);
+
+  if (!authSession) {
+    return null;
+  }
+
   const orderId = Number(request.params.id);
 
   if (!Number.isInteger(orderId) || orderId <= 0) {

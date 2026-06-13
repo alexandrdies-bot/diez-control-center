@@ -17,6 +17,7 @@
 * Добавлены read-only endpoints `GET /orders` и `GET /orders/:id`, а также desktop API client methods `getOrders()` и `getOrder(orderId)` для будущей загрузки заказов из общей базы.
 * Добавлен первый API auth/session layer: `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`; Basic Auth и текущие order guards пока остаются без изменений.
 * Добавлен production-safe CLI bootstrap `pnpm --filter @diez/api bootstrap:admin` для ручного создания первого auth-пользователя без хранения пароля в репозитории, `.env` или seed.
+* `GET /orders` и `GET /orders/:id` защищены bearer auth session guard для ролей `manager`/`admin`; write/delete guards пока не менялись.
 * Временная блокировка редактирования созданного заказа снята для рабочего MVP-режима: позиции, заказчика и доставку снова можно менять в UI; серверная синхронизация правок через `PATCH` будет отдельным этапом.
 * Улучшено отображение карточки заказа и деталей заказа для менеджера; серверная логика не менялась, загрузка ленты из production-БД пока не реализуется для dev/test базы.
 * Текущая desktop-лента заказов пока не заменяется серверной загрузкой и остаётся на `localStorage`.

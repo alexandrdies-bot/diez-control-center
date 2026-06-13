@@ -225,7 +225,8 @@ Auth/session MVP:
 - `GET /auth/me` checks the bearer session and returns the current active user;
 - session tokens are stored in the database only as hashes;
 - Basic Auth on nginx is still enabled for temporary private server access;
-- order endpoints are not moved to bearer auth yet and still use the existing `API_WRITE_KEY` guard for write/delete production protection.
+- read-only order endpoints `GET /orders` and `GET /orders/:id` require `Authorization: Bearer <session-token>` with `manager` or `admin` role;
+- order write/delete endpoints are not moved to bearer auth yet and still use the existing `API_WRITE_KEY` guard for production protection.
 
 ### First auth user bootstrap
 
@@ -273,7 +274,7 @@ The password must not be written in chat, committed, stored in `.env`, saved in 
 
 `DELETE /orders/:id` удаляет уже созданный заказ и связанные строки заказа через каскадные связи. Несохранённый локальный черновик удаляется только из `localStorage`.
 
-`GET /orders` и `GET /orders/:id` добавлены как read-only endpoints для будущей загрузки заказов из общей базы. В desktop API client подготовлены методы `getOrders()` и `getOrder(orderId)`, но текущая лента заказов пока остаётся на `localStorage` и не заменяется серверной загрузкой.
+`GET /orders` и `GET /orders/:id` добавлены как read-only endpoints для будущей загрузки заказов из общей базы. Эти endpoints требуют bearer session token пользователя с ролью `manager` или `admin`. В desktop API client подготовлены методы `getOrders()` и `getOrder(orderId)`, но текущая лента заказов пока остаётся на `localStorage` и не заменяется серверной загрузкой.
 
 Production API protection MVP:
 

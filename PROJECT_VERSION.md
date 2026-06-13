@@ -40,6 +40,8 @@ MVP-1 API read-only endpoints готовы.
 
 Добавлен production-safe CLI bootstrap для первого `admin`/`manager` пользователя: `pnpm --filter @diez/api bootstrap:admin`. Пользователь автоматически не создавался; пароль передаётся только временными env-переменными shell и не хранится в repo, `.env` или seed.
 
+Read-only order endpoints `GET /orders` и `GET /orders/:id` теперь защищены bearer auth session и доступны только ролям `manager`/`admin`. Write/delete order endpoints пока остаются на временном `API_WRITE_KEY`, Basic Auth nginx не снят.
+
 Tauri 2 desktop shell готов.
 
 Приложение открывается как Windows desktop window.
