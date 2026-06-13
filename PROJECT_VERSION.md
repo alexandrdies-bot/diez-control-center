@@ -38,6 +38,8 @@ MVP-1 API read-only endpoints готовы.
 
 Добавлен первый API auth/session layer: `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`. Сессии хранятся в `app.user_sessions` только как hash токена, Basic Auth на nginx пока не снят, а order write/delete endpoints ещё не переведены на bearer auth и остаются на текущем production guard.
 
+Добавлен production-safe CLI bootstrap для первого `admin`/`manager` пользователя: `pnpm --filter @diez/api bootstrap:admin`. Пользователь автоматически не создавался; пароль передаётся только временными env-переменными shell и не хранится в repo, `.env` или seed.
+
 Tauri 2 desktop shell готов.
 
 Приложение открывается как Windows desktop window.

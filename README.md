@@ -227,6 +227,44 @@ Auth/session MVP:
 - Basic Auth on nginx is still enabled for temporary private server access;
 - order endpoints are not moved to bearer auth yet and still use the existing `API_WRITE_KEY` guard for write/delete production protection.
 
+### First auth user bootstrap
+
+The first `admin` or `manager` user is created manually through a dedicated CLI script:
+
+```text
+pnpm --filter @diez/api bootstrap:admin
+```
+
+The script reads the API `.env` for `DATABASE_URL`, but the user credentials must be passed only through temporary shell env variables:
+
+PowerShell example:
+
+```powershell
+$env:BOOTSTRAP_USER_LOGIN="admin"
+$env:BOOTSTRAP_USER_PASSWORD="<temporary-password>"
+$env:BOOTSTRAP_USER_DISPLAY_NAME="Administrator"
+$env:BOOTSTRAP_USER_ROLE="admin"
+pnpm.cmd --filter @diez/api bootstrap:admin
+```
+
+Linux/server example:
+
+```bash
+BOOTSTRAP_USER_LOGIN=admin \
+BOOTSTRAP_USER_PASSWORD='<temporary-password>' \
+BOOTSTRAP_USER_DISPLAY_NAME='Administrator' \
+BOOTSTRAP_USER_ROLE=admin \
+pnpm --filter @diez/api bootstrap:admin
+```
+
+Optional:
+
+```text
+BOOTSTRAP_USER_EMAIL
+```
+
+The password must not be written in chat, committed, stored in `.env`, saved in `outputs`, or added to seed files. Production admin users must not be created by seed with a stored password. The bootstrap script creates or updates one user by login, stores only `scrypt:<salt_hex>:<key_hex>` in `app.users.password_hash`, and prints only user id, login, role, and whether the user was created or updated.
+
 `POST /orders` — первый write endpoint для создания заказа из локального desktop draft-order в общей базе. Он вызывается только после явного действия менеджера `Завершить приём заказа`, работает через API-транзакцию, защищается от дублей по `source='desktop'` + `source_ref` и сохраняет заказ, позиции, заказчика, доставку и событие создания.
 
 Автосохранение после первой добавленной позиции не используется: пока менеджер добавляет позиции, заказ остаётся локальным черновиком.
