@@ -270,13 +270,13 @@ The password must not be written in chat, committed, stored in `.env`, saved in 
 
 Автосохранение после первой добавленной позиции не используется: пока менеджер добавляет позиции, заказ остаётся локальным черновиком.
 
-Полный CRUD заказов, оплаты, СДЭК и серверная история статусов пока не реализованы.
+Полный CRUD заказов, оплаты, СДЭК и история статусов пока не реализованы.
 
 `DELETE /orders/:id` удаляет уже созданный заказ и связанные строки заказа через каскадные связи. Несохранённый локальный черновик удаляется только из `localStorage`.
 
 Desktop online mode uses `https://api.diezimg.ru` by default and can still be overridden with `VITE_API_BASE_URL` for explicit dev/testing tasks.
 
-`GET /orders` и `GET /orders/:id` загружают серверные заказы из production API и требуют bearer session token пользователя с ролью `manager` или `admin`. Desktop после входа вызывает `GET /orders` с Bearer token и показывает серверные заказы отдельным блоком; `localStorage` остаётся для локальных черновиков/резерва и не считается основной server order feed.
+`GET /orders` и `GET /orders/:id` загружают настоящие заказы из общей базы через production API и требуют bearer session token пользователя с ролью `manager` или `admin`. Desktop после входа вызывает `GET /orders` с Bearer token и показывает эти заказы в разделе `Заказы`; локально остаются только незавершённые `Черновики`, которые ещё не были завершены как заказ.
 
 Desktop auth API client:
 
@@ -288,7 +288,7 @@ Desktop auth API client:
 - `Запомнить это устройство` is an MVP convenience option: when enabled, desktop stores the session token, safe public user fields, expiry, and phone in `localStorage`, then validates the session through `GET /auth/me` on startup;
 - the 4-digit code, Basic Auth credentials, `DATABASE_URL`, PostgreSQL secrets, and server env values must never be stored in desktop;
 - this MVP token storage must later be replaced with Windows Credential Manager or Tauri secure storage;
-- startup `/health` and `/materials` checks are non-blocking for login and server order loading;
+- startup `/health` and `/materials` checks are non-blocking for login and order loading;
 - material price update remains on the existing admin `x-api-key` flow until a separate admin-auth patch.
 
 Production API protection MVP:
@@ -1098,11 +1098,11 @@ Current delivery is a temporary local MVP. Delivery modes are:
 
 CDEK tariff calculation, pickup-point selection, shipment creation, and tracking must be implemented later through backend/API, not directly from the desktop app. No CDEK API, tokens, database persistence, or migrations are connected now.
 
-The detail screen action `Завершить приём заказа` creates the order through `POST /orders` only when positions, customer, and delivery are complete. After success the draft stores `serverOrderId` and `serverOrderNumber`, shows `Заказ создан: ORD-...`, and keeps the local draft available. The server order number from `serverOrderNumber` is visible in the feed card and order details.
+The detail screen action `Завершить приём заказа` creates the order through `POST /orders` only when positions, customer, and delivery are complete. After success the draft stores `serverOrderId` and `serverOrderNumber`, shows `Заказ создан: ORD-...`, and remains available in the open detail view while no longer appearing under `Черновики`. The order number from `serverOrderNumber` is visible in the feed card and order details.
 
 During the development MVP, a created order can still be edited in the desktop UI. Full server-side update synchronization through `PATCH` will be implemented as a separate stage, so current local edits are a temporary development workflow.
 
-Order feed cards and order details are optimized for manager readability: they show the order number when available, customer, phone, positions summary, total, and status. This is a UI-only improvement; server logic and order persistence were not changed. Loading the feed directly from the production database is not implemented while the current database is dev/test.
+Order feed cards and order details are optimized for manager readability: they show the order number when available, customer, phone, positions summary, total, and status.
 
 The feed trash action has two modes: unsaved local drafts are removed from `localStorage`; saved orders call `DELETE /orders/:id` first and then remove the local draft card after successful API deletion.
 
@@ -1110,7 +1110,7 @@ If `+ Новый заказ` is pressed while the active draft is still `receivi
 
 Adding more positions to the current draft should happen through the draft detail screen before pressing `Завершить приём заказа`. Desktop still does not write to PostgreSQL directly; order creation goes through the API.
 
-Read-only order loading is prepared at the API/client layer through `GET /orders`, `GET /orders/:id`, `getOrders()`, and `getOrder(orderId)`. The desktop feed is not switched from `localStorage` yet; server-loaded feed integration remains a separate next step.
+The desktop feed uses `GET /orders` for the `Заказы` section. `Черновики` shows only local drafts without `serverOrderId` / `serverOrderNumber`, so completed orders do not appear twice.
 
 ## Future MAX + AI Assistant Integration
 

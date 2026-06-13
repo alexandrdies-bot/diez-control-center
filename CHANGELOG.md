@@ -19,14 +19,14 @@
 * Добавлен production-safe CLI bootstrap `pnpm --filter @diez/api bootstrap:admin` для ручного создания первого auth-пользователя без хранения пароля в репозитории, `.env` или seed.
 * `GET /orders` и `GET /orders/:id` защищены bearer auth session guard для ролей `manager`/`admin`; write/delete guards пока не менялись.
 * В desktop API client добавлены `login`, `logout`, `getCurrentUser` и bearer helpers без изменения UI, localStorage-ленты и текущих `x-api-key` flows.
-* Добавлен desktop online-mode MVP: default API URL `https://api.diezimg.ru`, login/logout UI, загрузка server orders через Bearer token и Bearer token для создания/удаления заказов.
+* Добавлен desktop online-mode MVP: default API URL `https://api.diezimg.ru`, login/logout UI, раздел `Заказы` из общей базы через Bearer token и раздел `Черновики` только для незавершённых локальных черновиков.
 * Desktop online login переведён на рабочую схему телефон + 4-значный код; backend `/auth/login` сохраняет совместимость с прежним `login/password` payload.
 * Добавлен MVP-режим `Запомнить это устройство`: сохранённая desktop session проверяется через `GET /auth/me`, код и production secrets не сохраняются.
 * Для production API CORS зафиксирован dev origin `http://127.0.0.1:5173`, чтобы локальный desktop мог проверять online-mode через `api.diezimg.ru`.
 * Startup проверки `/health` и `/materials` в desktop сделаны не блокирующими для login/online orders.
 * Временная блокировка редактирования созданного заказа снята для рабочего MVP-режима: позиции, заказчика и доставку снова можно менять в UI; серверная синхронизация правок через `PATCH` будет отдельным этапом.
 * Улучшено отображение карточки заказа и деталей заказа для менеджера; серверная логика не менялась, загрузка ленты из production-БД пока не реализуется для dev/test базы.
-* Текущая desktop-лента заказов пока не заменяется серверной загрузкой и остаётся на `localStorage`.
+* Desktop-лента теперь разделяет `Заказы` из общей базы и локальные незавершённые `Черновики`, чтобы созданный заказ не дублировался в ленте.
 * Добавлена MVP production protection для API: CORS allowlist через env, write key для `POST /orders` и `DELETE /orders/:id`, admin key для `PATCH /materials/:id/pricing-inputs`; dev режим остаётся открытым даже при наличии локальных ключей.
 * Зафиксировано, что полный CRUD заказов, оплаты и СДЭК пока не реализованы.
 * Создан начальный каркас проекта `diez-control-center`.

@@ -16,6 +16,7 @@ import {
   getCurrentUser,
   getMaterialPricingInputs,
   getMaterials,
+  getOrder,
   getOrders,
   login as loginToApi,
   updateMaterialPurchasePrice,
@@ -23,6 +24,7 @@ import {
   type AuthUser,
   type Material,
   type MaterialPricingInput,
+  type OrderDetail,
   type OrderSummary
 } from "./api";
 import {
@@ -128,7 +130,7 @@ const settingsCards = [
   },
   {
     title: "Интеграции",
-    description: "Сайт, API, MAX, платежи и внешние сервисы.",
+    description: "Сайт, MAX, платежи и внешние сервисы.",
     isActive: false
   },
   {
@@ -202,7 +204,7 @@ const nextSteps = [
   "Подключить заказы сайта",
   "Спроектировать клиентов",
   "Спроектировать чат сайта",
-  "Подготовить Ozon API-модуль"
+  "Подготовить Ozon-модуль"
 ];
 
 const ozonCards = [
@@ -251,8 +253,8 @@ const diezOrderStatuses = [
 
 type DraftOrderItem = {
   id: string;
-  serviceType: "light-letter" | "dtf-print";
-  type: "Конструктор объёмных букв" | "DTF-печать";
+  serviceType: "light-letter" | "dtf-print" | "manual";
+  type: "Конструктор объёмных букв" | "DTF-печать" | "Позиция заказа";
   title: string;
   text?: string;
   heightMm?: string;
@@ -398,6 +400,92 @@ function formatMinorPrice(value: number, currencyCode: string) {
 
 function getDraftOrderTotalMinor(items: DraftOrderItem[]) {
   return items.reduce((total, item) => total + item.priceMinor, 0);
+}
+
+function mapApiServiceTypeToDraftServiceType(
+  serviceType: string
+): DraftOrderItem["serviceType"] {
+  if (serviceType === "light_letters" || serviceType === "light-letter") {
+    return "light-letter";
+  }
+
+  if (serviceType === "dtf_print" || serviceType === "dtf-print") {
+    return "dtf-print";
+  }
+
+  return "manual";
+}
+
+function getDraftItemTypeFromServiceType(
+  serviceType: DraftOrderItem["serviceType"]
+): DraftOrderItem["type"] {
+  if (serviceType === "light-letter") {
+    return "Конструктор объёмных букв";
+  }
+
+  if (serviceType === "dtf-print") {
+    return "DTF-печать";
+  }
+
+  return "Позиция заказа";
+}
+
+function mapOrderDetailsToDraftOrder(
+  orderDetails: OrderDetail,
+  existingDraftOrderId?: string
+): DraftOrder {
+  const items = orderDetails.items.map((item, index) => {
+    const serviceType = mapApiServiceTypeToDraftServiceType(item.serviceType);
+    const priceMinor = Number(item.totalPriceMinor) || 0;
+
+    return {
+      baselineStatus: "из базы",
+      calculationId: `order-${orderDetails.id}-item-${item.id}`,
+      calculationSource: "database-order",
+      checkMode: "imported",
+      formattedPrice: formatMinorPrice(priceMinor, item.currencyCode),
+      id: `order-${orderDetails.id}-item-${item.id}`,
+      priceMinor,
+      quantity: Number(item.quantity) || 1,
+      serviceType,
+      title: item.title || `Позиция ${index + 1}`,
+      totalPriceMinor: priceMinor,
+      type: getDraftItemTypeFromServiceType(serviceType)
+    };
+  });
+
+  return {
+    createdAt: orderDetails.createdAt,
+    customer: {
+      comment: orderDetails.customer.comment ?? orderDetails.customerComment ?? "",
+      email: orderDetails.customer.email ?? "",
+      name: orderDetails.customer.name ?? orderDetails.customerName ?? "",
+      phone: orderDetails.customer.phone ?? orderDetails.customerPhone ?? ""
+    },
+    delivery: orderDetails.delivery
+      ? {
+          address: orderDetails.delivery.addressText ?? "",
+          comment: orderDetails.delivery.comment ?? "",
+          contactName: orderDetails.delivery.recipientName ?? "",
+          mode:
+            orderDetails.delivery.deliveryMode === "not_required" ||
+            orderDetails.delivery.deliveryMode === "not-required"
+              ? "not-required"
+              : "manual",
+          phone: orderDetails.delivery.recipientPhone ?? ""
+        }
+      : {
+          mode: "not-required"
+        },
+    id: existingDraftOrderId ?? `database-order-${orderDetails.id}`,
+    items,
+    serverOrderId: orderDetails.id,
+    serverOrderNumber: orderDetails.orderNumber,
+    serverOrderSavedAt: orderDetails.updatedAt,
+    status: "awaiting-details",
+    totalPriceMinor: Number(orderDetails.totalPriceMinor) || getDraftOrderTotalMinor(items),
+    updatedAt: orderDetails.updatedAt
+  };
 }
 
 function normalizeRussianPhoneDigits(value: string) {
@@ -653,6 +741,20 @@ function getDraftOrderDisplayStatus(draftOrder: DraftOrder) {
   }
 
   return "оформлен";
+}
+
+function getDatabaseOrderDisplayStatus(status: string) {
+  const statusLabels: Record<string, string> = {
+    canceled: "отменён",
+    completed: "завершён",
+    confirmed: "подтверждён",
+    draft: "черновик",
+    in_work: "в работе",
+    new: "новый",
+    ready: "готов"
+  };
+
+  return statusLabels[status] ?? status;
 }
 
 function createDraftOrder(items: DraftOrderItem[] = []): DraftOrder {
@@ -925,6 +1027,8 @@ function App() {
     null
   );
   const [isServerOrdersLoading, setIsServerOrdersLoading] = useState(false);
+  const [orderDetailStatus, setOrderDetailStatus] = useState<string | null>(null);
+  const [isOrderDetailLoading, setIsOrderDetailLoading] = useState(false);
   const [serverConnectionState, setServerConnectionState] = useState<
     "connected" | "disconnected"
   >("disconnected");
@@ -1205,6 +1309,13 @@ function App() {
       activeDraftOrder
     );
   }, [activeDraftOrder, draftOrders, selectedDraftOrderId]);
+  const localDraftOrders = useMemo(
+    () =>
+      draftOrders.filter(
+        (draftOrder) => !draftOrder.serverOrderId && !draftOrder.serverOrderNumber
+      ),
+    [draftOrders]
+  );
   const draftOrderItems = activeDraftOrder?.items ?? [];
   const draftOrderTotalMinor = useMemo(() => {
     return draftOrderItems.reduce((total, item) => total + item.priceMinor, 0);
@@ -2276,7 +2387,7 @@ function App() {
       if (!draftOrder.serverOrderId) {
         setDraftOrderSaveStatusById((current) => ({
           ...current,
-          [draftOrder.id]: "Не удалось удалить заказ: нет serverOrderId"
+          [draftOrder.id]: "Не удалось удалить заказ"
         }));
         return;
       }
@@ -2317,6 +2428,100 @@ function App() {
       setIsDraftOrderDetailsOpen(false);
       setIsNewOrderFormOpen(false);
       setActiveSection("Главная");
+    }
+  }
+
+  async function handleDeleteOrder(order: OrderSummary) {
+    if (!authToken) {
+      setServerOrdersStatus("Войдите");
+      setServerConnectionState("disconnected");
+      return;
+    }
+
+    if (!window.confirm(`Удалить заказ ${order.orderNumber}?`)) {
+      return;
+    }
+
+    setServerOrdersStatus("Удаляем...");
+
+    try {
+      await deleteOrder(order.id, authToken);
+      setDraftOrders((current) =>
+        current.filter((draftOrder) => draftOrder.serverOrderId !== order.id)
+      );
+      setSelectedDraftOrderId((current) => {
+        const currentDraftOrder = draftOrders.find(
+          (draftOrder) => draftOrder.id === current
+        );
+
+        return currentDraftOrder?.serverOrderId === order.id ? null : current;
+      });
+      setActiveDraftOrderId((current) => {
+        const currentDraftOrder = draftOrders.find(
+          (draftOrder) => draftOrder.id === current
+        );
+
+        return currentDraftOrder?.serverOrderId === order.id ? null : current;
+      });
+      setOrderDetailStatus("Заказ удалён");
+      await loadServerOrders(authToken);
+    } catch {
+      setServerOrdersStatus("Не удалось удалить заказ");
+    }
+  }
+
+  async function handleOpenOrderDetail(order: OrderSummary) {
+    if (!authToken) {
+      setServerOrdersStatus("Войдите");
+      setServerConnectionState("disconnected");
+      return;
+    }
+
+    setActiveWorkspace("Диез Имидж");
+    setActiveSection("Заказы");
+    setIsNewOrderFormOpen(false);
+    setIsDraftOrderDetailsOpen(false);
+    setOrderDetailStatus("Загружаем заказ...");
+    setIsOrderDetailLoading(true);
+
+    try {
+      const orderDetail = await getOrder(order.id, authToken);
+      const existingDraftOrder = draftOrders.find(
+        (draftOrder) => draftOrder.serverOrderId === orderDetail.id
+      );
+      const mappedDraftOrder = mapOrderDetailsToDraftOrder(
+        orderDetail,
+        existingDraftOrder?.id
+      );
+
+      setDraftOrders((current) => {
+        const hasExistingDraftOrder = current.some(
+          (draftOrder) =>
+            draftOrder.id === mappedDraftOrder.id ||
+            draftOrder.serverOrderId === mappedDraftOrder.serverOrderId
+        );
+
+        if (!hasExistingDraftOrder) {
+          return [...current, mappedDraftOrder];
+        }
+
+        return current.map((draftOrder) =>
+          draftOrder.id === mappedDraftOrder.id ||
+          draftOrder.serverOrderId === mappedDraftOrder.serverOrderId
+            ? mappedDraftOrder
+            : draftOrder
+        );
+      });
+      setSelectedDraftOrderId(mappedDraftOrder.id);
+      setDraftOrderPanelMode("details");
+      setIsDraftOrderDetailsOpen(true);
+      setOrderDetailStatus(null);
+      setServerConnectionState("connected");
+    } catch {
+      setOrderDetailStatus("Не удалось открыть заказ");
+      setServerConnectionState("disconnected");
+    } finally {
+      setIsOrderDetailLoading(false);
     }
   }
 
@@ -2554,45 +2759,107 @@ function App() {
 
             <div className="feed-order-section">
               <div className="feed-section-heading">
-                <strong>Заказы с сервера</strong>
+                <strong>Заказы</strong>
               </div>
 
               {serverOrders.length > 0 ? (
                 <div className="feed-order-list">
-                  {serverOrders.map((order) => (
-                    <article className="server-order-card feed-order-card" key={order.id}>
-                      <strong>{order.orderNumber}</strong>
-                      <span>
-                        {order.customerName?.trim() || "Заказчик не заполнен"}
-                      </span>
-                      {order.customerPhone ? <span>{order.customerPhone}</span> : null}
-                      <span>{order.firstItemTitle ?? "Позиции не указаны"}</span>
-                      {order.itemsCount > 1 ? (
-                        <span>+ ещё {order.itemsCount - 1}</span>
-                      ) : null}
-                      <em>
-                        Итого:{" "}
-                        {formatMinorPrice(order.totalPriceMinor, order.currencyCode)}
-                      </em>
-                      <small>Статус: {order.status}</small>
-                    </article>
-                  ))}
+                  {serverOrders.map((order) => {
+                    const hasCustomer = Boolean(
+                      order.customerName?.trim() || order.customerPhone?.trim()
+                    );
+
+                    return (
+                      <article
+                        className="server-order-card feed-order-card"
+                        key={order.id}
+                        onClick={() => void handleOpenOrderDetail(order)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            void handleOpenOrderDetail(order);
+                          }
+                        }}
+                        role="button"
+                        tabIndex={0}
+                      >
+                        <div className="server-order-card-content">
+                          <strong>{order.orderNumber}</strong>
+                          <span>
+                            {order.customerName?.trim() || "Заказчик не заполнен"}
+                          </span>
+                          {order.customerPhone ? <span>{order.customerPhone}</span> : null}
+                          <span>{order.firstItemTitle ?? "Позиции не указаны"}</span>
+                          {order.itemsCount > 1 ? (
+                            <span>+ ещё {order.itemsCount - 1}</span>
+                          ) : null}
+                          <em>
+                            Итого:{" "}
+                            {formatMinorPrice(order.totalPriceMinor, order.currencyCode)}
+                          </em>
+                          <small>
+                            Статус: {getDatabaseOrderDisplayStatus(order.status)}
+                          </small>
+                        </div>
+                        <div className="draft-feed-card-actions">
+                          <button
+                            aria-label="Удалить заказ"
+                            className="draft-feed-icon-button draft-feed-icon-button-trash"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void handleDeleteOrder(order);
+                            }}
+                            title="Удалить заказ"
+                            type="button"
+                          >
+                            <img alt="" src={trashIconUrl} />
+                          </button>
+                        </div>
+                        <div className="draft-feed-card-indicators">
+                          <button
+                            aria-label={
+                              hasCustomer ? "Заказчик заполнен" : "Заказчик не заполнен"
+                            }
+                            className={
+                              hasCustomer
+                                ? "draft-feed-indicator draft-feed-indicator-ok"
+                                : "draft-feed-indicator draft-feed-indicator-alert"
+                            }
+                            title={
+                              hasCustomer ? "Заказчик заполнен" : "Заказчик не заполнен"
+                            }
+                            type="button"
+                          >
+                            <img alt="" src={userIconUrl} />
+                          </button>
+                          <button
+                            aria-label="Доставка оформлена"
+                            className="draft-feed-indicator draft-feed-indicator-ok"
+                            title="Доставка оформлена"
+                            type="button"
+                          >
+                            <img alt="" src={truckIconUrl} />
+                          </button>
+                        </div>
+                      </article>
+                    );
+                  })}
                 </div>
               ) : (
                 <p className="server-orders-empty">
-                  {isServerOrdersLoading ? "Загружаем заказы..." : "Заказов с сервера пока нет"}
+                  {isServerOrdersLoading ? "Загружаем заказы..." : "Заказов пока нет"}
                 </p>
               )}
             </div>
 
-            {draftOrders.length > 0 && (
+            {localDraftOrders.length > 0 && (
               <div className="feed-order-section">
                 <div className="feed-section-heading">
-                  <strong>Локальные черновики</strong>
+                  <strong>Черновики</strong>
                 </div>
 
                 <div className="draft-feed-list">
-                  {draftOrders.map((draftOrder) => {
+                  {localDraftOrders.map((draftOrder) => {
                     const isCustomerFilled = isDraftOrderCustomerFilled(
                       draftOrder.customer
                     );
@@ -2835,7 +3102,7 @@ function App() {
                   : "orders-panel"
               }
             >
-              {!isNewOrderFormOpen && !isDraftOrderDetailsOpen ? (
+              {!isNewOrderFormOpen && !isDraftOrderDetailsOpen && !isOrderDetailLoading ? (
                 <>
                   <div className="content-header">
                     <div>
@@ -2857,6 +3124,14 @@ function App() {
                     ))}
                   </div>
                 </>
+              ) : null}
+
+              {isOrderDetailLoading ? (
+                <section className="order-form-panel">
+                  <p className="draft-summary-muted">
+                    {orderDetailStatus ?? "Загружаем заказ..."}
+                  </p>
+                </section>
               ) : null}
 
               {isDraftOrderDetailsOpen && detailDraftOrder ? (
@@ -3037,7 +3312,7 @@ function App() {
                         <strong>СДЭК</strong>
                         <span>
                           Расчёт тарифа, выбор ПВЗ, создание отправления и
-                          трекинг будут подключены через серверный API позже.
+                          трекинг будут подключены позже.
                         </span>
                       </div>
 
@@ -3890,7 +4165,7 @@ function App() {
               </div>
 
               <div className="ozon-status-panel">
-                Интеграция Ozon будет подключена позже через API и общую базу.
+                Интеграция Ozon будет подключена позже через общую систему.
               </div>
 
               <div className="metric-grid">
@@ -4143,3 +4418,4 @@ createRoot(document.getElementById("root") as HTMLElement).render(
     <App />
   </React.StrictMode>
 );
+
