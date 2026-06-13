@@ -30,6 +30,8 @@ API и сайт переведены на `systemd` автозапуск.
 
 Проверено: без авторизации `https://diezimg.ru` и `https://api.diezimg.ru/health` возвращают `401`; с авторизацией сайт отвечает `200 OK`, API health отвечает `ok:true`.
 
+Для deploy-разработки настроен временный отдельный SSH key. Приватный ключ хранится только локально, секреты не фиксируются в репозитории, а ключ должен быть удалён с сервера после завершения этапа.
+
 MVP-1 API read-only endpoints готовы.
 
 Для следующего этапа desktop/API интеграции добавлены read-only endpoints `GET /orders` и `GET /orders/:id`, а в desktop API client подготовлены методы `getOrders()` и `getOrder(orderId)`. Текущая лента заказов пока остаётся на `localStorage` и не заменяется серверной загрузкой.

@@ -6,6 +6,7 @@
 
 * Зафиксирован первый успешный server launch: VPS, PostgreSQL, миграции, минимальные seeds, nginx, SSL, systemd, сайт и API.
 * Зафиксирован временный private-access режим: сайт и API закрыты Basic Auth на nginx до завершения настройки и production-hardening.
+* Зафиксирована процедура временного SSH deploy-доступа через отдельный development key без сохранения секретов в репозитории.
 * Добавлен первый endpoint `POST /orders` для сохранения локального desktop draft-order в общую базу.
 * Добавлен API transaction helper для атомарного создания заказа, позиций, доставки и события.
 * Добавлена защита от дублей заказов по `source='desktop'` и `source_ref`.
