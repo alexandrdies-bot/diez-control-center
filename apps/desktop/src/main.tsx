@@ -701,6 +701,54 @@ function getDraftOrderDeliveryState(delivery: DraftOrderDelivery) {
   return delivery.address?.trim() ? "filled" : "missing";
 }
 
+function isDeliveryNotRequiredValue(value: unknown) {
+  if (typeof value !== "string") {
+    return false;
+  }
+
+  const normalizedValue = value.trim().toLowerCase().replace(/_/g, "-");
+
+  return (
+    normalizedValue === "not-required" ||
+    normalizedValue === "delivery not required"
+  );
+}
+
+function getOrderSummaryDeliveryState(
+  order: OrderSummary,
+  draftOrders: DraftOrder[]
+) {
+  const matchingDraftOrder = draftOrders.find(
+    (draftOrder) => draftOrder.serverOrderId === order.id
+  );
+
+  if (matchingDraftOrder) {
+    return getDraftOrderDeliveryState(matchingDraftOrder.delivery);
+  }
+
+  const orderWithDelivery = order as OrderSummary & {
+    delivery?: {
+      deliveryMode?: unknown;
+      deliveryStatus?: unknown;
+      delivery_status?: unknown;
+      mode?: unknown;
+    } | null;
+    deliveryMode?: unknown;
+    deliveryStatus?: unknown;
+    delivery_status?: unknown;
+  };
+  const deliveryValue =
+    orderWithDelivery.delivery?.mode ??
+    orderWithDelivery.delivery?.deliveryMode ??
+    orderWithDelivery.delivery?.delivery_status ??
+    orderWithDelivery.delivery?.deliveryStatus ??
+    orderWithDelivery.deliveryMode ??
+    orderWithDelivery.delivery_status ??
+    orderWithDelivery.deliveryStatus;
+
+  return isDeliveryNotRequiredValue(deliveryValue) ? "not-required" : "filled";
+}
+
 function normalizeDraftOrderDelivery(
   delivery:
     | (Partial<Omit<DraftOrderDelivery, "mode">> & {
@@ -1079,6 +1127,18 @@ function App() {
   const [draftOrderSaveStatusById, setDraftOrderSaveStatusById] = useState<
     Record<string, string>
   >({});
+  const [pendingDeleteOrderId, setPendingDeleteOrderId] = useState<string | null>(
+    null
+  );
+  const [pendingDeleteOrderTitle, setPendingDeleteOrderTitle] = useState<
+    string | null
+  >(null);
+  const [pendingDeleteOrderDescription, setPendingDeleteOrderDescription] =
+    useState<string | null>(null);
+  const [pendingDeleteOrderError, setPendingDeleteOrderError] = useState<
+    string | null
+  >(null);
+  const [isDeletingOrder, setIsDeletingOrder] = useState(false);
   const [draftOrderPanelMode, setDraftOrderPanelMode] =
     useState<DraftOrderPanelMode>("details");
   const [draftOrderCustomerForm, setDraftOrderCustomerForm] =
@@ -2450,7 +2510,7 @@ function App() {
     }
   }
 
-  async function handleDeleteDraftOrder(draftOrderId: string) {
+  function openDeleteDraftOrderModal(draftOrderId: string) {
     const draftOrder = draftOrders.find((order) => order.id === draftOrderId);
 
     if (!draftOrder) {
@@ -2460,13 +2520,48 @@ function App() {
     const hasServerOrder = Boolean(
       draftOrder.serverOrderId || draftOrder.serverOrderNumber
     );
-    const confirmMessage = hasServerOrder
-      ? `Удалить заказ ${draftOrder.serverOrderNumber ?? ""} из базы?`.trim()
-      : "Удалить черновик заказа?";
+    const orderTitle =
+      draftOrder.serverOrderNumber ?? getDraftOrderCustomerNameLabel(draftOrder);
 
-    if (!window.confirm(confirmMessage)) {
+    setPendingDeleteOrderId(draftOrder.id);
+    setPendingDeleteOrderTitle(orderTitle);
+    setPendingDeleteOrderDescription(
+      hasServerOrder
+        ? `Заказ ${draftOrder.serverOrderNumber ?? ""} будет удалён из базы данных.`.trim()
+        : "Черновик будет удалён."
+    );
+    setPendingDeleteOrderError(null);
+  }
+
+  function openDeleteOrderModal(order: OrderSummary) {
+    setPendingDeleteOrderId(`server-order:${order.id}`);
+    setPendingDeleteOrderTitle(order.orderNumber);
+    setPendingDeleteOrderDescription(
+      `Заказ ${order.orderNumber} будет удалён из базы данных.`
+    );
+    setPendingDeleteOrderError(null);
+  }
+
+  function returnToHomeAfterOrderDelete() {
+    setSelectedDraftOrderId(null);
+    setActiveDraftOrderId(null);
+    setDraftOrderPanelMode("details");
+    setIsDraftOrderDetailsOpen(false);
+    setIsNewOrderFormOpen(false);
+    setOrderDetailStatus(null);
+    setActiveSection("Главная");
+  }
+
+  async function deleteDraftOrderById(draftOrderId: string) {
+    const draftOrder = draftOrders.find((order) => order.id === draftOrderId);
+
+    if (!draftOrder) {
       return;
     }
+
+    const hasServerOrder = Boolean(
+      draftOrder.serverOrderId || draftOrder.serverOrderNumber
+    );
 
     if (hasServerOrder) {
       if (!draftOrder.serverOrderId) {
@@ -2487,7 +2582,7 @@ function App() {
 
       try {
         await deleteOrder(draftOrder.serverOrderId, authToken);
-        void loadServerOrders(authToken);
+        await loadServerOrders(authToken);
       } catch (error) {
         setDraftOrderSaveStatusById((current) => ({
           ...current,
@@ -2509,53 +2604,81 @@ function App() {
       current === draftOrderId ? null : current
     );
 
-    if (selectedDraftOrderId === draftOrderId) {
-      setIsDraftOrderDetailsOpen(false);
-      setIsNewOrderFormOpen(false);
-      setActiveSection("Главная");
-    }
+    returnToHomeAfterOrderDelete();
   }
 
-  async function handleDeleteOrder(order: OrderSummary) {
+  async function deleteServerOrderById(orderId: number) {
     if (!authToken) {
       setServerOrdersStatus("Войдите");
       setServerConnectionState("disconnected");
       return;
     }
 
-    if (!window.confirm(`Удалить заказ ${order.orderNumber}?`)) {
-      return;
-    }
-
     setServerOrdersStatus("Удаляем...");
 
     try {
-      await deleteOrder(order.id, authToken);
+      await deleteOrder(orderId, authToken);
       setDraftOrders((current) =>
-        current.filter((draftOrder) => draftOrder.serverOrderId !== order.id)
+        current.filter((draftOrder) => draftOrder.serverOrderId !== orderId)
       );
       setSelectedDraftOrderId((current) => {
         const currentDraftOrder = draftOrders.find(
           (draftOrder) => draftOrder.id === current
         );
 
-        return currentDraftOrder?.serverOrderId === order.id ? null : current;
+        return currentDraftOrder?.serverOrderId === orderId ? null : current;
       });
       setActiveDraftOrderId((current) => {
         const currentDraftOrder = draftOrders.find(
           (draftOrder) => draftOrder.id === current
         );
 
-        return currentDraftOrder?.serverOrderId === order.id ? null : current;
+        return currentDraftOrder?.serverOrderId === orderId ? null : current;
       });
       setOrderDetailStatus("Заказ удалён");
       await loadServerOrders(authToken);
+      returnToHomeAfterOrderDelete();
     } catch {
       setServerOrdersStatus("Не удалось удалить заказ");
+      throw new Error("Не удалось удалить заказ");
     }
   }
 
-  async function handleOpenOrderDetail(order: OrderSummary) {
+  async function confirmPendingDeleteOrder() {
+    if (!pendingDeleteOrderId || isDeletingOrder) {
+      return;
+    }
+
+    setIsDeletingOrder(true);
+    setPendingDeleteOrderError(null);
+
+    try {
+      if (pendingDeleteOrderId.startsWith("server-order:")) {
+        const orderId = Number(pendingDeleteOrderId.replace("server-order:", ""));
+
+        if (!Number.isInteger(orderId) || orderId <= 0) {
+          throw new Error("Не удалось удалить заказ");
+        }
+
+        await deleteServerOrderById(orderId);
+      } else {
+        await deleteDraftOrderById(pendingDeleteOrderId);
+      }
+
+      setPendingDeleteOrderId(null);
+      setPendingDeleteOrderTitle(null);
+      setPendingDeleteOrderDescription(null);
+    } catch {
+      setPendingDeleteOrderError("Не удалось удалить заказ");
+    } finally {
+      setIsDeletingOrder(false);
+    }
+  }
+
+  async function handleOpenOrderDetail(
+    order: OrderSummary,
+    panelMode: DraftOrderPanelMode = "details"
+  ) {
     if (!authToken) {
       setServerOrdersStatus("Войдите");
       setServerConnectionState("disconnected");
@@ -2598,7 +2721,24 @@ function App() {
         );
       });
       setSelectedDraftOrderId(mappedDraftOrder.id);
-      setDraftOrderPanelMode("details");
+      if (panelMode === "customer") {
+        setDraftOrderCustomerForm({
+          comment: mappedDraftOrder.customer?.comment ?? "",
+          email: mappedDraftOrder.customer?.email ?? "",
+          name: mappedDraftOrder.customer?.name ?? "",
+          phone: formatRussianPhone(mappedDraftOrder.customer?.phone ?? "")
+        });
+      }
+      if (panelMode === "delivery") {
+        setDraftOrderDeliveryForm({
+          address: mappedDraftOrder.delivery.address ?? "",
+          comment: mappedDraftOrder.delivery.comment ?? "",
+          contactName: mappedDraftOrder.delivery.contactName ?? "",
+          mode: mappedDraftOrder.delivery.mode,
+          phone: formatRussianPhone(mappedDraftOrder.delivery.phone ?? "")
+        });
+      }
+      setDraftOrderPanelMode(panelMode);
       setIsDraftOrderDetailsOpen(true);
       setOrderDetailStatus(null);
       setServerConnectionState("connected");
@@ -2751,6 +2891,50 @@ function App() {
 
   return (
     <main className="app-shell">
+      {pendingDeleteOrderId ? (
+        <div
+          aria-modal="true"
+          className="app-modal-backdrop"
+          role="dialog"
+        >
+          <section className="app-modal">
+            <div>
+              <p className="eyebrow">{pendingDeleteOrderTitle}</p>
+              <h2>Удалить заказ?</h2>
+              <p>{pendingDeleteOrderDescription}</p>
+            </div>
+
+            {pendingDeleteOrderError ? (
+              <p className="auth-status">{pendingDeleteOrderError}</p>
+            ) : null}
+
+            <div className="app-modal-actions">
+              <button
+                className="secondary-action-button"
+                disabled={isDeletingOrder}
+                onClick={() => {
+                  setPendingDeleteOrderId(null);
+                  setPendingDeleteOrderTitle(null);
+                  setPendingDeleteOrderDescription(null);
+                  setPendingDeleteOrderError(null);
+                }}
+                type="button"
+              >
+                Отмена
+              </button>
+              <button
+                className="danger-action-button"
+                disabled={isDeletingOrder}
+                onClick={() => void confirmPendingDeleteOrder()}
+                type="button"
+              >
+                {isDeletingOrder ? "Удаляем..." : "Удалить"}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
       <div className="workbar" aria-label="Быстрые рабочие фильтры">
         <div className="workbar-main">
           <div className="workspace-switcher" aria-label="Рабочая область">
@@ -2853,6 +3037,10 @@ function App() {
                     const hasCustomer = Boolean(
                       order.customerName?.trim() || order.customerPhone?.trim()
                     );
+                    const deliveryState = getOrderSummaryDeliveryState(
+                      order,
+                      draftOrders
+                    );
 
                     return (
                       <article
@@ -2892,7 +3080,7 @@ function App() {
                             className="draft-feed-icon-button draft-feed-icon-button-trash"
                             onClick={(event) => {
                               event.stopPropagation();
-                              void handleDeleteOrder(order);
+                              openDeleteOrderModal(order);
                             }}
                             title="Удалить заказ"
                             type="button"
@@ -2913,17 +3101,40 @@ function App() {
                             title={
                               hasCustomer ? "Заказчик заполнен" : "Заказчик не заполнен"
                             }
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void handleOpenOrderDetail(order, "customer");
+                            }}
                             type="button"
                           >
                             <img alt="" src={userIconUrl} />
                           </button>
                           <button
-                            aria-label="Доставка оформлена"
+                            aria-label={
+                              deliveryState === "not-required"
+                                ? "Доставка не требуется"
+                                : "Доставка оформлена"
+                            }
                             className="draft-feed-indicator draft-feed-indicator-ok"
-                            title="Доставка оформлена"
+                            title={
+                              deliveryState === "not-required"
+                                ? "Доставка не требуется"
+                                : "Доставка оформлена"
+                            }
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void handleOpenOrderDetail(order, "delivery");
+                            }}
                             type="button"
                           >
-                            <img alt="" src={truckIconUrl} />
+                            <img
+                              alt=""
+                              src={
+                                deliveryState === "not-required"
+                                  ? truckOffIconUrl
+                                  : truckIconUrl
+                              }
+                            />
                           </button>
                         </div>
                       </article>
@@ -2998,7 +3209,7 @@ function App() {
                             className="draft-feed-icon-button draft-feed-icon-button-trash"
                             onClick={(event) => {
                               event.stopPropagation();
-                              handleDeleteDraftOrder(draftOrder.id);
+                              openDeleteDraftOrderModal(draftOrder.id);
                             }}
                             title={
                               draftOrder.serverOrderId || draftOrder.serverOrderNumber
