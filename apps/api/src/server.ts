@@ -59,6 +59,8 @@ const app = Fastify({
   logger: true
 });
 
+const resolvedOrderAttachmentsDir = path.resolve(orderAttachmentsDir);
+
 await app.register(cors, {
   allowedHeaders: [
     "Authorization",
@@ -748,6 +750,51 @@ async function getOrderAttachment(
   );
 
   return attachments[0] ?? null;
+}
+
+async function safeDeleteAttachmentFile(storagePath: string | null) {
+  if (!storagePath) {
+    return;
+  }
+
+  const resolvedStoragePath = path.resolve(
+    path.isAbsolute(storagePath) ? storagePath : path.join(repoRoot, storagePath)
+  );
+  const allowedPrefix = `${resolvedOrderAttachmentsDir}${path.sep}`;
+
+  if (
+    resolvedStoragePath !== resolvedOrderAttachmentsDir &&
+    !resolvedStoragePath.startsWith(allowedPrefix)
+  ) {
+    app.log.warn(
+      {
+        storagePath
+      },
+      "Skipped deleting order attachment outside allowed directory"
+    );
+    return;
+  }
+
+  try {
+    await unlink(resolvedStoragePath);
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === "ENOENT"
+    ) {
+      return;
+    }
+
+    app.log.warn(
+      {
+        error,
+        storagePath
+      },
+      "Failed to delete order attachment file"
+    );
+  }
 }
 
 function getRequiredString(value: unknown) {
@@ -2620,6 +2667,14 @@ app.delete<{ Params: { id: string } }>("/orders/:id", async (request, reply) => 
   }
 
   const result = await withDatabaseTransaction(async (client) => {
+    const attachmentPaths = await client.query<{ storage_path: string | null }>(
+      `
+        select storage_path
+        from app.order_attachments
+        where order_id = $1
+      `,
+      [orderId]
+    );
     const deletedOrder = await client.query<{ id: number }>(
       `
         delete from app.orders
@@ -2629,7 +2684,16 @@ app.delete<{ Params: { id: string } }>("/orders/:id", async (request, reply) => 
       [orderId]
     );
 
-    return deletedOrder.rows[0] ?? null;
+    const order = deletedOrder.rows[0] ?? null;
+
+    if (!order) {
+      return null;
+    }
+
+    return {
+      attachmentStoragePaths: attachmentPaths.rows.map((row) => row.storage_path),
+      id: order.id
+    };
   });
 
   if (!result) {
@@ -2637,6 +2701,12 @@ app.delete<{ Params: { id: string } }>("/orders/:id", async (request, reply) => 
       error: "ORDER_NOT_FOUND"
     });
   }
+
+  await Promise.all(
+    result.attachmentStoragePaths.map((storagePath) =>
+      safeDeleteAttachmentFile(storagePath)
+    )
+  );
 
   return {
     deleted: true,
