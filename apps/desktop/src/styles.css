@@ -287,12 +287,19 @@ p {
 .server-order-card em,
 .server-order-card small {
   font-size: 12px;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .server-order-card em {
   color: #ffffff;
   font-style: normal;
   font-weight: 700;
+}
+
+.quote-required-label {
+  color: rgba(255, 203, 120, 0.95);
+  font-weight: 800;
 }
 
 .server-order-card small,
@@ -2292,6 +2299,7 @@ tbody tr {
   color: rgba(255, 255, 255, 0.68);
   font-size: 13px;
   line-height: 1.28;
+  min-width: 0;
 }
 
 .draft-summary-lines strong {
@@ -2299,10 +2307,39 @@ tbody tr {
   font-size: 14px;
 }
 
+.draft-summary-lines span,
+.draft-summary-comment-preview {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .draft-summary-muted {
   margin: 0;
   color: rgba(255, 255, 255, 0.56);
   font-size: 13px;
+}
+
+.draft-comment-card {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.draft-comment-card h4 {
+  margin: 0;
+  color: #ffffff;
+  font-size: 14px;
+}
+
+.draft-comment-card p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 13px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 .draft-items-panel-compact {

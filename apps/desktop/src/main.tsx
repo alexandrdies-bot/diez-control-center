@@ -306,6 +306,7 @@ type DraftOrder = {
   customer?: DraftOrderCustomer;
   delivery: DraftOrderDelivery;
   items: DraftOrderItem[];
+  requestComment?: string;
   serverOrderId?: number;
   serverOrderNumber?: string;
   serverOrderSavedAt?: string;
@@ -472,7 +473,7 @@ function mapOrderDetailsToDraftOrder(
   return {
     createdAt: orderDetails.createdAt,
     customer: {
-      comment: orderDetails.customer.comment ?? orderDetails.customerComment ?? "",
+      comment: orderDetails.customer.comment ?? "",
       email: orderDetails.customer.email ?? "",
       name: orderDetails.customer.name ?? orderDetails.customerName ?? "",
       phone: orderDetails.customer.phone ?? orderDetails.customerPhone ?? ""
@@ -494,6 +495,7 @@ function mapOrderDetailsToDraftOrder(
         },
     id: existingDraftOrderId ?? `database-order-${orderDetails.id}`,
     items,
+    requestComment: orderDetails.customerComment ?? orderDetails.customer.comment ?? "",
     serverOrderId: orderDetails.id,
     serverOrderNumber: orderDetails.orderNumber,
     serverOrderSavedAt: orderDetails.updatedAt,
@@ -697,6 +699,49 @@ function getDraftOrderItemQuantityLabel(item: DraftOrderItem) {
   }
 
   return "1 шт.";
+}
+
+function isDtfQuoteRequestItem(item: DraftOrderItem) {
+  const totalPriceMinor = Number(item.totalPriceMinor ?? item.priceMinor);
+
+  return item.serviceType === "dtf-print" && Number.isFinite(totalPriceMinor) && totalPriceMinor === 0;
+}
+
+function isDtfQuoteRequestOrder(draftOrder: DraftOrder) {
+  return draftOrder.totalPriceMinor === 0 && draftOrder.items.some(isDtfQuoteRequestItem);
+}
+
+function getDraftOrderRequestComment(draftOrder: DraftOrder) {
+  return draftOrder.requestComment?.trim() || draftOrder.customer?.comment?.trim() || "";
+}
+
+function getOrderSummaryCustomerLabel(order: OrderSummary) {
+  const customerName = order.customerName?.trim();
+  const customerPhone = order.customerPhone?.trim();
+
+  if (customerName) {
+    return customerName;
+  }
+
+  if (hasRussianPhoneDigits(customerPhone)) {
+    return formatRussianPhone(customerPhone!);
+  }
+
+  return "Заказчик не заполнен";
+}
+
+function getOrderSummaryItemLabel(order: OrderSummary) {
+  const firstItemTitle = order.firstItemTitle?.trim();
+
+  if (firstItemTitle && order.itemsCount > 1) {
+    return `${firstItemTitle} · + ещё ${order.itemsCount - 1}`;
+  }
+
+  return firstItemTitle || "Позиции не указаны";
+}
+
+function isDtfQuoteRequestSummary(order: OrderSummary) {
+  return order.totalPriceMinor === 0 && /dtf/i.test(order.firstItemTitle ?? "");
 }
 
 function isDraftOrderCustomerFilled(customer: DraftOrderCustomer | undefined) {
@@ -1278,6 +1323,31 @@ function App() {
       isCurrent = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!authToken || !authUser || isRestoringAuth) {
+      return;
+    }
+
+    let isCurrent = true;
+
+    const refreshServerOrders = () => {
+      if (isCurrent) {
+        void loadServerOrders(authToken);
+      }
+    };
+
+    window.addEventListener("focus", refreshServerOrders);
+    const refreshIntervalId = window.setInterval(refreshServerOrders, 30_000);
+
+    refreshServerOrders();
+
+    return () => {
+      isCurrent = false;
+      window.removeEventListener("focus", refreshServerOrders);
+      window.clearInterval(refreshIntervalId);
+    };
+  }, [authToken, authUser, isRestoringAuth]);
 
   useEffect(() => {
     if (materials.length === 0) {
@@ -3073,18 +3143,16 @@ function App() {
                       >
                         <div className="server-order-card-content">
                           <strong>{order.orderNumber}</strong>
-                          <span>
-                            {order.customerName?.trim() || "Заказчик не заполнен"}
-                          </span>
-                          {order.customerPhone ? <span>{order.customerPhone}</span> : null}
-                          <span>{order.firstItemTitle ?? "Позиции не указаны"}</span>
-                          {order.itemsCount > 1 ? (
-                            <span>+ ещё {order.itemsCount - 1}</span>
-                          ) : null}
-                          <em>
-                            Итого:{" "}
-                            {formatMinorPrice(order.totalPriceMinor, order.currencyCode)}
-                          </em>
+                          <span>{getOrderSummaryCustomerLabel(order)}</span>
+                          <span>{getOrderSummaryItemLabel(order)}</span>
+                          {isDtfQuoteRequestSummary(order) ? (
+                            <span className="quote-required-label">Требует расчёта</span>
+                          ) : (
+                            <em>
+                              Итого:{" "}
+                              {formatMinorPrice(order.totalPriceMinor, order.currencyCode)}
+                            </em>
+                          )}
                           <small>
                             Статус: {getDatabaseOrderDisplayStatus(order.status)}
                           </small>
@@ -3760,9 +3828,6 @@ function App() {
                             {detailDraftOrder.customer?.email ? (
                               <span>{detailDraftOrder.customer.email}</span>
                             ) : null}
-                            {detailDraftOrder.customer?.comment ? (
-                              <span>Комментарий: {detailDraftOrder.customer.comment}</span>
-                            ) : null}
                           </div>
                         ) : (
                           <p className="draft-summary-muted">Заказчик не заполнен</p>
@@ -3836,6 +3901,13 @@ function App() {
                       </section>
                     </div>
 
+                    {getDraftOrderRequestComment(detailDraftOrder) ? (
+                      <section className="draft-comment-card">
+                        <h4>Заявка / комментарий</h4>
+                        <p>{getDraftOrderRequestComment(detailDraftOrder)}</p>
+                      </section>
+                    ) : null}
+
                     <div className="section-heading">
                       <div>
                         <h3>Позиции</h3>
@@ -3857,7 +3929,11 @@ function App() {
                           <span className="draft-item-quantity">
                             {getDraftOrderItemQuantityLabel(item)}
                           </span>
-                          <strong>{item.formattedPrice}</strong>
+                          <strong>
+                            {isDtfQuoteRequestItem(item)
+                              ? "Требует расчёта"
+                              : item.formattedPrice}
+                          </strong>
                           {item.serviceType === "light-letter" ? (
                             <button
                               aria-label="Редактировать позицию"
@@ -3886,7 +3962,9 @@ function App() {
                       <div className="draft-total-row">
                         <span>Итого:</span>
                         <strong>
-                          {formatMinorPrice(detailDraftOrder.totalPriceMinor, "RUB")}
+                          {isDtfQuoteRequestOrder(detailDraftOrder)
+                            ? "Стоимость рассчитает менеджер"
+                            : formatMinorPrice(detailDraftOrder.totalPriceMinor, "RUB")}
                         </strong>
                       </div>
 
