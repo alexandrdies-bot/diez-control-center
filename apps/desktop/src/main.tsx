@@ -341,6 +341,20 @@ type OfficeConstructorForm = {
   faceFilmColorCode: string;
 };
 
+const DEFAULT_OFFICE_CONSTRUCTOR_BOARD_WIDTH_MM = 60;
+
+function createDefaultOfficeConstructorForm(): OfficeConstructorForm {
+  return {
+    boardTapeColorName: DEFAULT_BOARD_TAPE_OPTION.colorName,
+    boardThicknessMm: DEFAULT_BOARD_TAPE_OPTION.thicknessMm,
+    boardWidthMm: DEFAULT_OFFICE_CONSTRUCTOR_BOARD_WIDTH_MM,
+    faceFilmColorCode: DEFAULT_FACE_FILM_OPTION.colorCode,
+    heightMm: "300",
+    mode: "light",
+    text: ""
+  };
+}
+
 type DtfPrintForm = {
   widthCm: string;
   heightCm: string;
@@ -1161,15 +1175,7 @@ function App() {
   >(null);
   const [isDraftJsonVisible, setIsDraftJsonVisible] = useState(false);
   const [officeConstructorForm, setOfficeConstructorForm] =
-    useState<OfficeConstructorForm>({
-      text: "ДИЕЗ",
-      heightMm: "300",
-      mode: "light",
-      boardTapeColorName: DEFAULT_BOARD_TAPE_OPTION.colorName,
-      boardWidthMm: DEFAULT_BOARD_TAPE_OPTION.widthMm,
-      boardThicknessMm: DEFAULT_BOARD_TAPE_OPTION.thicknessMm,
-      faceFilmColorCode: DEFAULT_FACE_FILM_OPTION.colorCode
-    });
+    useState<OfficeConstructorForm>(() => createDefaultOfficeConstructorForm());
   const [dtfPrintForm, setDtfPrintForm] = useState<DtfPrintForm>({
     heightCm: String(DTF_A3_HEIGHT_CM),
     quantity: "1",
@@ -1641,6 +1647,13 @@ function App() {
       return;
     }
 
+    if (!officeConstructorForm.text.trim()) {
+      setConstructorPreviewMarkup(null);
+      setConstructorPreviewError(null);
+      setConstructorLayout(null);
+      return;
+    }
+
     let isCurrent = true;
     const faceFilmColorCode = selectedFaceFilmOption.colorCode;
     const faceColorHex = getFaceFilmColorHex(faceFilmColorCode);
@@ -2027,6 +2040,7 @@ function App() {
   }
 
   function handleStartVolumeLettersCalculation() {
+    setOfficeConstructorForm(createDefaultOfficeConstructorForm());
     setNewOrderStep("calculation");
     setIsConstructorPanelOpen(true);
     setEditingDraftOrderItemId(null);
@@ -2265,14 +2279,15 @@ function App() {
     setOfficeConstructorForm({
       boardTapeColorName:
         item.boardTapeColorName ?? DEFAULT_BOARD_TAPE_OPTION.colorName,
-      boardWidthMm: item.boardWidthMm ?? DEFAULT_BOARD_TAPE_OPTION.widthMm,
+      boardWidthMm:
+        item.boardWidthMm ?? DEFAULT_OFFICE_CONSTRUCTOR_BOARD_WIDTH_MM,
       boardThicknessMm:
         item.boardThicknessMm ?? DEFAULT_BOARD_TAPE_OPTION.thicknessMm,
       faceFilmColorCode:
         item.faceFilmColorCode ?? DEFAULT_FACE_FILM_OPTION.colorCode,
       heightMm: item.heightMm ?? "300",
       mode: item.lightingMode ?? "light",
-      text: item.text ?? "ДИЕЗ"
+      text: item.text ?? ""
     });
     setEditingDraftOrderItemId(item.id);
     setActiveDraftOrderId(
