@@ -215,6 +215,7 @@ MVP-1 API read-only endpoints готовы:
 * `GET /light-letter-specs`
 * `GET /products`
 * `GET /services`
+* `POST /checkout/orders`
 * `POST /orders`
 * `DELETE /orders/:id`
 
@@ -267,6 +268,8 @@ BOOTSTRAP_USER_EMAIL
 The password must not be written in chat, committed, stored in `.env`, saved in `outputs`, or added to seed files. Production admin users must not be created by seed with a stored password. The bootstrap script creates or updates one user by login, stores only `scrypt:<salt_hex>:<key_hex>` in `app.users.password_hash`, and prints only user id, login, role, and whether the user was created or updated.
 
 `POST /orders` — первый write endpoint для создания заказа из локального desktop draft-order в общей базе. Он вызывается только после явного действия менеджера `Завершить приём заказа`, работает через API-транзакцию, защищается от дублей по `source='desktop'` + `source_ref` и сохраняет заказ, позиции, заказчика, доставку и событие создания.
+
+`POST /checkout/orders` — первый публичный checkout endpoint для сайта. Он не использует manager/admin bearer token и не принимает `source` от клиента: API валидирует payload, требует контактный телефон или email, сохраняет заказ с `source='checkout'`, защищается от дублей по `source_ref` и пишет событие `actor_type='site'`. Сайт не должен хранить `DATABASE_URL`, PostgreSQL пароль, desktop bearer token или `API_WRITE_KEY`.
 
 Автосохранение после первой добавленной позиции не используется: пока менеджер добавляет позиции, заказ остаётся локальным черновиком.
 

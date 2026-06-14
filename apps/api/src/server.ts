@@ -109,6 +109,7 @@ type DesktopDraftOrderItem = {
   boardThicknessMm?: unknown;
   boardWidthMm?: unknown;
   calculationId?: unknown;
+  calculationSnapshot?: unknown;
   calculationSource?: unknown;
   checkMode?: unknown;
   faceFilmColorCode?: unknown;
@@ -120,6 +121,7 @@ type DesktopDraftOrderItem = {
   ledCount?: unknown;
   lightingMode?: unknown;
   priceMinor?: unknown;
+  params?: unknown;
   quantity?: unknown;
   resolvedBoardTapeMaterialName?: unknown;
   resolvedBoardTapeThicknessMm?: unknown;
@@ -139,6 +141,34 @@ type DesktopDraftOrderPayload = {
   items?: unknown;
   totalPriceMinor?: unknown;
   updatedAt?: unknown;
+};
+
+type CheckoutOrderCustomer = {
+  comment?: unknown;
+  email?: unknown;
+  name?: unknown;
+  phone?: unknown;
+};
+
+type CheckoutOrderDelivery = DesktopDraftOrderDelivery;
+
+type CheckoutOrderItem = {
+  calculationSnapshot?: unknown;
+  params?: unknown;
+  priceMinor?: unknown;
+  quantity?: unknown;
+  serviceType?: unknown;
+  title?: unknown;
+  totalPriceMinor?: unknown;
+};
+
+type CheckoutOrderPayload = {
+  checkoutDraftId?: unknown;
+  comment?: unknown;
+  customer?: CheckoutOrderCustomer;
+  delivery?: CheckoutOrderDelivery;
+  items?: unknown;
+  totalPriceMinor?: unknown;
 };
 
 type ApiOrderSummaryRow = {
@@ -435,12 +465,16 @@ function getPositiveQuantity(value: unknown) {
 function mapServiceType(serviceType: string) {
   switch (serviceType) {
     case "light-letter":
+    case "light_letters":
       return "light_letters";
     case "dtf-print":
+    case "dtf_print":
       return "dtf_print";
     case "wide-format-print":
+    case "wide_format_print":
       return "wide_format_print";
     case "ready-product":
+    case "ready_product":
       return "ready_product";
     case "manual":
       return "manual";
@@ -450,7 +484,12 @@ function mapServiceType(serviceType: string) {
 }
 
 function normalizeDeliveryMode(mode: unknown) {
-  if (mode === "not-required" || mode === "manual" || mode === "cdek") {
+  if (
+    mode === "not-required" ||
+    mode === "manual" ||
+    mode === "pickup" ||
+    mode === "cdek"
+  ) {
     return mode;
   }
 
@@ -470,6 +509,10 @@ function getOrderItemPriceMinor(item: DesktopDraftOrderItem) {
 }
 
 function getOrderItemParams(item: DesktopDraftOrderItem) {
+  if (isRecord(item.params)) {
+    return item.params;
+  }
+
   const serviceType = getRequiredString(item.serviceType);
 
   if (serviceType === "light-letter") {
@@ -505,6 +548,10 @@ function getOrderItemParams(item: DesktopDraftOrderItem) {
 }
 
 function getOrderItemCalculationSnapshot(item: DesktopDraftOrderItem) {
+  if (isRecord(item.calculationSnapshot)) {
+    return item.calculationSnapshot;
+  }
+
   return {
     baselineStatus: getOptionalString(item.baselineStatus),
     calculationId: getOptionalString(item.calculationId),
@@ -542,6 +589,38 @@ type DesktopDraftOrderValidationResult =
   | {
       ok: true;
       payload: ValidDesktopDraftOrderPayload;
+    }
+  | {
+      ok: false;
+      body: {
+        error: string;
+        itemIndex?: number;
+        reason: string;
+      };
+      statusCode: 400;
+    };
+
+type ValidCheckoutOrderPayload = {
+  customerComment: string | null;
+  customerEmail: string | null;
+  customerName: string | null;
+  customerPhone: string | null;
+  customerSnapshot: {
+    comment: string | null;
+    email: string | null;
+    name: string | null;
+    phone: string | null;
+  };
+  delivery: Record<string, unknown>;
+  normalizedItems: DesktopDraftOrderItem[];
+  sourceRef: string;
+  totalPriceMinor: number;
+};
+
+type CheckoutOrderValidationResult =
+  | {
+      ok: true;
+      payload: ValidCheckoutOrderPayload;
     }
   | {
       ok: false;
@@ -671,6 +750,143 @@ function validateDesktopDraftOrderPayload(
       delivery,
       normalizedItems,
       sourceRef: sourceRef || null,
+      totalPriceMinor
+    }
+  };
+}
+
+function getSafeCheckoutSourceRef(value: unknown) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const sourceRef = value.trim();
+
+  return /^[a-zA-Z0-9:_-]{1,120}$/.test(sourceRef) ? sourceRef : null;
+}
+
+function generateCheckoutSourceRef() {
+  return `checkout_${Date.now()}_${randomBytes(8).toString("hex")}`;
+}
+
+function validateCheckoutOrderPayload(
+  checkoutOrder: unknown
+): CheckoutOrderValidationResult {
+  if (!isRecord(checkoutOrder)) {
+    return {
+      body: {
+        error: "INVALID_CHECKOUT_ORDER_PAYLOAD",
+        reason: "payload is not an object"
+      },
+      ok: false,
+      statusCode: 400
+    };
+  }
+
+  const totalPriceMinor = getMinorPrice(checkoutOrder.totalPriceMinor);
+  const items = Array.isArray(checkoutOrder.items)
+    ? checkoutOrder.items.filter(isRecord)
+    : [];
+
+  if (totalPriceMinor === null) {
+    return {
+      body: {
+        error: "INVALID_CHECKOUT_ORDER_PAYLOAD",
+        reason: "invalid totalPriceMinor"
+      },
+      ok: false,
+      statusCode: 400
+    };
+  }
+
+  if (items.length === 0) {
+    return {
+      body: {
+        error: "INVALID_CHECKOUT_ORDER_PAYLOAD",
+        reason: "items is empty"
+      },
+      ok: false,
+      statusCode: 400
+    };
+  }
+
+  const normalizedItems = items.map((item) => item as CheckoutOrderItem);
+
+  for (const [itemIndex, item] of normalizedItems.entries()) {
+    if (!getRequiredString(item.title)) {
+      return {
+        body: {
+          error: "INVALID_CHECKOUT_ORDER_ITEM",
+          itemIndex,
+          reason: "missing title"
+        },
+        ok: false,
+        statusCode: 400
+      };
+    }
+
+    if (getMinorPrice(item.totalPriceMinor) === null) {
+      return {
+        body: {
+          error: "INVALID_CHECKOUT_ORDER_ITEM",
+          itemIndex,
+          reason: "invalid totalPriceMinor"
+        },
+        ok: false,
+        statusCode: 400
+      };
+    }
+  }
+
+  const customer = isRecord(checkoutOrder.customer)
+    ? checkoutOrder.customer
+    : {};
+  const delivery = isRecord(checkoutOrder.delivery)
+    ? checkoutOrder.delivery
+    : {};
+  const customerName = getOptionalString(customer.name);
+  const customerPhone = getOptionalString(customer.phone);
+  const customerEmail = getOptionalString(customer.email);
+  const customerComment =
+    getOptionalString(customer.comment) ?? getOptionalString(checkoutOrder.comment);
+
+  if (!customerPhone && !customerEmail) {
+    return {
+      body: {
+        error: "INVALID_CHECKOUT_ORDER_PAYLOAD",
+        reason: "customer phone or email is required"
+      },
+      ok: false,
+      statusCode: 400
+    };
+  }
+
+  return {
+    ok: true,
+    payload: {
+      customerComment,
+      customerEmail,
+      customerName,
+      customerPhone,
+      customerSnapshot: {
+        comment: customerComment,
+        email: customerEmail,
+        name: customerName,
+        phone: customerPhone
+      },
+      delivery,
+      normalizedItems: normalizedItems.map((item) => ({
+        calculationSnapshot: item.calculationSnapshot,
+        params: item.params,
+        priceMinor: item.priceMinor,
+        quantity: item.quantity,
+        serviceType: getOptionalString(item.serviceType) ?? "other",
+        title: item.title,
+        totalPriceMinor: item.totalPriceMinor
+      })),
+      sourceRef:
+        getSafeCheckoutSourceRef(checkoutOrder.checkoutDraftId) ??
+        generateCheckoutSourceRef(),
       totalPriceMinor
     }
   };
@@ -964,6 +1180,152 @@ app.get("/auth/me", async (request, reply) => {
     user: authSession.user
   };
 });
+
+app.post<{ Body: CheckoutOrderPayload }>(
+  "/checkout/orders",
+  async (request, reply) => {
+    const validation = validateCheckoutOrderPayload(request.body);
+
+    if (!validation.ok) {
+      return reply.code(validation.statusCode).send(validation.body);
+    }
+
+    const {
+      customerComment,
+      customerEmail,
+      customerName,
+      customerPhone,
+      customerSnapshot,
+      delivery,
+      normalizedItems,
+      sourceRef,
+      totalPriceMinor
+    } = validation.payload;
+
+    const result = await withDatabaseTransaction(async (client) => {
+      const existingOrder = await client.query<{
+        id: number;
+        order_number: string;
+      }>(
+        `
+          select id, order_number
+          from app.orders
+          where source = 'checkout'
+            and source_ref = $1
+          limit 1
+        `,
+        [sourceRef]
+      );
+
+      if (existingOrder.rows[0]) {
+        return {
+          alreadyExists: true,
+          id: existingOrder.rows[0].id,
+          orderNumber: existingOrder.rows[0].order_number
+        };
+      }
+
+      const customerResult = await client.query<{ id: number }>(
+        `
+          insert into app.customers (
+            customer_type,
+            name,
+            phone,
+            email,
+            comment
+          )
+          values ('person', $1, $2, $3, $4)
+          returning id
+        `,
+        [customerName, customerPhone, customerEmail, customerComment]
+      );
+      const customerId = customerResult.rows[0]?.id ?? null;
+
+      const orderResult = await client.query<{
+        id: number;
+        order_number: string;
+      }>(
+        `
+          insert into app.orders (
+            source,
+            source_ref,
+            status,
+            customer_id,
+            customer_snapshot_json,
+            items_total_minor,
+            delivery_total_minor,
+            discount_total_minor,
+            total_price_minor,
+            currency_code,
+            customer_comment,
+            manager_comment
+          )
+          values (
+            'checkout',
+            $1,
+            'new',
+            $2,
+            $3::jsonb,
+            $4,
+            0,
+            0,
+            $5,
+            'RUB',
+            $6,
+            null
+          )
+          returning id, order_number
+        `,
+        [
+          sourceRef,
+          customerId,
+          JSON.stringify(customerSnapshot),
+          totalPriceMinor,
+          totalPriceMinor,
+          customerComment
+        ]
+      );
+      const orderId = orderResult.rows[0].id;
+      const orderNumber = orderResult.rows[0].order_number;
+
+      await insertOrderItems(client, orderId, normalizedItems);
+      await upsertOrderDelivery(
+        client,
+        orderId,
+        delivery,
+        customerName,
+        customerPhone
+      );
+
+      await client.query(
+        `
+          insert into app.order_events (
+            order_id,
+            event_type,
+            actor_type,
+            payload_json
+          )
+          values ($1, 'order_created', 'site', $2::jsonb)
+        `,
+        [
+          orderId,
+          JSON.stringify({
+            source: "checkout",
+            sourceRef
+          })
+        ]
+      );
+
+      return {
+        alreadyExists: false,
+        id: orderId,
+        orderNumber
+      };
+    });
+
+    return result;
+  }
+);
 
 app.get("/orders", async (request, reply) => {
   const authSession = await requireRole(request, reply, ["manager", "admin"]);
