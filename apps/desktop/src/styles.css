@@ -2349,6 +2349,14 @@ tbody tr {
   background: rgba(0, 0, 0, 0.16);
 }
 
+.order-attachments-section-standalone {
+  gap: 16px;
+  padding: 18px;
+  border: 1px solid rgba(159, 183, 255, 0.16);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
 .attachment-upload-button {
   position: relative;
   overflow: hidden;
@@ -2363,21 +2371,24 @@ tbody tr {
 
 .attachment-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 180px));
+  gap: 14px;
+  justify-content: start;
 }
 
 .attachment-card {
   position: relative;
   display: grid;
-  gap: 8px;
   min-width: 0;
-  padding: 8px;
+  aspect-ratio: 3 / 5;
+  padding: 0;
+  overflow: hidden;
   border: 1px solid rgba(159, 183, 255, 0.22);
-  border-radius: 12px;
+  border-radius: 14px;
   color: rgba(255, 255, 255, 0.74);
   background: rgba(90, 139, 255, 0.1);
   cursor: pointer;
+  isolation: isolate;
 }
 
 .attachment-card:hover {
@@ -2385,49 +2396,71 @@ tbody tr {
   background: rgba(90, 139, 255, 0.16);
 }
 
-.attachment-card-preview {
+.attachment-card-media {
+  position: absolute;
+  inset: 0;
   display: grid;
   width: 100%;
-  aspect-ratio: 3 / 5;
+  height: 100%;
   min-width: 0;
   place-items: center;
   overflow: hidden;
-  border-radius: 9px;
   background: rgba(0, 0, 0, 0.22);
 }
 
-.attachment-card-preview img {
+.attachment-card-media img {
   display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
 
-.attachment-file-placeholder {
+.attachment-card-file {
   display: grid;
-  gap: 8px;
-  padding: 10px;
+  gap: 10px;
+  width: 100%;
+  height: 100%;
+  padding: 18px;
+  align-content: center;
+  justify-items: center;
   text-align: center;
+  background:
+    radial-gradient(circle at 50% 28%, rgba(159, 183, 255, 0.18), transparent 38%),
+    linear-gradient(180deg, rgba(90, 139, 255, 0.12), rgba(0, 0, 0, 0.16));
 }
 
-.attachment-file-placeholder span {
-  color: rgba(255, 255, 255, 0.62);
-  font-size: 11px;
+.attachment-card-file span {
+  display: inline-grid;
+  width: 58px;
+  height: 58px;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 16px;
+  color: #ffffff;
+  background: rgba(0, 0, 0, 0.28);
+  font-size: 15px;
   font-weight: 800;
   text-transform: uppercase;
 }
 
-.attachment-file-placeholder strong {
+.attachment-card-file strong {
   color: #ffffff;
-  font-size: 18px;
+  font-size: 13px;
+  line-height: 1.25;
   overflow-wrap: anywhere;
 }
 
 .attachment-card-meta {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
   display: grid;
   gap: 3px;
   min-width: 0;
-  padding-right: 26px;
+  padding: 42px 12px 12px;
+  background: linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.72));
+  z-index: 1;
 }
 
 .attachment-card-meta strong,
@@ -2459,11 +2492,12 @@ tbody tr {
 
 .attachment-card > .attachment-download-button {
   position: absolute;
-  right: 8px;
-  bottom: 8px;
+  right: 10px;
+  top: 10px;
+  z-index: 2;
   border: 0;
-  background: rgba(0, 0, 0, 0.28);
-  box-shadow: none;
+  background: rgba(0, 0, 0, 0.46);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24);
 }
 
 .attachment-download-button img {
@@ -2479,7 +2513,7 @@ tbody tr {
 }
 
 .attachment-preview-content {
-  width: min(980px, 94vw);
+  width: min(1080px, 94vw);
   max-height: 92vh;
 }
 
@@ -2494,7 +2528,6 @@ tbody tr {
   overflow-wrap: anywhere;
 }
 
-.attachment-preview-image,
 .attachment-preview-frame {
   display: block;
   width: 100%;
@@ -2505,11 +2538,62 @@ tbody tr {
 }
 
 .attachment-preview-image {
+  display: block;
+  width: auto;
+  max-width: min(900px, 90vw);
+  height: auto;
+  max-height: 76vh;
+  margin: 0 auto;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.22);
   object-fit: contain;
 }
 
 .attachment-preview-frame {
   min-height: 68vh;
+}
+
+.attachment-preview-actions {
+  flex-shrink: 0;
+}
+
+.attachment-preview-file {
+  display: grid;
+  gap: 16px;
+  justify-items: center;
+  padding: 30px;
+  border: 1px solid rgba(159, 183, 255, 0.18);
+  border-radius: 16px;
+  text-align: center;
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.attachment-preview-file .attachment-card-file {
+  width: min(220px, 64vw);
+  aspect-ratio: 3 / 5;
+  height: auto;
+  border: 1px solid rgba(159, 183, 255, 0.18);
+  border-radius: 16px;
+}
+
+.attachment-preview-file h3,
+.attachment-preview-file p {
+  margin: 0;
+}
+
+.attachment-preview-file p {
+  color: rgba(255, 255, 255, 0.64);
+  overflow-wrap: anywhere;
+}
+
+.attachment-preview-download {
+  gap: 8px;
+}
+
+.attachment-preview-download img {
+  width: 18px;
+  height: 18px;
+  filter: invert(1);
 }
 
 .draft-items-panel-compact {

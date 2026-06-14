@@ -785,6 +785,27 @@ function getAttachmentTypeLabel(attachmentType: string) {
   return "Файл";
 }
 
+function getAttachmentFileKindLabel(attachment: OrderAttachment) {
+  const fileName = attachment.originalFileName.trim();
+  const extension = fileName.includes(".")
+    ? fileName.split(".").pop()?.trim().toUpperCase()
+    : "";
+
+  if (extension) {
+    return extension.slice(0, 8);
+  }
+
+  if (attachment.mimeType === "application/pdf") {
+    return "PDF";
+  }
+
+  if (attachment.mimeType === "text/plain") {
+    return "TXT";
+  }
+
+  return "Файл";
+}
+
 function formatAttachmentFileSize(fileSize: number | null) {
   if (!fileSize || fileSize <= 0) {
     return "";
@@ -3292,7 +3313,7 @@ function App() {
                 </p>
                 <h2>{attachmentPreview.attachment.originalFileName}</h2>
               </div>
-              <div className="app-modal-actions">
+              <div className="app-modal-actions attachment-preview-actions">
                 <button
                   className="secondary-action-button attachment-download-button"
                   onClick={() =>
@@ -3328,7 +3349,33 @@ function App() {
                 title={attachmentPreview.attachment.originalFileName}
               />
             ) : (
-              <p className="draft-summary-muted">Предпросмотр недоступен</p>
+              <div className="attachment-preview-file">
+                <div className="attachment-card-file">
+                  <span>{getAttachmentFileKindLabel(attachmentPreview.attachment)}</span>
+                  <strong>{getAttachmentTypeLabel(attachmentPreview.attachment.attachmentType)}</strong>
+                </div>
+                <div>
+                  <h3>Предпросмотр недоступен</h3>
+                  <p>
+                    {attachmentPreview.attachment.originalFileName}
+                    {formatAttachmentFileSize(attachmentPreview.attachment.fileSize)
+                      ? ` · ${formatAttachmentFileSize(
+                          attachmentPreview.attachment.fileSize
+                        )}`
+                      : ""}
+                  </p>
+                </div>
+                <button
+                  className="secondary-action-button attachment-preview-download"
+                  onClick={() =>
+                    void handleDownloadAttachment(attachmentPreview.attachment)
+                  }
+                  type="button"
+                >
+                  <img alt="" src={downloadIconUrl} />
+                  Скачать
+                </button>
+              </div>
             )}
           </section>
         </div>
@@ -3828,6 +3875,7 @@ function App() {
               ) : null}
 
               {isDraftOrderDetailsOpen && detailDraftOrder ? (
+                <>
                 <section className="order-form-panel draft-order-detail-panel">
                   <div className="section-heading">
                     <InnerPageHeader
@@ -4222,114 +4270,6 @@ function App() {
                       </section>
                     ) : null}
 
-                    <section className="order-attachments-section">
-                      <div className="section-heading">
-                        <div>
-                          <h3>Вложения</h3>
-                          {detailDraftOrder.serverOrderId ? (
-                            <p>
-                              {attachmentsStatusByOrderId[
-                                detailDraftOrder.serverOrderId
-                              ] || "Макеты, чертежи, фото и файлы заказа"}
-                            </p>
-                          ) : (
-                            <p>Вложения доступны после создания заказа</p>
-                          )}
-                        </div>
-
-                        {detailDraftOrder.serverOrderId ? (
-                          <label className="secondary-action-button attachment-upload-button">
-                            <input
-                              type="file"
-                              onChange={(event) => {
-                                const file = event.target.files?.[0] ?? null;
-                                void handleUploadOrderAttachment(
-                                  detailDraftOrder.serverOrderId!,
-                                  file
-                                );
-                                event.target.value = "";
-                              }}
-                            />
-                            {uploadingAttachmentOrderId ===
-                            detailDraftOrder.serverOrderId
-                              ? "Загружаем..."
-                              : "Добавить файл"}
-                          </label>
-                        ) : null}
-                      </div>
-
-                      {detailDraftOrder.serverOrderId ? (
-                        (orderAttachmentsByOrderId[
-                          detailDraftOrder.serverOrderId
-                        ] ?? []).length > 0 ? (
-                          <div className="attachment-grid">
-                            {orderAttachmentsByOrderId[
-                              detailDraftOrder.serverOrderId
-                            ].map((attachment) => (
-                              <article
-                                className="attachment-card"
-                                key={attachment.id}
-                                onClick={() =>
-                                  void handleOpenAttachmentPreview(attachment)
-                                }
-                                role="button"
-                                tabIndex={0}
-                              >
-                                <div className="attachment-card-preview">
-                                  {isImageAttachment(attachment) &&
-                                  attachmentPreviewUrlById[attachment.id] ? (
-                                    <img
-                                      alt={attachment.originalFileName}
-                                      src={attachmentPreviewUrlById[attachment.id]}
-                                    />
-                                  ) : (
-                                    <div className="attachment-file-placeholder">
-                                      <span>{getAttachmentTypeLabel(attachment.attachmentType)}</span>
-                                      <strong>
-                                        {attachment.mimeType?.split("/")[1]?.toUpperCase() ??
-                                          "FILE"}
-                                      </strong>
-                                    </div>
-                                  )}
-                                </div>
-                                <div className="attachment-card-meta">
-                                  <strong>{attachment.originalFileName}</strong>
-                                  <span>
-                                    {getAttachmentTypeLabel(attachment.attachmentType)}
-                                    {formatAttachmentFileSize(attachment.fileSize)
-                                      ? ` · ${formatAttachmentFileSize(
-                                          attachment.fileSize
-                                        )}`
-                                      : ""}
-                                  </span>
-                                </div>
-                                <button
-                                  aria-label="Скачать файл"
-                                  className="attachment-download-button"
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    void handleDownloadAttachment(attachment);
-                                  }}
-                                  title="Скачать файл"
-                                  type="button"
-                                >
-                                  <img alt="" src={downloadIconUrl} />
-                                </button>
-                              </article>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="draft-summary-muted">
-                            Файлы не прикреплены
-                          </p>
-                        )
-                      ) : (
-                        <p className="draft-summary-muted">
-                          Сначала завершите приём заказа.
-                        </p>
-                      )}
-                    </section>
-
                     <div className="section-heading">
                       <div>
                         <h3>Позиции</h3>
@@ -4425,6 +4365,102 @@ function App() {
                     </section>
                   )}
                 </section>
+
+                {draftOrderPanelMode === "details" &&
+                detailDraftOrder.serverOrderId ? (
+                  <section className="order-attachments-section order-attachments-section-standalone">
+                    <div className="section-heading">
+                      <div>
+                        <h3>Вложения</h3>
+                        <p>Макеты, чертежи, фото и файлы заказа</p>
+                      </div>
+
+                      <label className="secondary-action-button attachment-upload-button">
+                        <input
+                          type="file"
+                          onChange={(event) => {
+                            const file = event.target.files?.[0] ?? null;
+                            void handleUploadOrderAttachment(
+                              detailDraftOrder.serverOrderId!,
+                              file
+                            );
+                            event.target.value = "";
+                          }}
+                        />
+                        {uploadingAttachmentOrderId === detailDraftOrder.serverOrderId
+                          ? "Загружаем..."
+                          : "Добавить файл"}
+                      </label>
+                    </div>
+
+                    {(orderAttachmentsByOrderId[detailDraftOrder.serverOrderId] ?? [])
+                      .length > 0 ? (
+                      <div className="attachment-grid">
+                        {orderAttachmentsByOrderId[
+                          detailDraftOrder.serverOrderId
+                        ].map((attachment) => (
+                          <article
+                            className="attachment-card"
+                            key={attachment.id}
+                            onClick={() =>
+                              void handleOpenAttachmentPreview(attachment)
+                            }
+                            role="button"
+                            tabIndex={0}
+                          >
+                            <div className="attachment-card-media">
+                              {isImageAttachment(attachment) &&
+                              attachmentPreviewUrlById[attachment.id] ? (
+                                <img
+                                  alt={attachment.originalFileName}
+                                  src={attachmentPreviewUrlById[attachment.id]}
+                                />
+                              ) : (
+                                <div className="attachment-card-file">
+                                  <span>{getAttachmentFileKindLabel(attachment)}</span>
+                                  <strong>
+                                    {getAttachmentTypeLabel(
+                                      attachment.attachmentType
+                                    )}
+                                  </strong>
+                                </div>
+                              )}
+                            </div>
+                            <div className="attachment-card-meta">
+                              <strong>{attachment.originalFileName}</strong>
+                              <span>
+                                {getAttachmentTypeLabel(attachment.attachmentType)}
+                                {formatAttachmentFileSize(attachment.fileSize)
+                                  ? ` · ${formatAttachmentFileSize(
+                                      attachment.fileSize
+                                    )}`
+                                  : ""}
+                              </span>
+                            </div>
+                            <button
+                              aria-label="Скачать файл"
+                              className="attachment-download-button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void handleDownloadAttachment(attachment);
+                              }}
+                              title="Скачать файл"
+                              type="button"
+                            >
+                              <img alt="" src={downloadIconUrl} />
+                            </button>
+                          </article>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="draft-summary-muted">
+                        {attachmentsStatusByOrderId[detailDraftOrder.serverOrderId] ||
+                          "Файлы не прикреплены"}
+                      </p>
+                    )}
+                  </section>
+                ) : null}
+                </>
               ) : null}
 
               {isNewOrderFormOpen ? (
