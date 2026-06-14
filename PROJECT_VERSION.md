@@ -48,6 +48,8 @@ Order endpoints `GET /orders`, `GET /orders/:id`, `POST /orders` и `DELETE /ord
 
 Desktop UI получил MVP login/logout, раздел `Заказы` из общей базы и раздел `Черновики` только для незавершённых локальных черновиков. Первый администратор создаётся при настройке системы, а сотрудников администратор добавит позже в настройках. Создание и удаление заказов из desktop передают текущий Bearer token; material price update пока остаётся на существующем admin `x-api-key` flow.
 
+Добавлен order attachments MVP: API умеет загружать, получать список, скачивать и отдавать preview вложений заказа через Bearer manager/admin endpoints. Файлы не сохраняются во frontend/localStorage и не кладутся в PostgreSQL `bytea`: сервер хранит бинарные файлы в storage directory, а БД хранит metadata/path. Desktop показывает вложения карточками 3:5, preview открывается в реальном формате, download работает через authenticated fetch.
+
 Production CORS для `api.diezimg.ru` должен включать локальный dev origin `http://127.0.0.1:5173`, чтобы Tauri/Vite desktop мог обращаться к открытым auth/order routes во время online-mode проверки.
 
 Startup проверки `/health` и `/materials` в desktop больше не блокируют login/online orders: если общие API routes остаются под Basic Auth, приложение показывает статус материалов, но вход и загрузка заказов идут через открытые auth/orders routes.

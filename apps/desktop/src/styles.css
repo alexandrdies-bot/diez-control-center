@@ -2307,8 +2307,7 @@ tbody tr {
   font-size: 14px;
 }
 
-.draft-summary-lines span,
-.draft-summary-comment-preview {
+.draft-summary-lines span {
   min-width: 0;
   overflow-wrap: anywhere;
 }
@@ -2340,6 +2339,177 @@ tbody tr {
   line-height: 1.45;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
+}
+
+.order-attachments-section {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.attachment-upload-button {
+  position: relative;
+  overflow: hidden;
+}
+
+.attachment-upload-button input {
+  position: absolute;
+  inset: 0;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.attachment-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+  gap: 10px;
+}
+
+.attachment-card {
+  position: relative;
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid rgba(159, 183, 255, 0.22);
+  border-radius: 12px;
+  color: rgba(255, 255, 255, 0.74);
+  background: rgba(90, 139, 255, 0.1);
+  cursor: pointer;
+}
+
+.attachment-card:hover {
+  border-color: rgba(159, 183, 255, 0.5);
+  background: rgba(90, 139, 255, 0.16);
+}
+
+.attachment-card-preview {
+  display: grid;
+  width: 100%;
+  aspect-ratio: 3 / 5;
+  min-width: 0;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 9px;
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.attachment-card-preview img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.attachment-file-placeholder {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  text-align: center;
+}
+
+.attachment-file-placeholder span {
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.attachment-file-placeholder strong {
+  color: #ffffff;
+  font-size: 18px;
+  overflow-wrap: anywhere;
+}
+
+.attachment-card-meta {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding-right: 26px;
+}
+
+.attachment-card-meta strong,
+.attachment-card-meta span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-card-meta strong {
+  color: #ffffff;
+  font-size: 12px;
+}
+
+.attachment-card-meta span {
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 11px;
+}
+
+.attachment-download-button {
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  align-items: center;
+  justify-content: center;
+}
+
+.attachment-card > .attachment-download-button {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  border: 0;
+  background: rgba(0, 0, 0, 0.28);
+  box-shadow: none;
+}
+
+.attachment-download-button img {
+  display: block;
+  width: 18px;
+  height: 18px;
+  filter: invert(1);
+  pointer-events: none;
+}
+
+.attachment-preview-modal {
+  padding: 24px;
+}
+
+.attachment-preview-content {
+  width: min(980px, 94vw);
+  max-height: 92vh;
+}
+
+.attachment-preview-header {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.attachment-preview-header h2 {
+  overflow-wrap: anywhere;
+}
+
+.attachment-preview-image,
+.attachment-preview-frame {
+  display: block;
+  width: 100%;
+  max-height: 72vh;
+  border: 0;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.attachment-preview-image {
+  object-fit: contain;
+}
+
+.attachment-preview-frame {
+  min-height: 68vh;
 }
 
 .draft-items-panel-compact {

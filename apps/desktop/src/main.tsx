@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import chevronLeftIconUrl from "./assets/svg/chevron-left.svg";
 import cloudNetworkIconUrl from "./assets/svg/cloud-network.svg";
+import downloadIconUrl from "./assets/svg/download.svg";
 import fileDownloadIconUrl from "./assets/svg/file-download.svg";
 import fileUploadIconUrl from "./assets/svg/file-upload.svg";
 import pencilIconUrl from "./assets/svg/pencil.svg";
@@ -12,19 +13,23 @@ import userIconUrl from "./assets/svg/user.svg";
 import {
   createOrderFromDraft,
   deleteOrder,
+  fetchOrderAttachmentBlob,
   getApiHealth,
   getCurrentUser,
   getMaterialPricingInputs,
   getMaterials,
   getOrder,
+  getOrderAttachments,
   getOrders,
   login as loginToApi,
   updateMaterialPurchasePrice,
+  uploadOrderAttachment,
   updateOrderFromDraft,
   type ApiHealth,
   type AuthUser,
   type Material,
   type MaterialPricingInput,
+  type OrderAttachment,
   type OrderDetail,
   type OrderSummary
 } from "./api";
@@ -744,6 +749,58 @@ function isDtfQuoteRequestSummary(order: OrderSummary) {
   return order.totalPriceMinor === 0 && /dtf/i.test(order.firstItemTitle ?? "");
 }
 
+function isImageAttachment(attachment: OrderAttachment) {
+  return attachment.mimeType?.startsWith("image/") ?? false;
+}
+
+function isPreviewableAttachment(attachment: OrderAttachment) {
+  return Boolean(
+    attachment.previewUrl &&
+      (attachment.mimeType?.startsWith("image/") ||
+        attachment.mimeType === "application/pdf")
+  );
+}
+
+function getAttachmentTypeLabel(attachmentType: string) {
+  if (attachmentType === "design_file") {
+    return "Макет";
+  }
+
+  if (attachmentType === "drawing") {
+    return "Чертёж";
+  }
+
+  if (attachmentType === "reference") {
+    return "Референс";
+  }
+
+  if (attachmentType === "placement_photo") {
+    return "Фото места";
+  }
+
+  if (attachmentType === "print_file") {
+    return "Файл для печати";
+  }
+
+  return "Файл";
+}
+
+function formatAttachmentFileSize(fileSize: number | null) {
+  if (!fileSize || fileSize <= 0) {
+    return "";
+  }
+
+  if (fileSize >= 1024 * 1024) {
+    return `${(fileSize / 1024 / 1024).toFixed(1)} МБ`;
+  }
+
+  if (fileSize >= 1024) {
+    return `${Math.ceil(fileSize / 1024)} КБ`;
+  }
+
+  return `${fileSize} Б`;
+}
+
 function isDraftOrderCustomerFilled(customer: DraftOrderCustomer | undefined) {
   return Boolean(customer?.name?.trim() || hasRussianPhoneDigits(customer?.phone));
 }
@@ -1137,6 +1194,21 @@ function App() {
   const [isServerOrdersLoading, setIsServerOrdersLoading] = useState(false);
   const [orderDetailStatus, setOrderDetailStatus] = useState<string | null>(null);
   const [isOrderDetailLoading, setIsOrderDetailLoading] = useState(false);
+  const [orderAttachmentsByOrderId, setOrderAttachmentsByOrderId] = useState<
+    Record<number, OrderAttachment[]>
+  >({});
+  const [attachmentPreviewUrlById, setAttachmentPreviewUrlById] = useState<
+    Record<number, string>
+  >({});
+  const [attachmentsStatusByOrderId, setAttachmentsStatusByOrderId] = useState<
+    Record<number, string>
+  >({});
+  const [uploadingAttachmentOrderId, setUploadingAttachmentOrderId] =
+    useState<number | null>(null);
+  const [attachmentPreview, setAttachmentPreview] = useState<{
+    attachment: OrderAttachment;
+    objectUrl: string | null;
+  } | null>(null);
   const [serverConnectionState, setServerConnectionState] = useState<
     "connected" | "disconnected"
   >("disconnected");
@@ -1263,6 +1335,18 @@ function App() {
         );
       });
   }, []);
+
+  useEffect(() => {
+    return () => {
+      Object.values(attachmentPreviewUrlById).forEach((objectUrl) => {
+        URL.revokeObjectURL(objectUrl);
+      });
+
+      if (attachmentPreview?.objectUrl) {
+        URL.revokeObjectURL(attachmentPreview.objectUrl);
+      }
+    };
+  }, [attachmentPreview, attachmentPreviewUrlById]);
 
   useEffect(() => {
     let isCurrent = true;
@@ -2496,6 +2580,179 @@ function App() {
     }
   }
 
+  async function loadOrderAttachments(orderId: number, sessionToken = authToken) {
+    if (!sessionToken) {
+      setAttachmentsStatusByOrderId((current) => ({
+        ...current,
+        [orderId]: "Войдите, чтобы увидеть вложения"
+      }));
+      return;
+    }
+
+    setAttachmentsStatusByOrderId((current) => ({
+      ...current,
+      [orderId]: "Загружаем вложения..."
+    }));
+
+    try {
+      const attachments = await getOrderAttachments(orderId, sessionToken);
+
+      setOrderAttachmentsByOrderId((current) => ({
+        ...current,
+        [orderId]: attachments
+      }));
+      setAttachmentsStatusByOrderId((current) => ({
+        ...current,
+        [orderId]: attachments.length > 0 ? "" : "Файлы не прикреплены"
+      }));
+
+      const imageAttachments = attachments.filter(isImageAttachment);
+
+      await Promise.allSettled(
+        imageAttachments.map(async (attachment) => {
+          const blob = await fetchOrderAttachmentBlob(
+            orderId,
+            attachment.id,
+            sessionToken,
+            "preview"
+          );
+          const objectUrl = URL.createObjectURL(blob);
+
+          setAttachmentPreviewUrlById((current) => {
+            if (current[attachment.id]) {
+              URL.revokeObjectURL(current[attachment.id]);
+            }
+
+            return {
+              ...current,
+              [attachment.id]: objectUrl
+            };
+          });
+        })
+      );
+    } catch {
+      setOrderAttachmentsByOrderId((current) => ({
+        ...current,
+        [orderId]: []
+      }));
+      setAttachmentsStatusByOrderId((current) => ({
+        ...current,
+        [orderId]: "Не удалось загрузить вложения"
+      }));
+    }
+  }
+
+  async function handleUploadOrderAttachment(orderId: number, file: File | null) {
+    if (!authToken) {
+      setAttachmentsStatusByOrderId((current) => ({
+        ...current,
+        [orderId]: "Нет подключения к серверу"
+      }));
+      return;
+    }
+
+    if (!file) {
+      return;
+    }
+
+    setUploadingAttachmentOrderId(orderId);
+    setAttachmentsStatusByOrderId((current) => ({
+      ...current,
+      [orderId]: "Загружаем файл..."
+    }));
+
+    try {
+      await uploadOrderAttachment(orderId, file, authToken, {
+        attachmentType: "other",
+        source: "desktop"
+      });
+      await loadOrderAttachments(orderId, authToken);
+      setAttachmentsStatusByOrderId((current) => ({
+        ...current,
+        [orderId]: "Файл добавлен"
+      }));
+    } catch {
+      setAttachmentsStatusByOrderId((current) => ({
+        ...current,
+        [orderId]: "Не удалось добавить файл"
+      }));
+    } finally {
+      setUploadingAttachmentOrderId(null);
+    }
+  }
+
+  async function handleOpenAttachmentPreview(attachment: OrderAttachment) {
+    if (!authToken) {
+      return;
+    }
+
+    if (!isPreviewableAttachment(attachment)) {
+      setAttachmentPreview({
+        attachment,
+        objectUrl: null
+      });
+      return;
+    }
+
+    try {
+      const blob = await fetchOrderAttachmentBlob(
+        attachment.orderId,
+        attachment.id,
+        authToken,
+        "preview"
+      );
+      const objectUrl = URL.createObjectURL(blob);
+
+      setAttachmentPreview((current) => {
+        if (current?.objectUrl) {
+          URL.revokeObjectURL(current.objectUrl);
+        }
+
+        return {
+          attachment,
+          objectUrl
+        };
+      });
+    } catch {
+      setAttachmentPreview({
+        attachment,
+        objectUrl: null
+      });
+    }
+  }
+
+  async function handleDownloadAttachment(attachment: OrderAttachment) {
+    if (!authToken) {
+      return;
+    }
+
+    const blob = await fetchOrderAttachmentBlob(
+      attachment.orderId,
+      attachment.id,
+      authToken,
+      "download"
+    );
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = objectUrl;
+    link.download = attachment.originalFileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(objectUrl);
+  }
+
+  function closeAttachmentPreview() {
+    setAttachmentPreview((current) => {
+      if (current?.objectUrl) {
+        URL.revokeObjectURL(current.objectUrl);
+      }
+
+      return null;
+    });
+  }
+
   function focusAuthCodeInput(index: number) {
     authCodeInputRefs.current[index]?.focus();
   }
@@ -2827,6 +3084,7 @@ function App() {
       setIsDraftOrderDetailsOpen(true);
       setOrderDetailStatus(null);
       setServerConnectionState("connected");
+      void loadOrderAttachments(orderDetail.id, authToken);
     } catch {
       setOrderDetailStatus("Не удалось открыть заказ");
       setServerConnectionState("disconnected");
@@ -3016,6 +3274,62 @@ function App() {
                 {isDeletingOrder ? "Удаляем..." : "Удалить"}
               </button>
             </div>
+          </section>
+        </div>
+      ) : null}
+
+      {attachmentPreview ? (
+        <div
+          aria-modal="true"
+          className="app-modal-backdrop attachment-preview-modal"
+          role="dialog"
+        >
+          <section className="app-modal attachment-preview-content">
+            <div className="attachment-preview-header">
+              <div>
+                <p className="eyebrow">
+                  {getAttachmentTypeLabel(attachmentPreview.attachment.attachmentType)}
+                </p>
+                <h2>{attachmentPreview.attachment.originalFileName}</h2>
+              </div>
+              <div className="app-modal-actions">
+                <button
+                  className="secondary-action-button attachment-download-button"
+                  onClick={() =>
+                    void handleDownloadAttachment(attachmentPreview.attachment)
+                  }
+                  title="Скачать файл"
+                  type="button"
+                >
+                  <img alt="" src={downloadIconUrl} />
+                </button>
+                <button
+                  className="secondary-action-button"
+                  onClick={closeAttachmentPreview}
+                  type="button"
+                >
+                  Закрыть
+                </button>
+              </div>
+            </div>
+
+            {attachmentPreview.objectUrl &&
+            attachmentPreview.attachment.mimeType?.startsWith("image/") ? (
+              <img
+                alt={attachmentPreview.attachment.originalFileName}
+                className="attachment-preview-image"
+                src={attachmentPreview.objectUrl}
+              />
+            ) : attachmentPreview.objectUrl &&
+              attachmentPreview.attachment.mimeType === "application/pdf" ? (
+              <iframe
+                className="attachment-preview-frame"
+                src={attachmentPreview.objectUrl}
+                title={attachmentPreview.attachment.originalFileName}
+              />
+            ) : (
+              <p className="draft-summary-muted">Предпросмотр недоступен</p>
+            )}
           </section>
         </div>
       ) : null}
@@ -3907,6 +4221,114 @@ function App() {
                         <p>{getDraftOrderRequestComment(detailDraftOrder)}</p>
                       </section>
                     ) : null}
+
+                    <section className="order-attachments-section">
+                      <div className="section-heading">
+                        <div>
+                          <h3>Вложения</h3>
+                          {detailDraftOrder.serverOrderId ? (
+                            <p>
+                              {attachmentsStatusByOrderId[
+                                detailDraftOrder.serverOrderId
+                              ] || "Макеты, чертежи, фото и файлы заказа"}
+                            </p>
+                          ) : (
+                            <p>Вложения доступны после создания заказа</p>
+                          )}
+                        </div>
+
+                        {detailDraftOrder.serverOrderId ? (
+                          <label className="secondary-action-button attachment-upload-button">
+                            <input
+                              type="file"
+                              onChange={(event) => {
+                                const file = event.target.files?.[0] ?? null;
+                                void handleUploadOrderAttachment(
+                                  detailDraftOrder.serverOrderId!,
+                                  file
+                                );
+                                event.target.value = "";
+                              }}
+                            />
+                            {uploadingAttachmentOrderId ===
+                            detailDraftOrder.serverOrderId
+                              ? "Загружаем..."
+                              : "Добавить файл"}
+                          </label>
+                        ) : null}
+                      </div>
+
+                      {detailDraftOrder.serverOrderId ? (
+                        (orderAttachmentsByOrderId[
+                          detailDraftOrder.serverOrderId
+                        ] ?? []).length > 0 ? (
+                          <div className="attachment-grid">
+                            {orderAttachmentsByOrderId[
+                              detailDraftOrder.serverOrderId
+                            ].map((attachment) => (
+                              <article
+                                className="attachment-card"
+                                key={attachment.id}
+                                onClick={() =>
+                                  void handleOpenAttachmentPreview(attachment)
+                                }
+                                role="button"
+                                tabIndex={0}
+                              >
+                                <div className="attachment-card-preview">
+                                  {isImageAttachment(attachment) &&
+                                  attachmentPreviewUrlById[attachment.id] ? (
+                                    <img
+                                      alt={attachment.originalFileName}
+                                      src={attachmentPreviewUrlById[attachment.id]}
+                                    />
+                                  ) : (
+                                    <div className="attachment-file-placeholder">
+                                      <span>{getAttachmentTypeLabel(attachment.attachmentType)}</span>
+                                      <strong>
+                                        {attachment.mimeType?.split("/")[1]?.toUpperCase() ??
+                                          "FILE"}
+                                      </strong>
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="attachment-card-meta">
+                                  <strong>{attachment.originalFileName}</strong>
+                                  <span>
+                                    {getAttachmentTypeLabel(attachment.attachmentType)}
+                                    {formatAttachmentFileSize(attachment.fileSize)
+                                      ? ` · ${formatAttachmentFileSize(
+                                          attachment.fileSize
+                                        )}`
+                                      : ""}
+                                  </span>
+                                </div>
+                                <button
+                                  aria-label="Скачать файл"
+                                  className="attachment-download-button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    void handleDownloadAttachment(attachment);
+                                  }}
+                                  title="Скачать файл"
+                                  type="button"
+                                >
+                                  <img alt="" src={downloadIconUrl} />
+                                </button>
+                              </article>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="draft-summary-muted">
+                            Файлы не прикреплены
+                          </p>
+                        )
+                      ) : (
+                        <p className="draft-summary-muted">
+                          Сначала завершите приём заказа.
+                        </p>
+                      )}
+                    </section>
 
                     <div className="section-heading">
                       <div>

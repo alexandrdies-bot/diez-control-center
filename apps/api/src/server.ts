@@ -1,10 +1,14 @@
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
+import { createReadStream } from "node:fs";
+import { mkdir, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import cors from "@fastify/cors";
+import multipart from "@fastify/multipart";
 import dotenv from "dotenv";
 import Fastify from "fastify";
 import type { FastifyReply, FastifyRequest } from "fastify";
+import type { MultipartFile, MultipartValue } from "@fastify/multipart";
 import type { PoolClient } from "pg";
 import { checkCalculationCoreImport } from "./calculation-core-import-check.js";
 
@@ -33,6 +37,15 @@ const apiWriteKey = process.env.API_WRITE_KEY?.trim();
 const adminApiKey = process.env.ADMIN_API_KEY?.trim();
 const debugEndpointsEnabled =
   process.env.DEBUG_ENDPOINTS_ENABLED === "true" || !isProduction;
+const orderAttachmentsDir = path.isAbsolute(
+  process.env.ORDER_ATTACHMENTS_DIR ?? ""
+)
+  ? process.env.ORDER_ATTACHMENTS_DIR!
+  : path.join(
+      repoRoot,
+      process.env.ORDER_ATTACHMENTS_DIR ?? "uploads/order-attachments"
+    );
+const maxOrderAttachmentFileSize = 50 * 1024 * 1024;
 
 const app = Fastify({
   logger: true
@@ -42,6 +55,13 @@ await app.register(cors, {
   allowedHeaders: ["Authorization", "Content-Type", "x-api-key"],
   methods: ["GET", "HEAD", "POST", "PATCH", "DELETE", "OPTIONS"],
   origin: isProduction ? corsAllowedOrigins : true
+});
+
+await app.register(multipart, {
+  limits: {
+    fileSize: maxOrderAttachmentFileSize,
+    files: 1
+  }
 });
 
 type AuthLoginPayload = {
@@ -191,6 +211,42 @@ type ApiOrderSummaryRow = {
 type ApiOrderDetailRow = ApiOrderSummaryRow & {
   customerComment: string | null;
   customerId: number | null;
+};
+
+type OrderAttachmentSource = "site" | "desktop" | "manager";
+
+type OrderAttachmentType =
+  | "design_file"
+  | "drawing"
+  | "reference"
+  | "placement_photo"
+  | "print_file"
+  | "other";
+
+type ApiOrderAttachmentRow = {
+  attachmentType: OrderAttachmentType;
+  comment: string | null;
+  createdAt: string;
+  fileSize: number | null;
+  id: number;
+  mimeType: string | null;
+  orderId: number;
+  originalFileName: string;
+  source: OrderAttachmentSource;
+  storagePath: string;
+};
+
+type ApiOrderAttachmentResponse = {
+  attachmentType: OrderAttachmentType;
+  comment?: string | null;
+  createdAt: string;
+  downloadUrl: string;
+  fileSize: number | null;
+  id: number;
+  mimeType: string | null;
+  orderId: number;
+  originalFileName: string;
+  previewUrl: string | null;
 };
 
 type ApiOrderDeliveryRow = {
@@ -443,6 +499,156 @@ async function requireRole(
 
 function getOptionalString(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function getMultipartFieldString(
+  fields: MultipartFile["fields"],
+  name: string
+) {
+  const field = fields[name] as MultipartValue<string> | undefined;
+
+  return typeof field?.value === "string" && field.value.trim()
+    ? field.value.trim()
+    : null;
+}
+
+function normalizeAttachmentSource(value: unknown): OrderAttachmentSource {
+  return value === "site" || value === "manager" || value === "desktop"
+    ? value
+    : "desktop";
+}
+
+function normalizeAttachmentType(value: unknown): OrderAttachmentType {
+  return value === "design_file" ||
+    value === "drawing" ||
+    value === "reference" ||
+    value === "placement_photo" ||
+    value === "print_file" ||
+    value === "other"
+    ? value
+    : "other";
+}
+
+function sanitizeOriginalFileName(value: string) {
+  const baseName = path.basename(value).replace(/[\u0000-\u001f<>:"/\\|?*]+/g, "_");
+  const normalized = baseName.replace(/\s+/g, " ").trim();
+
+  return normalized || "attachment";
+}
+
+function getSafeFileExtension(fileName: string, mimeType: string | null) {
+  const extension = path
+    .extname(fileName)
+    .toLowerCase()
+    .replace(/[^a-z0-9.]/g, "")
+    .slice(0, 16);
+
+  if (extension) {
+    return extension;
+  }
+
+  if (mimeType === "application/pdf") {
+    return ".pdf";
+  }
+
+  if (mimeType === "text/plain") {
+    return ".txt";
+  }
+
+  if (mimeType?.startsWith("image/")) {
+    return `.${mimeType.split("/")[1]?.replace(/[^a-z0-9]/gi, "") || "img"}`;
+  }
+
+  return "";
+}
+
+function isAllowedAttachmentMime(mimeType: string | null) {
+  if (!mimeType) {
+    return true;
+  }
+
+  return (
+    mimeType.startsWith("image/") ||
+    mimeType === "application/pdf" ||
+    mimeType === "application/postscript" ||
+    mimeType === "application/illustrator" ||
+    mimeType === "application/octet-stream" ||
+    mimeType === "text/plain"
+  );
+}
+
+function isPreviewableAttachmentMime(mimeType: string | null) {
+  return Boolean(
+    mimeType && (mimeType.startsWith("image/") || mimeType === "application/pdf")
+  );
+}
+
+function getOrderAttachmentUrls(orderId: number, attachmentId: number) {
+  const baseUrl = `/orders/${orderId}/attachments/${attachmentId}`;
+
+  return {
+    downloadUrl: `${baseUrl}/download`,
+    previewUrl: `${baseUrl}/preview`
+  };
+}
+
+function buildOrderAttachmentResponse(
+  attachment: ApiOrderAttachmentRow
+): ApiOrderAttachmentResponse {
+  const urls = getOrderAttachmentUrls(attachment.orderId, attachment.id);
+
+  return {
+    attachmentType: attachment.attachmentType,
+    comment: attachment.comment,
+    createdAt: attachment.createdAt,
+    downloadUrl: urls.downloadUrl,
+    fileSize: attachment.fileSize,
+    id: attachment.id,
+    mimeType: attachment.mimeType,
+    orderId: attachment.orderId,
+    originalFileName: attachment.originalFileName,
+    previewUrl: isPreviewableAttachmentMime(attachment.mimeType)
+      ? urls.previewUrl
+      : null
+  };
+}
+
+function createContentDisposition(
+  mode: "attachment" | "inline",
+  fileName: string
+) {
+  const asciiFileName = fileName.replace(/[^\x20-\x7e]+/g, "_").replace(/"/g, "'");
+  const encodedFileName = encodeURIComponent(fileName);
+
+  return `${mode}; filename="${asciiFileName}"; filename*=UTF-8''${encodedFileName}`;
+}
+
+async function getOrderAttachment(
+  orderId: number,
+  attachmentId: number
+) {
+  const attachments = await queryDatabase<ApiOrderAttachmentRow>(
+    `
+      select
+        id,
+        order_id as "orderId",
+        source,
+        attachment_type as "attachmentType",
+        original_file_name as "originalFileName",
+        mime_type as "mimeType",
+        file_size as "fileSize",
+        storage_path as "storagePath",
+        comment,
+        created_at::text as "createdAt"
+      from app.order_attachments
+      where order_id = $1
+        and id = $2
+      limit 1
+    `,
+    [orderId, attachmentId]
+  );
+
+  return attachments[0] ?? null;
 }
 
 function getRequiredString(value: unknown) {
@@ -1485,6 +1691,314 @@ app.get<{ Params: { id: string } }>("/orders/:id", async (request, reply) => {
     items
   };
 });
+
+app.get<{ Params: { id: string } }>(
+  "/orders/:id/attachments",
+  async (request, reply) => {
+    const authSession = await requireRole(request, reply, ["manager", "admin"]);
+
+    if (!authSession) {
+      return null;
+    }
+
+    const orderId = Number(request.params.id);
+
+    if (!Number.isInteger(orderId) || orderId <= 0) {
+      return reply.code(400).send({
+        error: "INVALID_ORDER_ID"
+      });
+    }
+
+    const orderExists = await queryDatabase<{ exists: boolean }>(
+      "select exists(select 1 from app.orders where id = $1) as exists",
+      [orderId]
+    );
+
+    if (!orderExists[0]?.exists) {
+      return reply.code(404).send({
+        error: "ORDER_NOT_FOUND"
+      });
+    }
+
+    const attachments = await queryDatabase<ApiOrderAttachmentRow>(
+      `
+        select
+          id,
+          order_id as "orderId",
+          source,
+          attachment_type as "attachmentType",
+          original_file_name as "originalFileName",
+          mime_type as "mimeType",
+          file_size as "fileSize",
+          storage_path as "storagePath",
+          comment,
+          created_at::text as "createdAt"
+        from app.order_attachments
+        where order_id = $1
+        order by created_at desc, id desc
+      `,
+      [orderId]
+    );
+
+    return attachments.map(buildOrderAttachmentResponse);
+  }
+);
+
+app.post<{ Params: { id: string } }>(
+  "/orders/:id/attachments",
+  async (request, reply) => {
+    const authSession = await requireRole(request, reply, ["manager", "admin"]);
+
+    if (!authSession) {
+      return null;
+    }
+
+    const orderId = Number(request.params.id);
+
+    if (!Number.isInteger(orderId) || orderId <= 0) {
+      return reply.code(400).send({
+        error: "INVALID_ORDER_ID"
+      });
+    }
+
+    const orderExists = await queryDatabase<{ exists: boolean }>(
+      "select exists(select 1 from app.orders where id = $1) as exists",
+      [orderId]
+    );
+
+    if (!orderExists[0]?.exists) {
+      return reply.code(404).send({
+        error: "ORDER_NOT_FOUND"
+      });
+    }
+
+    let file: MultipartFile | undefined;
+
+    try {
+      file = await request.file();
+    } catch {
+      return reply.code(400).send({
+        error: "INVALID_ATTACHMENT_UPLOAD"
+      });
+    }
+
+    if (!file) {
+      return reply.code(400).send({
+        error: "ATTACHMENT_FILE_REQUIRED"
+      });
+    }
+
+    const originalFileName = sanitizeOriginalFileName(file.filename);
+    const mimeType = file.mimetype || null;
+
+    if (!isAllowedAttachmentMime(mimeType)) {
+      return reply.code(415).send({
+        error: "UNSUPPORTED_ATTACHMENT_TYPE"
+      });
+    }
+
+    let fileBuffer: Buffer;
+
+    try {
+      fileBuffer = await file.toBuffer();
+    } catch {
+      return reply.code(413).send({
+        error: "ATTACHMENT_TOO_LARGE"
+      });
+    }
+
+    if (fileBuffer.length > maxOrderAttachmentFileSize) {
+      return reply.code(413).send({
+        error: "ATTACHMENT_TOO_LARGE"
+      });
+    }
+
+    const attachmentType = normalizeAttachmentType(
+      getMultipartFieldString(file.fields, "attachmentType")
+    );
+    const source = normalizeAttachmentSource(
+      getMultipartFieldString(file.fields, "source")
+    );
+    const comment = getMultipartFieldString(file.fields, "comment");
+    const storedFileName = `order-${orderId}-${Date.now()}-${randomBytes(8).toString(
+      "hex"
+    )}${getSafeFileExtension(originalFileName, mimeType)}`;
+    const storagePath = path.join(orderAttachmentsDir, storedFileName);
+
+    await mkdir(orderAttachmentsDir, {
+      recursive: true
+    });
+
+    await writeFile(storagePath, fileBuffer);
+
+    let insertedAttachment: ApiOrderAttachmentRow | null = null;
+
+    try {
+      insertedAttachment = await withDatabaseTransaction(async (client) => {
+        const attachmentResult = await client.query<ApiOrderAttachmentRow>(
+          `
+            insert into app.order_attachments (
+              order_id,
+              source,
+              attachment_type,
+              original_file_name,
+              stored_file_name,
+              mime_type,
+              file_size,
+              storage_path,
+              comment
+            )
+            values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            returning
+              id,
+              order_id as "orderId",
+              source,
+              attachment_type as "attachmentType",
+              original_file_name as "originalFileName",
+              mime_type as "mimeType",
+              file_size as "fileSize",
+              storage_path as "storagePath",
+              comment,
+              created_at::text as "createdAt"
+          `,
+          [
+            orderId,
+            source,
+            attachmentType,
+            originalFileName,
+            storedFileName,
+            mimeType,
+            fileBuffer.length,
+            storagePath,
+            comment
+          ]
+        );
+        const attachment = attachmentResult.rows[0];
+
+        await client.query(
+          `
+            insert into app.order_events (
+              order_id,
+              event_type,
+              actor_type,
+              actor_user_id,
+              payload_json
+            )
+            values ($1, 'attachment_added', 'desktop', $2, $3::jsonb)
+          `,
+          [
+            orderId,
+            authSession.user.id,
+            JSON.stringify({
+              attachmentId: attachment.id,
+              attachmentType,
+              originalFileName
+            })
+          ]
+        );
+
+        return attachment;
+      });
+    } catch (error) {
+      await unlink(storagePath).catch(() => undefined);
+      throw error;
+    }
+
+    return reply.code(201).send(buildOrderAttachmentResponse(insertedAttachment));
+  }
+);
+
+app.get<{
+  Params: { attachmentId: string; id: string };
+}>(
+  "/orders/:id/attachments/:attachmentId/download",
+  async (request, reply) => {
+    const authSession = await requireRole(request, reply, ["manager", "admin"]);
+
+    if (!authSession) {
+      return null;
+    }
+
+    const orderId = Number(request.params.id);
+    const attachmentId = Number(request.params.attachmentId);
+
+    if (
+      !Number.isInteger(orderId) ||
+      orderId <= 0 ||
+      !Number.isInteger(attachmentId) ||
+      attachmentId <= 0
+    ) {
+      return reply.code(400).send({
+        error: "INVALID_ATTACHMENT_ID"
+      });
+    }
+
+    const attachment = await getOrderAttachment(orderId, attachmentId);
+
+    if (!attachment) {
+      return reply.code(404).send({
+        error: "ATTACHMENT_NOT_FOUND"
+      });
+    }
+
+    reply.header(
+      "Content-Disposition",
+      createContentDisposition("attachment", attachment.originalFileName)
+    );
+    reply.type(attachment.mimeType ?? "application/octet-stream");
+
+    return createReadStream(attachment.storagePath);
+  }
+);
+
+app.get<{
+  Params: { attachmentId: string; id: string };
+}>(
+  "/orders/:id/attachments/:attachmentId/preview",
+  async (request, reply) => {
+    const authSession = await requireRole(request, reply, ["manager", "admin"]);
+
+    if (!authSession) {
+      return null;
+    }
+
+    const orderId = Number(request.params.id);
+    const attachmentId = Number(request.params.attachmentId);
+
+    if (
+      !Number.isInteger(orderId) ||
+      orderId <= 0 ||
+      !Number.isInteger(attachmentId) ||
+      attachmentId <= 0
+    ) {
+      return reply.code(400).send({
+        error: "INVALID_ATTACHMENT_ID"
+      });
+    }
+
+    const attachment = await getOrderAttachment(orderId, attachmentId);
+
+    if (!attachment) {
+      return reply.code(404).send({
+        error: "ATTACHMENT_NOT_FOUND"
+      });
+    }
+
+    if (!isPreviewableAttachmentMime(attachment.mimeType)) {
+      return reply.code(415).send({
+        error: "ATTACHMENT_PREVIEW_UNAVAILABLE"
+      });
+    }
+
+    reply.header(
+      "Content-Disposition",
+      createContentDisposition("inline", attachment.originalFileName)
+    );
+    reply.type(attachment.mimeType ?? "application/octet-stream");
+
+    return createReadStream(attachment.storagePath);
+  }
+);
 
 app.post<{ Body: DesktopDraftOrderPayload }>("/orders", async (request, reply) => {
   const authSession = await requireRole(request, reply, ["manager", "admin"]);

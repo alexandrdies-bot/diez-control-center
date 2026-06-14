@@ -25,6 +25,7 @@
 * Для production API CORS зафиксирован dev origin `http://127.0.0.1:5173`, чтобы локальный desktop мог проверять online-mode через `api.diezimg.ru`.
 * Startup проверки `/health` и `/materials` в desktop сделаны не блокирующими для login/online orders.
 * Добавлен публичный site checkout endpoint `POST /checkout/orders`: checkout-заказы сайта сохраняются в общую базу с `source='checkout'` и событием `actor_type='site'`, без использования desktop `POST /orders`.
+* Добавлен MVP order attachments: API endpoints для upload/list/download/preview вложений заказа через Bearer manager/admin auth и desktop UI с карточками 3:5, authenticated preview и download.
 * Временная блокировка редактирования созданного заказа снята для рабочего MVP-режима: позиции, заказчика и доставку снова можно менять в UI; серверная синхронизация правок через `PATCH` будет отдельным этапом.
 * Улучшено отображение карточки заказа и деталей заказа для менеджера; серверная логика не менялась, загрузка ленты из production-БД пока не реализуется для dev/test базы.
 * Desktop-лента теперь разделяет `Заказы` из общей базы и локальные незавершённые `Черновики`, чтобы созданный заказ не дублировался в ленте.

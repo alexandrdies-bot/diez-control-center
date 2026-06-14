@@ -281,6 +281,15 @@ Desktop online mode uses `https://api.diezimg.ru` by default and can still be ov
 
 `GET /orders` и `GET /orders/:id` загружают настоящие заказы из общей базы через production API и требуют bearer session token пользователя с ролью `manager` или `admin`. Desktop после входа вызывает `GET /orders` с Bearer token и показывает эти заказы в разделе `Заказы`; локально остаются только незавершённые `Черновики`, которые ещё не были завершены как заказ.
 
+Order attachments MVP:
+
+- API поддерживает `POST /orders/:id/attachments`, `GET /orders/:id/attachments`, `GET /orders/:id/attachments/:attachmentId/download` и `GET /orders/:id/attachments/:attachmentId/preview`;
+- все attachment endpoints требуют `Authorization: Bearer <session-token>` пользователя с ролью `manager` или `admin`;
+- файлы не хранятся во frontend, `localStorage` или PostgreSQL `bytea`;
+- сервер хранит файлы в storage directory (`ORDER_ATTACHMENTS_DIR`, fallback `uploads/order-attachments`), а база хранит metadata и server-side path;
+- desktop показывает вложения заказа карточками 3:5, открывает preview через authenticated fetch/blob URL и скачивает файлы через authenticated download;
+- preview/download не являются публичными URL и не должны работать без bearer session.
+
 Desktop auth API client:
 
 - desktop API client has `login(login, password)`, `logout(token)`, and `getCurrentUser(token)` for the API auth/session layer;

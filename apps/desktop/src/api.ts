@@ -102,6 +102,19 @@ export type OrderDetail = OrderSummary & {
   }>;
 };
 
+export type OrderAttachment = {
+  attachmentType: string;
+  comment: string | null;
+  createdAt: string;
+  downloadUrl: string;
+  fileSize: number | null;
+  id: number;
+  mimeType: string | null;
+  orderId: number;
+  originalFileName: string;
+  previewUrl: string | null;
+};
+
 export type AuthUser = {
   displayName: string;
   email: string | null;
@@ -399,6 +412,107 @@ export async function getOrder(
   }
 
   return response.json() as Promise<OrderDetail>;
+}
+
+export function getOrderAttachmentPreviewUrl(
+  orderId: number,
+  attachmentId: number
+) {
+  return `${apiBaseUrl}/orders/${orderId}/attachments/${attachmentId}/preview`;
+}
+
+export function getOrderAttachmentDownloadUrl(
+  orderId: number,
+  attachmentId: number
+) {
+  return `${apiBaseUrl}/orders/${orderId}/attachments/${attachmentId}/download`;
+}
+
+export async function getOrderAttachments(
+  orderId: number,
+  token: string
+): Promise<OrderAttachment[]> {
+  const response = await fetch(`${apiBaseUrl}/orders/${orderId}/attachments`, {
+    headers: createBearerHeaders(token)
+  });
+
+  if (!response.ok) {
+    const responseBody = await response.text();
+    throw new Error(
+      `/orders/${orderId}/attachments ${response.status}${
+        responseBody ? ` ${responseBody}` : ""
+      }`
+    );
+  }
+
+  return response.json() as Promise<OrderAttachment[]>;
+}
+
+export async function uploadOrderAttachment(
+  orderId: number,
+  file: File,
+  token: string,
+  meta?: {
+    attachmentType?: string;
+    comment?: string;
+    source?: string;
+  }
+): Promise<OrderAttachment> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  if (meta?.attachmentType) {
+    formData.append("attachmentType", meta.attachmentType);
+  }
+
+  if (meta?.comment) {
+    formData.append("comment", meta.comment);
+  }
+
+  if (meta?.source) {
+    formData.append("source", meta.source);
+  }
+
+  const response = await fetch(`${apiBaseUrl}/orders/${orderId}/attachments`, {
+    body: formData,
+    headers: createBearerHeaders(token),
+    method: "POST"
+  });
+
+  if (!response.ok) {
+    const responseBody = await response.text();
+    throw new Error(
+      `/orders/${orderId}/attachments ${response.status}${
+        responseBody ? ` ${responseBody}` : ""
+      }`
+    );
+  }
+
+  return response.json() as Promise<OrderAttachment>;
+}
+
+export async function fetchOrderAttachmentBlob(
+  orderId: number,
+  attachmentId: number,
+  token: string,
+  mode: "download" | "preview"
+): Promise<Blob> {
+  const url =
+    mode === "preview"
+      ? getOrderAttachmentPreviewUrl(orderId, attachmentId)
+      : getOrderAttachmentDownloadUrl(orderId, attachmentId);
+  const response = await fetch(url, {
+    headers: createBearerHeaders(token)
+  });
+
+  if (!response.ok) {
+    const responseBody = await response.text();
+    throw new Error(
+      `${url} ${response.status}${responseBody ? ` ${responseBody}` : ""}`
+    );
+  }
+
+  return response.blob();
 }
 
 export async function createOrderFromDraft(
