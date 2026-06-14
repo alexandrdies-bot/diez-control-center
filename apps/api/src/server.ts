@@ -1,4 +1,10 @@
-import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
+import {
+  createHash,
+  createHmac,
+  randomBytes,
+  scryptSync,
+  timingSafeEqual
+} from "node:crypto";
 import { createReadStream } from "node:fs";
 import { mkdir, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -35,6 +41,8 @@ const corsAllowedOrigins = (process.env.CORS_ALLOWED_ORIGINS ?? "")
   .filter(Boolean);
 const apiWriteKey = process.env.API_WRITE_KEY?.trim();
 const adminApiKey = process.env.ADMIN_API_KEY?.trim();
+const checkoutUploadTokenSecret =
+  process.env.CHECKOUT_UPLOAD_TOKEN_SECRET?.trim() ?? apiWriteKey ?? adminApiKey;
 const debugEndpointsEnabled =
   process.env.DEBUG_ENDPOINTS_ENABLED === "true" || !isProduction;
 const orderAttachmentsDir = path.isAbsolute(
@@ -52,7 +60,12 @@ const app = Fastify({
 });
 
 await app.register(cors, {
-  allowedHeaders: ["Authorization", "Content-Type", "x-api-key"],
+  allowedHeaders: [
+    "Authorization",
+    "Content-Type",
+    "x-api-key",
+    "X-Checkout-Upload-Token"
+  ],
   methods: ["GET", "HEAD", "POST", "PATCH", "DELETE", "OPTIONS"],
   origin: isProduction ? corsAllowedOrigins : true
 });
@@ -189,6 +202,12 @@ type CheckoutOrderPayload = {
   delivery?: CheckoutOrderDelivery;
   items?: unknown;
   totalPriceMinor?: unknown;
+};
+
+type CheckoutUploadTokenPayload = {
+  exp: number;
+  orderId: number;
+  orderNumber: string;
 };
 
 type ApiOrderSummaryRow = {
@@ -342,6 +361,86 @@ function hashSessionToken(rawToken: string) {
 
 function generateSessionToken() {
   return randomBytes(32).toString("base64url");
+}
+
+function signCheckoutUploadTokenPayload(payloadBase64: string) {
+  if (!checkoutUploadTokenSecret) {
+    return null;
+  }
+
+  return createHmac("sha256", checkoutUploadTokenSecret)
+    .update(payloadBase64)
+    .digest("base64url");
+}
+
+function generateCheckoutUploadToken(orderId: number, orderNumber: string) {
+  if (!checkoutUploadTokenSecret) {
+    return null;
+  }
+
+  const payload: CheckoutUploadTokenPayload = {
+    exp: Math.floor(Date.now() / 1000) + 2 * 60 * 60,
+    orderId,
+    orderNumber
+  };
+  const payloadBase64 = Buffer.from(JSON.stringify(payload), "utf8").toString(
+    "base64url"
+  );
+  const signature = signCheckoutUploadTokenPayload(payloadBase64);
+
+  return signature ? `${payloadBase64}.${signature}` : null;
+}
+
+function verifyCheckoutUploadToken(token: string) {
+  const [payloadBase64, signature] = token.split(".");
+
+  if (!payloadBase64 || !signature) {
+    return null;
+  }
+
+  const expectedSignature = signCheckoutUploadTokenPayload(payloadBase64);
+
+  if (!expectedSignature) {
+    return null;
+  }
+
+  const signatureBuffer = Buffer.from(signature);
+  const expectedSignatureBuffer = Buffer.from(expectedSignature);
+
+  if (
+    signatureBuffer.length !== expectedSignatureBuffer.length ||
+    !timingSafeEqual(signatureBuffer, expectedSignatureBuffer)
+  ) {
+    return null;
+  }
+
+  try {
+    const payload = JSON.parse(
+      Buffer.from(payloadBase64, "base64url").toString("utf8")
+    ) as Partial<CheckoutUploadTokenPayload>;
+    const exp = payload.exp;
+    const orderId = payload.orderId;
+    const orderNumber = payload.orderNumber;
+
+    if (
+      typeof orderId !== "number" ||
+      !Number.isInteger(orderId) ||
+      typeof orderNumber !== "string" ||
+      typeof exp !== "number" ||
+      !Number.isInteger(exp) ||
+      exp < Math.floor(Date.now() / 1000)
+    ) {
+      return null;
+    }
+
+    return {
+      exp,
+      orderId,
+      orderNumber
+    };
+  } catch {
+    return null;
+  }
 }
 
 function normalizeLogin(value: unknown) {
@@ -1427,7 +1526,12 @@ app.post<{ Body: CheckoutOrderPayload }>(
         return {
           alreadyExists: true,
           id: existingOrder.rows[0].id,
-          orderNumber: existingOrder.rows[0].order_number
+          orderNumber: existingOrder.rows[0].order_number,
+          uploadToken:
+            generateCheckoutUploadToken(
+              existingOrder.rows[0].id,
+              existingOrder.rows[0].order_number
+            ) ?? undefined
         };
       }
 
@@ -1525,11 +1629,191 @@ app.post<{ Body: CheckoutOrderPayload }>(
       return {
         alreadyExists: false,
         id: orderId,
-        orderNumber
+        orderNumber,
+        uploadToken: generateCheckoutUploadToken(orderId, orderNumber) ?? undefined
       };
     });
 
     return result;
+  }
+);
+
+app.post<{ Params: { id: string } }>(
+  "/checkout/orders/:id/attachments",
+  async (request, reply) => {
+    if (!checkoutUploadTokenSecret) {
+      return reply.code(503).send({
+        error: "CHECKOUT_UPLOAD_NOT_CONFIGURED"
+      });
+    }
+
+    const orderId = Number(request.params.id);
+
+    if (!Number.isInteger(orderId) || orderId <= 0) {
+      return reply.code(400).send({
+        error: "INVALID_ORDER_ID"
+      });
+    }
+
+    const uploadTokenHeader = request.headers["x-checkout-upload-token"];
+    const uploadToken =
+      typeof uploadTokenHeader === "string" ? uploadTokenHeader.trim() : "";
+    const uploadTokenPayload = uploadToken
+      ? verifyCheckoutUploadToken(uploadToken)
+      : null;
+
+    if (!uploadTokenPayload || uploadTokenPayload.orderId !== orderId) {
+      return reply.code(401).send({
+        error: "UNAUTHORIZED"
+      });
+    }
+
+    const orderExists = await queryDatabase<{ exists: boolean }>(
+      `
+        select exists(
+          select 1
+          from app.orders
+          where id = $1
+            and order_number = $2
+            and source = 'checkout'
+        ) as exists
+      `,
+      [orderId, uploadTokenPayload.orderNumber]
+    );
+
+    if (!orderExists[0]?.exists) {
+      return reply.code(404).send({
+        error: "ORDER_NOT_FOUND"
+      });
+    }
+
+    let file: MultipartFile | undefined;
+
+    try {
+      file = await request.file();
+    } catch {
+      return reply.code(400).send({
+        error: "INVALID_ATTACHMENT_UPLOAD"
+      });
+    }
+
+    if (!file) {
+      return reply.code(400).send({
+        error: "ATTACHMENT_FILE_REQUIRED"
+      });
+    }
+
+    const originalFileName = sanitizeOriginalFileName(file.filename);
+    const mimeType = file.mimetype || null;
+
+    if (!isAllowedAttachmentMime(mimeType)) {
+      return reply.code(415).send({
+        error: "UNSUPPORTED_ATTACHMENT_TYPE"
+      });
+    }
+
+    let fileBuffer: Buffer;
+
+    try {
+      fileBuffer = await file.toBuffer();
+    } catch {
+      return reply.code(413).send({
+        error: "ATTACHMENT_TOO_LARGE"
+      });
+    }
+
+    if (fileBuffer.length > maxOrderAttachmentFileSize) {
+      return reply.code(413).send({
+        error: "ATTACHMENT_TOO_LARGE"
+      });
+    }
+
+    const attachmentType = normalizeAttachmentType(
+      getMultipartFieldString(file.fields, "attachmentType") ?? "print_file"
+    );
+    const comment = getMultipartFieldString(file.fields, "comment");
+    const storedFileName = `order-${orderId}-${Date.now()}-${randomBytes(8).toString(
+      "hex"
+    )}${getSafeFileExtension(originalFileName, mimeType)}`;
+    const storagePath = path.join(orderAttachmentsDir, storedFileName);
+
+    await mkdir(orderAttachmentsDir, {
+      recursive: true
+    });
+    await writeFile(storagePath, fileBuffer);
+
+    let insertedAttachment: ApiOrderAttachmentRow | null = null;
+
+    try {
+      insertedAttachment = await withDatabaseTransaction(async (client) => {
+        const attachmentResult = await client.query<ApiOrderAttachmentRow>(
+          `
+            insert into app.order_attachments (
+              order_id,
+              source,
+              attachment_type,
+              original_file_name,
+              stored_file_name,
+              mime_type,
+              file_size,
+              storage_path,
+              comment
+            )
+            values ($1, 'site', $2, $3, $4, $5, $6, $7, $8)
+            returning
+              id,
+              order_id as "orderId",
+              source,
+              attachment_type as "attachmentType",
+              original_file_name as "originalFileName",
+              mime_type as "mimeType",
+              file_size as "fileSize",
+              storage_path as "storagePath",
+              comment,
+              created_at::text as "createdAt"
+          `,
+          [
+            orderId,
+            attachmentType,
+            originalFileName,
+            storedFileName,
+            mimeType,
+            fileBuffer.length,
+            storagePath,
+            comment
+          ]
+        );
+        const attachment = attachmentResult.rows[0];
+
+        await client.query(
+          `
+            insert into app.order_events (
+              order_id,
+              event_type,
+              actor_type,
+              payload_json
+            )
+            values ($1, 'attachment_added', 'site', $2::jsonb)
+          `,
+          [
+            orderId,
+            JSON.stringify({
+              attachmentId: attachment.id,
+              attachmentType,
+              originalFileName,
+              source: "checkout_upload"
+            })
+          ]
+        );
+
+        return attachment;
+      });
+    } catch (error) {
+      await unlink(storagePath).catch(() => undefined);
+      throw error;
+    }
+
+    return reply.code(201).send(buildOrderAttachmentResponse(insertedAttachment));
   }
 );
 
