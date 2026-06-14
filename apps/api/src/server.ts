@@ -1523,13 +1523,19 @@ app.post<{ Body: CheckoutOrderPayload }>(
       );
 
       if (existingOrder.rows[0]) {
+        const existingOrderId = Number(existingOrder.rows[0].id);
+
+        if (!Number.isInteger(existingOrderId) || existingOrderId <= 0) {
+          throw new Error("Invalid checkout order id");
+        }
+
         return {
           alreadyExists: true,
-          id: existingOrder.rows[0].id,
+          id: existingOrderId,
           orderNumber: existingOrder.rows[0].order_number,
           uploadToken:
             generateCheckoutUploadToken(
-              existingOrder.rows[0].id,
+              existingOrderId,
               existingOrder.rows[0].order_number
             ) ?? undefined
         };
@@ -1595,8 +1601,12 @@ app.post<{ Body: CheckoutOrderPayload }>(
           customerComment
         ]
       );
-      const orderId = orderResult.rows[0].id;
+      const orderId = Number(orderResult.rows[0].id);
       const orderNumber = orderResult.rows[0].order_number;
+
+      if (!Number.isInteger(orderId) || orderId <= 0) {
+        throw new Error("Invalid checkout order id");
+      }
 
       await insertOrderItems(client, orderId, normalizedItems);
       await upsertOrderDelivery(
