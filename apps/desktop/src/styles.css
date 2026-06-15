@@ -2463,7 +2463,6 @@ tbody tr {
   z-index: 1;
 }
 
-.attachment-card-meta strong,
 .attachment-card-meta span {
   min-width: 0;
   overflow: hidden;
@@ -2472,8 +2471,15 @@ tbody tr {
 }
 
 .attachment-card-meta strong {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
   color: #ffffff;
-  font-size: 12px;
+  font-size: 10.5px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .attachment-card-meta span {
@@ -2524,8 +2530,23 @@ tbody tr {
   justify-content: space-between;
 }
 
+.attachment-preview-header > div:first-child {
+  min-width: 0;
+  max-width: min(720px, calc(94vw - 150px));
+}
+
 .attachment-preview-header h2 {
+  display: -webkit-box;
+  margin: 3px 0 0;
+  max-width: 100%;
+  overflow: hidden;
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.25;
   overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .attachment-preview-frame {
@@ -2554,7 +2575,66 @@ tbody tr {
 }
 
 .attachment-preview-actions {
+  display: flex;
+  gap: 8px;
   flex-shrink: 0;
+  align-items: center;
+}
+
+.attachment-preview-close-button,
+.attachment-open-folder-button {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  color: rgba(255, 255, 255, 0.82);
+  background: rgba(0, 0, 0, 0.32);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
+  cursor: pointer;
+}
+
+.attachment-preview-close-button {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.attachment-preview-close-button:hover,
+.attachment-open-folder-button:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.attachment-open-folder-button {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+}
+
+.attachment-open-folder-button img {
+  display: block;
+  width: 16px;
+  height: 16px;
+  filter: invert(1);
+  pointer-events: none;
+}
+
+.attachment-status-row {
+  display: flex;
+  min-width: 0;
+  gap: 8px;
+  align-items: center;
+}
+
+.attachment-status-row .draft-summary-muted {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .attachment-preview-file {

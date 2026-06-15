@@ -5,6 +5,7 @@ import cloudNetworkIconUrl from "./assets/svg/cloud-network.svg";
 import downloadIconUrl from "./assets/svg/download.svg";
 import fileDownloadIconUrl from "./assets/svg/file-download.svg";
 import fileUploadIconUrl from "./assets/svg/file-upload.svg";
+import folderSymlinkIconUrl from "./assets/svg/folder-symlink.svg";
 import pencilIconUrl from "./assets/svg/pencil.svg";
 import trashIconUrl from "./assets/svg/trash.svg";
 import truckIconUrl from "./assets/svg/truck.svg";
@@ -23,6 +24,7 @@ import {
   getOrderAttachments,
   getOrders,
   login as loginToApi,
+  openDownloadedFileLocation,
   updateMaterialPurchasePrice,
   uploadOrderAttachment,
   updateOrderFromDraft,
@@ -780,10 +782,10 @@ function getAttachmentTypeLabel(attachmentType: string) {
   }
 
   if (attachmentType === "print_file") {
-    return "Файл для печати";
+    return "Файл заказа";
   }
 
-  return "Файл";
+  return "Файл заказа";
 }
 
 function getAttachmentFileKindLabel(attachment: OrderAttachment) {
@@ -828,7 +830,7 @@ function isDraftOrderCustomerFilled(customer: DraftOrderCustomer | undefined) {
 }
 
 function getDraftOrderDeliveryState(delivery: DraftOrderDelivery) {
-  if (delivery.mode === "not-required") {
+  if (isDeliveryNotRequired({ delivery })) {
     return "not-required";
   }
 
@@ -852,6 +854,36 @@ function isDeliveryNotRequiredValue(value: unknown) {
   );
 }
 
+function isDeliveryNotRequired(orderOrDraft: unknown) {
+  if (!orderOrDraft || typeof orderOrDraft !== "object") {
+    return false;
+  }
+
+  const orderWithDelivery = orderOrDraft as {
+    delivery?: {
+      deliveryMode?: unknown;
+      deliveryStatus?: unknown;
+      delivery_status?: unknown;
+      mode?: unknown;
+      status?: unknown;
+    } | null;
+    deliveryMode?: unknown;
+    deliveryStatus?: unknown;
+    delivery_status?: unknown;
+  };
+
+  return [
+    orderWithDelivery.delivery?.mode,
+    orderWithDelivery.delivery?.status,
+    orderWithDelivery.delivery?.deliveryMode,
+    orderWithDelivery.delivery?.deliveryStatus,
+    orderWithDelivery.delivery?.delivery_status,
+    orderWithDelivery.deliveryMode,
+    orderWithDelivery.deliveryStatus,
+    orderWithDelivery.delivery_status
+  ].some(isDeliveryNotRequiredValue);
+}
+
 function getOrderSummaryDeliveryState(
   order: OrderSummary,
   draftOrders: DraftOrder[]
@@ -864,27 +896,7 @@ function getOrderSummaryDeliveryState(
     return getDraftOrderDeliveryState(matchingDraftOrder.delivery);
   }
 
-  const orderWithDelivery = order as OrderSummary & {
-    delivery?: {
-      deliveryMode?: unknown;
-      deliveryStatus?: unknown;
-      delivery_status?: unknown;
-      mode?: unknown;
-    } | null;
-    deliveryMode?: unknown;
-    deliveryStatus?: unknown;
-    delivery_status?: unknown;
-  };
-  const deliveryValue =
-    orderWithDelivery.delivery?.mode ??
-    orderWithDelivery.delivery?.deliveryMode ??
-    orderWithDelivery.delivery?.delivery_status ??
-    orderWithDelivery.delivery?.deliveryStatus ??
-    orderWithDelivery.deliveryMode ??
-    orderWithDelivery.delivery_status ??
-    orderWithDelivery.deliveryStatus;
-
-  return isDeliveryNotRequiredValue(deliveryValue) ? "not-required" : "filled";
+  return isDeliveryNotRequired(order) ? "not-required" : "filled";
 }
 
 function normalizeDraftOrderDelivery(
@@ -1225,6 +1237,8 @@ function App() {
   const [attachmentsStatusByOrderId, setAttachmentsStatusByOrderId] = useState<
     Record<number, string>
   >({});
+  const [lastDownloadedFilePathByOrderId, setLastDownloadedFilePathByOrderId] =
+    useState<Record<number, string>>({});
   const [uploadingAttachmentOrderId, setUploadingAttachmentOrderId] =
     useState<number | null>(null);
   const [attachmentPreview, setAttachmentPreview] = useState<{
@@ -2776,6 +2790,16 @@ function App() {
               ? `Файл сохранён: ${result.filePath}`
               : "Файл сохранён"
       }));
+      setLastDownloadedFilePathByOrderId((current) => {
+        if (result.status === "saved" && result.filePath) {
+          return {
+            ...current,
+            [attachment.orderId]: result.filePath
+          };
+        }
+
+        return current;
+      });
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
@@ -2792,6 +2816,49 @@ function App() {
         [attachment.orderId]: userMessage
       }));
     }
+  }
+
+  async function handleOpenDownloadedFileLocation(orderId: number) {
+    const filePath = lastDownloadedFilePathByOrderId[orderId];
+
+    if (!filePath) {
+      return;
+    }
+
+    try {
+      await openDownloadedFileLocation(filePath);
+    } catch {
+      setAttachmentsStatusByOrderId((current) => ({
+        ...current,
+        [orderId]: "Не удалось открыть папку"
+      }));
+    }
+  }
+
+  function renderAttachmentStatus(orderId: number) {
+    const status = attachmentsStatusByOrderId[orderId];
+    const filePath = lastDownloadedFilePathByOrderId[orderId];
+
+    if (!status) {
+      return null;
+    }
+
+    return (
+      <div className="attachment-status-row">
+        <p className="draft-summary-muted">{status}</p>
+        {filePath && status.startsWith("Файл сохранён") ? (
+          <button
+            aria-label="Открыть папку с файлом"
+            className="attachment-open-folder-button"
+            onClick={() => void handleOpenDownloadedFileLocation(orderId)}
+            title="Открыть папку с файлом"
+            type="button"
+          >
+            <img alt="" src={folderSymlinkIconUrl} />
+          </button>
+        ) : null}
+      </div>
+    );
   }
 
   function closeAttachmentPreview() {
@@ -3348,7 +3415,7 @@ function App() {
                   className="secondary-action-button attachment-download-button"
                   onClick={(event) => {
                     event.preventDefault();
-                    void handleDownloadAttachment(attachmentPreview.attachment)
+                    void handleDownloadAttachment(attachmentPreview.attachment);
                   }}
                   title="Скачать файл"
                   type="button"
@@ -3356,11 +3423,13 @@ function App() {
                   <img alt="" src={downloadIconUrl} />
                 </button>
                 <button
-                  className="secondary-action-button"
+                  aria-label="Закрыть предпросмотр"
+                  className="attachment-preview-close-button"
                   onClick={closeAttachmentPreview}
+                  title="Закрыть предпросмотр"
                   type="button"
                 >
-                  Закрыть
+                  ×
                 </button>
               </div>
             </div>
@@ -4486,23 +4555,14 @@ function App() {
                             </article>
                           ))}
                         </div>
-                        {attachmentsStatusByOrderId[
-                          detailDraftOrder.serverOrderId
-                        ] ? (
-                          <p className="draft-summary-muted">
-                            {
-                              attachmentsStatusByOrderId[
-                                detailDraftOrder.serverOrderId
-                              ]
-                            }
-                          </p>
-                        ) : null}
+                        {renderAttachmentStatus(detailDraftOrder.serverOrderId)}
                       </>
                     ) : (
-                      <p className="draft-summary-muted">
-                        {attachmentsStatusByOrderId[detailDraftOrder.serverOrderId] ||
-                          "Файлы не прикреплены"}
-                      </p>
+                      renderAttachmentStatus(detailDraftOrder.serverOrderId) ?? (
+                        <p className="draft-summary-muted">
+                          Файлы не прикреплены
+                        </p>
+                      )
                     )}
                   </section>
                 ) : null}

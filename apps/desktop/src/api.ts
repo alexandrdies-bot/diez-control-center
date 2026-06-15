@@ -59,6 +59,8 @@ export type OrderSummary = {
   customerEmail: string | null;
   customerName: string | null;
   customerPhone: string | null;
+  deliveryMode: string;
+  deliveryStatus: string;
   firstItemTitle: string | null;
   id: number;
   itemsCount: number;
@@ -683,6 +685,16 @@ export async function downloadOrderAttachment(
     fileName
   );
   return { status: "saved" };
+}
+
+export async function openDownloadedFileLocation(filePath: string): Promise<void> {
+  if (!isTauri()) {
+    throw new Error("TAURI_UNAVAILABLE");
+  }
+
+  await invoke("open_file_location", {
+    path: filePath
+  });
 }
 
 export async function createOrderFromDraft(

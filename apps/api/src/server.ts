@@ -218,6 +218,8 @@ type ApiOrderSummaryRow = {
   customerEmail: string | null;
   customerName: string | null;
   customerPhone: string | null;
+  deliveryMode: string;
+  deliveryStatus: string;
   firstItemTitle: string | null;
   id: number;
   itemsCount: number;
@@ -1896,10 +1898,21 @@ app.get("/orders", async (request, reply) => {
         c.name as "customerName",
         c.phone as "customerPhone",
         c.email as "customerEmail",
+        coalesce(order_delivery.delivery_mode, 'not-required') as "deliveryMode",
+        coalesce(order_delivery.delivery_status, 'not_required') as "deliveryStatus",
         item_stats.items_count as "itemsCount",
         first_item.title as "firstItemTitle"
       from app.orders o
       left join app.customers c on c.id = o.customer_id
+      left join lateral (
+        select
+          od.delivery_mode,
+          od.delivery_status
+        from app.order_delivery od
+        where od.order_id = o.id
+        order by od.id desc
+        limit 1
+      ) order_delivery on true
       left join lateral (
         select count(*)::int as items_count
         from app.order_items oi
@@ -1949,10 +1962,21 @@ app.get<{ Params: { id: string } }>("/orders/:id", async (request, reply) => {
         c.name as "customerName",
         c.phone as "customerPhone",
         c.email as "customerEmail",
+        coalesce(order_delivery.delivery_mode, 'not-required') as "deliveryMode",
+        coalesce(order_delivery.delivery_status, 'not_required') as "deliveryStatus",
         item_stats.items_count as "itemsCount",
         first_item.title as "firstItemTitle"
       from app.orders o
       left join app.customers c on c.id = o.customer_id
+      left join lateral (
+        select
+          od.delivery_mode,
+          od.delivery_status
+        from app.order_delivery od
+        where od.order_id = o.id
+        order by od.id desc
+        limit 1
+      ) order_delivery on true
       left join lateral (
         select count(*)::int as items_count
         from app.order_items oi

@@ -1,6 +1,7 @@
 use std::{
     fs,
     path::{Path, PathBuf},
+    process::Command,
 };
 
 use tauri::{AppHandle, Manager};
@@ -73,12 +74,59 @@ fn save_file_to_downloads(
     Ok(file_path.to_string_lossy().into_owned())
 }
 
+#[tauri::command]
+fn open_file_location(path: String) -> Result<(), String> {
+    if path.trim().is_empty() {
+        return Err("EMPTY_PATH".to_string());
+    }
+
+    let file_path = PathBuf::from(path);
+
+    if !file_path.exists() {
+        return Err("FILE_NOT_FOUND".to_string());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("explorer")
+            .arg(format!("/select,{}", file_path.to_string_lossy()))
+            .spawn()
+            .map_err(|error| format!("OPEN_FILE_LOCATION_FAILED: {error}"))?;
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open")
+            .arg("-R")
+            .arg(&file_path)
+            .spawn()
+            .map_err(|error| format!("OPEN_FILE_LOCATION_FAILED: {error}"))?;
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let folder_path = file_path
+            .parent()
+            .ok_or_else(|| "PARENT_DIR_UNAVAILABLE".to_string())?;
+
+        Command::new("xdg-open")
+            .arg(folder_path)
+            .spawn()
+            .map_err(|error| format!("OPEN_FILE_LOCATION_FAILED: {error}"))?;
+    }
+
+    Ok(())
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![save_file_to_downloads])
+        .invoke_handler(tauri::generate_handler![
+            open_file_location,
+            save_file_to_downloads
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
