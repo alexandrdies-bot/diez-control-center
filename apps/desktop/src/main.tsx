@@ -13,6 +13,7 @@ import userIconUrl from "./assets/svg/user.svg";
 import {
   createOrderFromDraft,
   deleteOrder,
+  downloadOrderAttachment,
   fetchOrderAttachmentBlob,
   getApiHealth,
   getCurrentUser,
@@ -2743,25 +2744,54 @@ function App() {
   }
 
   async function handleDownloadAttachment(attachment: OrderAttachment) {
+    console.info("[attachment-download] click", attachment.id);
+
     if (!authToken) {
+      setAttachmentsStatusByOrderId((current) => ({
+        ...current,
+        [attachment.orderId]: "Нет подключения к серверу"
+      }));
       return;
     }
 
-    const blob = await fetchOrderAttachmentBlob(
-      attachment.orderId,
-      attachment.id,
-      authToken,
-      "download"
-    );
-    const objectUrl = URL.createObjectURL(blob);
-    const link = document.createElement("a");
+    setAttachmentsStatusByOrderId((current) => ({
+      ...current,
+      [attachment.orderId]: "Скачиваем файл..."
+    }));
 
-    link.href = objectUrl;
-    link.download = attachment.originalFileName;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(objectUrl);
+    try {
+      const result = await downloadOrderAttachment(
+        attachment.orderId,
+        attachment.id,
+        authToken,
+        attachment.originalFileName
+      );
+
+      setAttachmentsStatusByOrderId((current) => ({
+        ...current,
+        [attachment.orderId]:
+          result.status === "cancelled"
+            ? "Скачивание отменено"
+            : result.filePath
+              ? `Файл сохранён: ${result.filePath}`
+              : "Файл сохранён"
+      }));
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      const userMessage = errorMessage.includes("DOWNLOADS_FALLBACK_FAILED")
+        ? "Не удалось скачать файл: не удалось сохранить в папку загрузок"
+        : "Не удалось скачать файл";
+
+      console.error("[attachment-download] failed", {
+        attachmentId: attachment.id,
+        error: errorMessage
+      });
+      setAttachmentsStatusByOrderId((current) => ({
+        ...current,
+        [attachment.orderId]: userMessage
+      }));
+    }
   }
 
   function closeAttachmentPreview() {
@@ -3316,9 +3346,10 @@ function App() {
               <div className="app-modal-actions attachment-preview-actions">
                 <button
                   className="secondary-action-button attachment-download-button"
-                  onClick={() =>
+                  onClick={(event) => {
+                    event.preventDefault();
                     void handleDownloadAttachment(attachmentPreview.attachment)
-                  }
+                  }}
                   title="Скачать файл"
                   type="button"
                 >
@@ -3367,9 +3398,10 @@ function App() {
                 </div>
                 <button
                   className="secondary-action-button attachment-preview-download"
-                  onClick={() =>
+                  onClick={(event) => {
+                    event.preventDefault();
                     void handleDownloadAttachment(attachmentPreview.attachment)
-                  }
+                  }}
                   type="button"
                 >
                   <img alt="" src={downloadIconUrl} />
@@ -4395,63 +4427,77 @@ function App() {
 
                     {(orderAttachmentsByOrderId[detailDraftOrder.serverOrderId] ?? [])
                       .length > 0 ? (
-                      <div className="attachment-grid">
-                        {orderAttachmentsByOrderId[
-                          detailDraftOrder.serverOrderId
-                        ].map((attachment) => (
-                          <article
-                            className="attachment-card"
-                            key={attachment.id}
-                            onClick={() =>
-                              void handleOpenAttachmentPreview(attachment)
-                            }
-                            role="button"
-                            tabIndex={0}
-                          >
-                            <div className="attachment-card-media">
-                              {isImageAttachment(attachment) &&
-                              attachmentPreviewUrlById[attachment.id] ? (
-                                <img
-                                  alt={attachment.originalFileName}
-                                  src={attachmentPreviewUrlById[attachment.id]}
-                                />
-                              ) : (
-                                <div className="attachment-card-file">
-                                  <span>{getAttachmentFileKindLabel(attachment)}</span>
-                                  <strong>
-                                    {getAttachmentTypeLabel(
-                                      attachment.attachmentType
-                                    )}
-                                  </strong>
-                                </div>
-                              )}
-                            </div>
-                            <div className="attachment-card-meta">
-                              <strong>{attachment.originalFileName}</strong>
-                              <span>
-                                {getAttachmentTypeLabel(attachment.attachmentType)}
-                                {formatAttachmentFileSize(attachment.fileSize)
-                                  ? ` · ${formatAttachmentFileSize(
-                                      attachment.fileSize
-                                    )}`
-                                  : ""}
-                              </span>
-                            </div>
-                            <button
-                              aria-label="Скачать файл"
-                              className="attachment-download-button"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                void handleDownloadAttachment(attachment);
-                              }}
-                              title="Скачать файл"
-                              type="button"
+                      <>
+                        <div className="attachment-grid">
+                          {orderAttachmentsByOrderId[
+                            detailDraftOrder.serverOrderId
+                          ].map((attachment) => (
+                            <article
+                              className="attachment-card"
+                              key={attachment.id}
+                              onClick={() =>
+                                void handleOpenAttachmentPreview(attachment)
+                              }
+                              role="button"
+                              tabIndex={0}
                             >
-                              <img alt="" src={downloadIconUrl} />
-                            </button>
-                          </article>
-                        ))}
-                      </div>
+                              <div className="attachment-card-media">
+                                {isImageAttachment(attachment) &&
+                                attachmentPreviewUrlById[attachment.id] ? (
+                                  <img
+                                    alt={attachment.originalFileName}
+                                    src={attachmentPreviewUrlById[attachment.id]}
+                                  />
+                                ) : (
+                                  <div className="attachment-card-file">
+                                    <span>{getAttachmentFileKindLabel(attachment)}</span>
+                                    <strong>
+                                      {getAttachmentTypeLabel(
+                                        attachment.attachmentType
+                                      )}
+                                    </strong>
+                                  </div>
+                                )}
+                              </div>
+                              <div className="attachment-card-meta">
+                                <strong>{attachment.originalFileName}</strong>
+                                <span>
+                                  {getAttachmentTypeLabel(attachment.attachmentType)}
+                                  {formatAttachmentFileSize(attachment.fileSize)
+                                    ? ` · ${formatAttachmentFileSize(
+                                        attachment.fileSize
+                                      )}`
+                                    : ""}
+                                </span>
+                              </div>
+                              <button
+                                aria-label="Скачать файл"
+                                className="attachment-download-button"
+                                onClick={(event) => {
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  void handleDownloadAttachment(attachment);
+                                }}
+                                title="Скачать файл"
+                                type="button"
+                              >
+                                <img alt="" src={downloadIconUrl} />
+                              </button>
+                            </article>
+                          ))}
+                        </div>
+                        {attachmentsStatusByOrderId[
+                          detailDraftOrder.serverOrderId
+                        ] ? (
+                          <p className="draft-summary-muted">
+                            {
+                              attachmentsStatusByOrderId[
+                                detailDraftOrder.serverOrderId
+                              ]
+                            }
+                          </p>
+                        ) : null}
+                      </>
                     ) : (
                       <p className="draft-summary-muted">
                         {attachmentsStatusByOrderId[detailDraftOrder.serverOrderId] ||

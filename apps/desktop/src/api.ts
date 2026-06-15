@@ -1,3 +1,7 @@
+import { invoke, isTauri } from "@tauri-apps/api/core";
+import { save } from "@tauri-apps/plugin-dialog";
+import { writeFile } from "@tauri-apps/plugin-fs";
+
 export type ApiHealth = {
   ok: boolean;
   service: string;
@@ -114,6 +118,10 @@ export type OrderAttachment = {
   originalFileName: string;
   previewUrl: string | null;
 };
+
+export type DownloadOrderAttachmentResult =
+  | { filePath?: string; status: "saved" }
+  | { status: "cancelled" };
 
 export type AuthUser = {
   displayName: string;
@@ -513,6 +521,168 @@ export async function fetchOrderAttachmentBlob(
   }
 
   return response.blob();
+}
+
+function getFileNameFromContentDisposition(header: string | null): string | null {
+  if (!header) {
+    return null;
+  }
+
+  const utf8Match = header.match(/filename\*=UTF-8''([^;]+)/i);
+
+  if (utf8Match?.[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1].trim().replace(/^"|"$/g, ""));
+    } catch {
+      return utf8Match[1].trim().replace(/^"|"$/g, "");
+    }
+  }
+
+  const plainMatch = header.match(/filename="?([^";]+)"?/i);
+
+  return plainMatch?.[1]?.trim() || null;
+}
+
+function sanitizeDownloadedFileName(fileName: string) {
+  return fileName.replace(/[\\/:*?"<>|]/g, "_").trim() || "attachment";
+}
+
+function getFileExtension(fileName: string) {
+  const extension = fileName.split(".").pop()?.trim();
+
+  return extension && extension !== fileName ? extension : null;
+}
+
+function triggerBrowserDownload(blob: Blob, fileName: string) {
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = objectUrl;
+  link.download = fileName;
+  link.style.display = "none";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+}
+
+async function saveAttachmentToDownloads(
+  fileName: string,
+  bytes: Uint8Array
+): Promise<string> {
+  return invoke<string>("save_file_to_downloads", {
+    bytes: Array.from(bytes),
+    filename: fileName
+  });
+}
+
+export async function downloadOrderAttachment(
+  orderId: number,
+  attachmentId: number,
+  token: string,
+  fallbackFileName?: string
+): Promise<DownloadOrderAttachmentResult> {
+  const url = getOrderAttachmentDownloadUrl(orderId, attachmentId);
+  const response = await fetch(url, {
+    headers: createBearerHeaders(token)
+  });
+
+  if (!response.ok) {
+    const responseBody = await response.text();
+    throw new Error(
+      `${url} ${response.status}${responseBody ? ` ${responseBody}` : ""}`
+    );
+  }
+
+  const arrayBuffer = await response.arrayBuffer();
+  const bytes = new Uint8Array(arrayBuffer);
+  const fileName = sanitizeDownloadedFileName(
+    getFileNameFromContentDisposition(response.headers.get("Content-Disposition")) ||
+      fallbackFileName ||
+      `attachment-${attachmentId}`
+  );
+
+  if (isTauri()) {
+    const extension = getFileExtension(fileName);
+    let filePath: string | null | undefined;
+
+    try {
+      filePath = await save({
+        defaultPath: fileName,
+        filters: extension
+          ? [
+              {
+                extensions: [extension],
+                name: "Файл заказа"
+              }
+            ]
+          : undefined,
+        title: "Сохранить файл заказа"
+      });
+    } catch (error) {
+      console.warn("[attachment-download] save dialog failed, using downloads fallback", {
+        error: error instanceof Error ? error.message : String(error)
+      });
+      filePath = undefined;
+    }
+
+    if (filePath === undefined) {
+      try {
+        const fallbackPath = await saveAttachmentToDownloads(fileName, bytes);
+
+        return {
+          filePath: fallbackPath,
+          status: "saved"
+        };
+      } catch (error) {
+        throw new Error(
+          `DOWNLOADS_FALLBACK_FAILED ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      }
+    }
+
+    if (filePath === null) {
+      return { status: "cancelled" };
+    }
+
+    try {
+      await writeFile(filePath, bytes);
+      return {
+        filePath,
+        status: "saved"
+      };
+    } catch (error) {
+      console.warn("[attachment-download] save dialog write failed, using downloads fallback", {
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+
+    try {
+      const fallbackPath = await saveAttachmentToDownloads(fileName, bytes);
+
+      return {
+        filePath: fallbackPath,
+        status: "saved"
+      };
+    } catch (error) {
+      throw new Error(
+        `DOWNLOADS_FALLBACK_FAILED ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
+  }
+
+  triggerBrowserDownload(
+    new Blob([bytes], {
+      type: response.headers.get("Content-Type") || undefined
+    }),
+    fileName
+  );
+  return { status: "saved" };
 }
 
 export async function createOrderFromDraft(
