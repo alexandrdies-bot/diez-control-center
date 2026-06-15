@@ -16,8 +16,13 @@ html,
 body,
 #root {
   width: 100%;
+  height: 100%;
   min-width: 0;
   overflow-x: hidden;
+}
+
+body {
+  overflow: hidden;
 }
 
 button,
@@ -29,10 +34,11 @@ textarea {
 
 .app-shell {
   width: 100%;
-  min-height: 100vh;
+  height: 100vh;
+  min-height: 0;
   display: grid;
   grid-template-rows: auto 1fr;
-  overflow-x: hidden;
+  overflow: hidden;
   background:
     radial-gradient(circle at top left, rgba(58, 119, 255, 0.22), transparent 32rem),
     linear-gradient(135deg, #111318, #1c2028);
@@ -77,10 +83,12 @@ textarea {
 }
 
 .auth-screen {
-  min-height: 100vh;
+  height: 100vh;
+  min-height: 0;
   display: grid;
   place-items: center;
   padding: 32px;
+  overflow: auto;
   background:
     radial-gradient(circle at top left, rgba(58, 119, 255, 0.22), transparent 32rem),
     linear-gradient(135deg, #111318, #1c2028);
@@ -159,13 +167,15 @@ textarea {
   min-height: 0;
   display: grid;
   grid-template-columns: 320px 1fr;
-  overflow-x: hidden;
+  overflow: hidden;
 }
 
 .sidebar {
   min-width: 0;
+  min-height: 0;
   padding: 28px;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   border-right: 1px solid rgba(255, 255, 255, 0.1);
   background: rgba(0, 0, 0, 0.18);
 }
@@ -202,6 +212,7 @@ p {
 .activity-feed-panel {
   display: grid;
   gap: 18px;
+  min-height: 0;
 }
 
 .activity-feed-panel h2 {
@@ -512,6 +523,7 @@ p {
 
 .content-panel {
   min-width: 0;
+  min-height: 0;
   padding: 32px;
   overflow-x: hidden;
   overflow-y: auto;
