@@ -122,6 +122,55 @@ type AuthSessionContext = {
   user: AuthenticatedUser;
 };
 
+type CustomerAuthPayload = {
+  clientName?: unknown;
+  phone?: unknown;
+  pin?: unknown;
+};
+
+type CustomerRegisterPayload = CustomerAuthPayload & {
+  displayName?: unknown;
+  email?: unknown;
+  pinRepeat?: unknown;
+};
+
+type PublicCustomerAccount = {
+  customerId: number | null;
+  displayName: string | null;
+  email: string | null;
+  id: number;
+  phone: string;
+  phoneNormalized: string;
+};
+
+type CustomerAccountRow = {
+  customerId: string | null;
+  displayName: string | null;
+  email: string | null;
+  id: string;
+  phone: string;
+  phoneNormalized: string;
+};
+
+type CustomerAccountWithPinRow = CustomerAccountRow & {
+  failedLoginAttempts: number;
+  lockedUntil: string | null;
+  pinHash: string;
+};
+
+type CustomerSessionRow = CustomerAccountRow & {
+  expiresAt: string;
+  sessionId: string;
+};
+
+type CustomerAuthSessionContext = {
+  customer: PublicCustomerAccount;
+  session: {
+    expiresAt: string;
+    id: number;
+  };
+};
+
 type DesktopDraftOrderCustomer = {
   comment?: unknown;
   email?: unknown;
@@ -483,6 +532,58 @@ function buildPublicAuthUser(row: AuthPublicUserRow): PublicAuthUser {
   };
 }
 
+function normalizeCustomerPin(value: unknown) {
+  return typeof value === "string" && /^\d{4}$/.test(value) ? value : null;
+}
+
+function normalizeCustomerEmail(value: unknown) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const email = value.trim().toLowerCase();
+
+  if (!email) {
+    return null;
+  }
+
+  if (!email.includes("@") || !email.split("@")[1]?.includes(".")) {
+    return null;
+  }
+
+  return email;
+}
+
+function normalizeCustomerDisplayName(value: unknown) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const displayName = value.trim();
+
+  return displayName ? displayName : null;
+}
+
+function createPasswordHash(password: string) {
+  const salt = randomBytes(16);
+  const key = scryptSync(password, salt, 64);
+
+  return `scrypt:${salt.toString("hex")}:${key.toString("hex")}`;
+}
+
+function buildPublicCustomerAccount(
+  row: CustomerAccountRow
+): PublicCustomerAccount {
+  return {
+    customerId: row.customerId === null ? null : Number(row.customerId),
+    displayName: row.displayName,
+    email: row.email,
+    id: Number(row.id),
+    phone: row.phone,
+    phoneNormalized: row.phoneNormalized
+  };
+}
+
 function verifyPassword(password: string, passwordHash: string) {
   const [format, saltHex, keyHex] = passwordHash.split(":");
 
@@ -593,6 +694,77 @@ async function requireRole(
   if (!allowedRoles.includes(authSession.user.role)) {
     reply.code(403).send({
       error: "FORBIDDEN"
+    });
+    return null;
+  }
+
+  return authSession;
+}
+
+async function getCustomerAuthSession(
+  request: FastifyRequest
+): Promise<CustomerAuthSessionContext | null> {
+  const token = getBearerToken(request);
+
+  if (!token) {
+    return null;
+  }
+
+  const tokenHash = hashSessionToken(token);
+  const sessions = await queryDatabase<CustomerSessionRow>(
+    `
+      select
+        s.id::text as "sessionId",
+        s.expires_at::text as "expiresAt",
+        a.id::text as id,
+        a.customer_id::text as "customerId",
+        a.phone,
+        a.phone_normalized as "phoneNormalized",
+        a.email,
+        a.display_name as "displayName"
+      from app.customer_sessions s
+      join app.customer_accounts a on a.id = s.customer_account_id
+      where s.token_hash = $1
+        and s.revoked_at is null
+        and s.expires_at > now()
+        and a.is_active = true
+      limit 1
+    `,
+    [tokenHash]
+  );
+  const session = sessions[0];
+
+  if (!session) {
+    return null;
+  }
+
+  await queryDatabase(
+    `
+      update app.customer_sessions
+      set last_seen_at = now()
+      where id = $1
+    `,
+    [session.sessionId]
+  );
+
+  return {
+    customer: buildPublicCustomerAccount(session),
+    session: {
+      expiresAt: session.expiresAt,
+      id: Number(session.sessionId)
+    }
+  };
+}
+
+async function requireCustomerAuthSession(
+  request: FastifyRequest,
+  reply: FastifyReply
+) {
+  const authSession = await getCustomerAuthSession(request);
+
+  if (!authSession) {
+    reply.code(401).send({
+      error: "UNAUTHORIZED"
     });
     return null;
   }
@@ -1535,6 +1707,267 @@ app.get("/auth/me", async (request, reply) => {
   };
 });
 
+app.post<{ Body: CustomerRegisterPayload }>(
+  "/customer/auth/register",
+  async (request, reply) => {
+    const phone = normalizeLogin(request.body?.phone);
+    const phoneNormalized = normalizePhoneLogin(request.body?.phone);
+    const pin = normalizeCustomerPin(request.body?.pin);
+    const pinRepeat = normalizeCustomerPin(request.body?.pinRepeat);
+    const email = normalizeCustomerEmail(request.body?.email);
+    const displayName = normalizeCustomerDisplayName(request.body?.displayName);
+
+    if (!phone || !phoneNormalized || !pin || !pinRepeat) {
+      return reply.code(400).send({
+        error: "INVALID_CUSTOMER_REGISTER_PAYLOAD"
+      });
+    }
+
+    if (pin !== pinRepeat) {
+      return reply.code(400).send({
+        error: "CUSTOMER_PIN_MISMATCH"
+      });
+    }
+
+    const existingAccounts = await queryDatabase<{ id: string }>(
+      `
+        select id::text as id
+        from app.customer_accounts
+        where phone_normalized = $1
+        limit 1
+      `,
+      [phoneNormalized]
+    );
+
+    if (existingAccounts[0]) {
+      return reply.code(409).send({
+        error: "CUSTOMER_ACCOUNT_ALREADY_EXISTS"
+      });
+    }
+
+    const token = generateSessionToken();
+    const tokenHash = hashSessionToken(token);
+    const pinHash = createPasswordHash(pin);
+    const clientName = getOptionalString(request.body?.clientName);
+    const userAgent = getOptionalString(request.headers["user-agent"]);
+
+    const result = await withDatabaseTransaction(async (client) => {
+      const customerResult = await client.query<{ id: string }>(
+        `
+          insert into app.customers (
+            customer_type,
+            name,
+            phone,
+            email,
+            comment
+          )
+          values ('person', $1, $2, $3, null)
+          returning id::text as id
+        `,
+        [displayName, phone, email]
+      );
+      const customerId = customerResult.rows[0]?.id ?? null;
+
+      const accountResult = await client.query<CustomerAccountRow>(
+        `
+          insert into app.customer_accounts (
+            customer_id,
+            phone,
+            phone_normalized,
+            email,
+            display_name,
+            pin_hash
+          )
+          values ($1, $2, $3, $4, $5, $6)
+          returning
+            id::text as id,
+            customer_id::text as "customerId",
+            phone,
+            phone_normalized as "phoneNormalized",
+            email,
+            display_name as "displayName"
+        `,
+        [customerId, phone, phoneNormalized, email, displayName, pinHash]
+      );
+      const account = accountResult.rows[0];
+
+      const sessionResult = await client.query<{ expiresAt: string }>(
+        `
+          insert into app.customer_sessions (
+            customer_account_id,
+            token_hash,
+            expires_at,
+            user_agent,
+            client_name
+          )
+          values ($1, $2, now() + interval '30 days', $3, $4)
+          returning expires_at::text as "expiresAt"
+        `,
+        [account.id, tokenHash, userAgent, clientName]
+      );
+
+      return {
+        account,
+        expiresAt: sessionResult.rows[0].expiresAt
+      };
+    });
+
+    return reply.code(201).send({
+      customer: buildPublicCustomerAccount(result.account),
+      expiresAt: result.expiresAt,
+      token
+    });
+  }
+);
+
+app.post<{ Body: CustomerAuthPayload }>(
+  "/customer/auth/login",
+  async (request, reply) => {
+    const phoneNormalized = normalizePhoneLogin(request.body?.phone);
+    const pin = normalizeCustomerPin(request.body?.pin);
+
+    if (!phoneNormalized || !pin) {
+      return reply.code(400).send({
+        error: "INVALID_CUSTOMER_LOGIN_PAYLOAD"
+      });
+    }
+
+    const accounts = await queryDatabase<CustomerAccountWithPinRow>(
+      `
+        select
+          id::text as id,
+          customer_id::text as "customerId",
+          phone,
+          phone_normalized as "phoneNormalized",
+          email,
+          display_name as "displayName",
+          pin_hash as "pinHash",
+          failed_login_attempts as "failedLoginAttempts",
+          locked_until::text as "lockedUntil"
+        from app.customer_accounts
+        where phone_normalized = $1
+          and is_active = true
+        limit 1
+      `,
+      [phoneNormalized]
+    );
+    const account = accounts[0];
+
+    if (!account) {
+      return reply.code(401).send({
+        error: "INVALID_CUSTOMER_PHONE_OR_PIN"
+      });
+    }
+
+    if (account.lockedUntil && new Date(account.lockedUntil).getTime() > Date.now()) {
+      return reply.code(429).send({
+        error: "CUSTOMER_ACCOUNT_LOCKED"
+      });
+    }
+
+    if (!verifyPassword(pin, account.pinHash)) {
+      await queryDatabase(
+        `
+          update app.customer_accounts
+          set
+            failed_login_attempts = failed_login_attempts + 1,
+            locked_until = case
+              when failed_login_attempts + 1 >= 5 then now() + interval '15 minutes'
+              else locked_until
+            end
+          where id = $1
+        `,
+        [account.id]
+      );
+
+      return reply.code(401).send({
+        error: "INVALID_CUSTOMER_PHONE_OR_PIN"
+      });
+    }
+
+    const token = generateSessionToken();
+    const tokenHash = hashSessionToken(token);
+    const clientName = getOptionalString(request.body?.clientName);
+    const userAgent = getOptionalString(request.headers["user-agent"]);
+
+    const session = await withDatabaseTransaction(async (client) => {
+      const sessionResult = await client.query<{ expiresAt: string }>(
+        `
+          insert into app.customer_sessions (
+            customer_account_id,
+            token_hash,
+            expires_at,
+            user_agent,
+            client_name
+          )
+          values ($1, $2, now() + interval '30 days', $3, $4)
+          returning expires_at::text as "expiresAt"
+        `,
+        [account.id, tokenHash, userAgent, clientName]
+      );
+
+      await client.query(
+        `
+          update app.customer_accounts
+          set
+            failed_login_attempts = 0,
+            locked_until = null,
+            last_login_at = now()
+          where id = $1
+        `,
+        [account.id]
+      );
+
+      return sessionResult.rows[0];
+    });
+
+    return {
+      customer: buildPublicCustomerAccount(account),
+      expiresAt: session.expiresAt,
+      token
+    };
+  }
+);
+
+app.post("/customer/auth/logout", async (request) => {
+  const token = getBearerToken(request);
+
+  if (!token) {
+    return {
+      ok: true
+    };
+  }
+
+  await queryDatabase(
+    `
+      update app.customer_sessions
+      set revoked_at = now()
+      where token_hash = $1
+        and revoked_at is null
+    `,
+    [hashSessionToken(token)]
+  );
+
+  return {
+    ok: true
+  };
+});
+
+app.get("/customer/auth/me", async (request, reply) => {
+  const authSession = await requireCustomerAuthSession(request, reply);
+
+  if (!authSession) {
+    return null;
+  }
+
+  return {
+    customer: authSession.customer,
+    session: {
+      expiresAt: authSession.session.expiresAt
+    }
+  };
+});
+
 app.post<{ Body: CheckoutOrderPayload }>(
   "/checkout/orders",
   async (request, reply) => {
@@ -1543,6 +1976,17 @@ app.post<{ Body: CheckoutOrderPayload }>(
     if (!validation.ok) {
       return reply.code(validation.statusCode).send(validation.body);
     }
+
+    const hasCustomerBearerToken = Boolean(getBearerToken(request));
+    const customerAuthSession = hasCustomerBearerToken
+      ? await requireCustomerAuthSession(request, reply)
+      : null;
+
+    if (hasCustomerBearerToken && !customerAuthSession) {
+      return null;
+    }
+
+    const customerAccountId = customerAuthSession?.customer.id ?? null;
 
     const {
       customerComment,
@@ -1616,6 +2060,7 @@ app.post<{ Body: CheckoutOrderPayload }>(
             source_ref,
             status,
             customer_id,
+            customer_account_id,
             customer_snapshot_json,
             items_total_minor,
             delivery_total_minor,
@@ -1630,13 +2075,14 @@ app.post<{ Body: CheckoutOrderPayload }>(
             $1,
             'new',
             $2,
-            $3::jsonb,
-            $4,
-            0,
-            0,
+            $3,
+            $4::jsonb,
             $5,
-            'RUB',
+            0,
+            0,
             $6,
+            'RUB',
+            $7,
             null
           )
           returning id, order_number
@@ -1644,6 +2090,7 @@ app.post<{ Body: CheckoutOrderPayload }>(
         [
           sourceRef,
           customerId,
+          customerAccountId,
           JSON.stringify(customerSnapshot),
           totalPriceMinor,
           totalPriceMinor,
@@ -1672,13 +2119,16 @@ app.post<{ Body: CheckoutOrderPayload }>(
             order_id,
             event_type,
             actor_type,
+            actor_customer_account_id,
             payload_json
           )
-          values ($1, 'order_created', 'site', $2::jsonb)
+          values ($1, 'order_created', 'site', $2, $3::jsonb)
         `,
         [
           orderId,
+          customerAccountId,
           JSON.stringify({
+            customerAccountId,
             source: "checkout",
             sourceRef
           })
