@@ -53,6 +53,31 @@ export type CalculationFixtureDebugResult = {
   limitation: string;
 };
 
+export type CustomerAccountRetention = {
+  customerId: number | null;
+  displayName: string | null;
+  email: string | null;
+  id: number;
+  lastActivityAt: string;
+  phone: string;
+  phoneNormalized: string;
+  retentionLocked: boolean;
+  retentionLockReason: string | null;
+  retentionLockedAt: string | null;
+  retentionLockedByUserId: number | null;
+  retentionLockUntil: string | null;
+};
+
+export type UpdateCustomerRetentionPayload = {
+  retentionLocked: boolean;
+  retentionLockReason?: string | null;
+  retentionLockUntil?: string | null;
+};
+
+export type UpdateCustomerRetentionResult = {
+  customerAccount: CustomerAccountRetention;
+};
+
 export type OrderSummary = {
   createdAt: string;
   currencyCode: string;
@@ -80,6 +105,7 @@ export type OrderDetail = OrderSummary & {
     name: string | null;
     phone: string | null;
   };
+  customerAccount: CustomerAccountRetention | null;
   customerComment: string | null;
   customerId: number | null;
   delivery: {
@@ -736,6 +762,32 @@ export async function updateOrderFromDraft(
   }
 
   return response.json() as Promise<UpdateOrderResult>;
+}
+
+export async function updateCustomerAccountRetention(
+  customerAccountId: number,
+  payload: UpdateCustomerRetentionPayload,
+  token: string
+): Promise<UpdateCustomerRetentionResult> {
+  const response = await fetch(
+    `${apiBaseUrl}/customer-accounts/${customerAccountId}/retention`,
+    {
+      body: JSON.stringify(payload),
+      headers: createJsonBearerHeaders(token),
+      method: "PATCH"
+    }
+  );
+
+  if (!response.ok) {
+    const responseBody = await response.text();
+    throw new Error(
+      `/customer-accounts/${customerAccountId}/retention ${response.status}${
+        responseBody ? ` ${responseBody}` : ""
+      }`
+    );
+  }
+
+  return response.json() as Promise<UpdateCustomerRetentionResult>;
 }
 
 export async function deleteOrder(
