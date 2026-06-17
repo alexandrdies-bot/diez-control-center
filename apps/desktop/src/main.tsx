@@ -25,11 +25,13 @@ import {
   getOrders,
   login as loginToApi,
   openDownloadedFileLocation,
+  updateCustomerAccountRetention,
   updateMaterialPurchasePrice,
   uploadOrderAttachment,
   updateOrderFromDraft,
   type ApiHealth,
   type AuthUser,
+  type CustomerAccountRetention,
   type Material,
   type MaterialPricingInput,
   type OrderAttachment,
@@ -312,6 +314,7 @@ type DraftOrder = {
   id: string;
   status: DraftOrderStatus;
   customer?: DraftOrderCustomer;
+  customerAccount?: CustomerAccountRetention | null;
   delivery: DraftOrderDelivery;
   items: DraftOrderItem[];
   requestComment?: string;
@@ -486,6 +489,7 @@ function mapOrderDetailsToDraftOrder(
       name: orderDetails.customer.name ?? orderDetails.customerName ?? "",
       phone: orderDetails.customer.phone ?? orderDetails.customerPhone ?? ""
     },
+    customerAccount: orderDetails.customerAccount,
     delivery: orderDetails.delivery
       ? {
           address: orderDetails.delivery.addressText ?? "",
@@ -525,6 +529,20 @@ function normalizeRussianPhoneDigits(value: string) {
   }
 
   return digits.slice(0, 10);
+}
+
+function formatDateTimeLabel(value?: string | null) {
+  if (!value) {
+    return "—";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "—";
+  }
+
+  return date.toLocaleString("ru-RU");
 }
 
 function formatRussianPhone(value: string) {
@@ -1294,6 +1312,12 @@ function App() {
   const [draftOrderSaveStatusById, setDraftOrderSaveStatusById] = useState<
     Record<string, string>
   >({});
+  const [
+    customerRetentionSaveStatusByAccountId,
+    setCustomerRetentionSaveStatusByAccountId
+  ] = useState<Record<number, string>>({});
+  const [savingCustomerRetentionAccountId, setSavingCustomerRetentionAccountId] =
+    useState<number | null>(null);
   const [pendingDeleteOrderId, setPendingDeleteOrderId] = useState<string | null>(
     null
   );
@@ -1566,6 +1590,13 @@ function App() {
       activeDraftOrder
     );
   }, [activeDraftOrder, draftOrders, selectedDraftOrderId]);
+  const detailCustomerAccount = detailDraftOrder?.customerAccount ?? null;
+  const detailCustomerRetentionStatus = detailCustomerAccount
+    ? customerRetentionSaveStatusByAccountId[detailCustomerAccount.id] ?? null
+    : null;
+  const isDetailCustomerRetentionSaving = detailCustomerAccount
+    ? savingCustomerRetentionAccountId === detailCustomerAccount.id
+    : false;
   const localDraftOrders = useMemo(
     () =>
       draftOrders.filter(
@@ -2541,6 +2572,72 @@ function App() {
       mode: draftOrder.delivery.mode,
       phone: formatRussianPhone(draftOrder.delivery.phone ?? "")
     });
+  }
+
+  async function handleToggleCustomerRetentionLock(
+    draftOrder: DraftOrder,
+    nextRetentionLocked: boolean
+  ) {
+    const customerAccount = draftOrder.customerAccount;
+
+    if (!customerAccount) {
+      return;
+    }
+
+    if (!authToken) {
+      setCustomerRetentionSaveStatusByAccountId((current) => ({
+        ...current,
+        [customerAccount.id]: "Нет подключения к серверу"
+      }));
+      return;
+    }
+
+    setSavingCustomerRetentionAccountId(customerAccount.id);
+    setCustomerRetentionSaveStatusByAccountId((current) => ({
+      ...current,
+      [customerAccount.id]: nextRetentionLocked
+        ? "Включаем защиту от автоочистки..."
+        : "Отключаем защиту от автоочистки..."
+    }));
+
+    try {
+      const result = await updateCustomerAccountRetention(
+        customerAccount.id,
+        {
+          retentionLocked: nextRetentionLocked,
+          retentionLockReason: nextRetentionLocked
+            ? "Постоянный клиент / ручная защита менеджера"
+            : null
+        },
+        authToken
+      );
+
+      setDraftOrders((orders) =>
+        orders.map((currentDraftOrder) =>
+          currentDraftOrder.customerAccount?.id === result.customerAccount.id
+            ? {
+                ...currentDraftOrder,
+                customerAccount: result.customerAccount
+              }
+            : currentDraftOrder
+        )
+      );
+
+      setCustomerRetentionSaveStatusByAccountId((current) => ({
+        ...current,
+        [customerAccount.id]: nextRetentionLocked
+          ? "Автоочистка личного кабинета запрещена"
+          : "Автоочистка личного кабинета разрешена"
+      }));
+    } catch {
+      setCustomerRetentionSaveStatusByAccountId((current) => ({
+        ...current,
+        [customerAccount.id]:
+          "Не удалось сохранить настройку автоочистки"
+      }));
+    } finally {
+      setSavingCustomerRetentionAccountId(null);
+    }
   }
 
   function handleSaveDraftOrderCustomer(draftOrderId: string) {
@@ -4294,6 +4391,58 @@ function App() {
                           </div>
                         ) : (
                           <p className="draft-summary-muted">Заказчик не заполнен</p>
+                        )}
+                        {detailCustomerAccount ? (
+                          <div className="draft-summary-lines">
+                            <span
+                              className={
+                                detailCustomerAccount.retentionLocked
+                                  ? "draft-summary-state draft-summary-state-ok"
+                                  : "draft-summary-state draft-summary-state-alert"
+                              }
+                            >
+                              {detailCustomerAccount.retentionLocked
+                                ? "Автоочистка запрещена"
+                                : "Автоочистка разрешена"}
+                            </span>
+                            <span>
+                              Активность:{" "}
+                              {formatDateTimeLabel(
+                                detailCustomerAccount.lastActivityAt
+                              )}
+                            </span>
+                            {detailCustomerAccount.retentionLockReason ? (
+                              <span>
+                                Причина: {detailCustomerAccount.retentionLockReason}
+                              </span>
+                            ) : null}
+                            <button
+                              className="secondary-action-button"
+                              disabled={isDetailCustomerRetentionSaving}
+                              onClick={() =>
+                                handleToggleCustomerRetentionLock(
+                                  detailDraftOrder,
+                                  !detailCustomerAccount.retentionLocked
+                                )
+                              }
+                              type="button"
+                            >
+                              {isDetailCustomerRetentionSaving
+                                ? "Сохраняем..."
+                                : detailCustomerAccount.retentionLocked
+                                  ? "Разрешить автоочистку"
+                                  : "Не удалять автоматически"}
+                            </button>
+                            {detailCustomerRetentionStatus ? (
+                              <p className="draft-summary-muted">
+                                {detailCustomerRetentionStatus}
+                              </p>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <p className="draft-summary-muted">
+                            Личный кабинет не привязан к этому заказу.
+                          </p>
                         )}
                       </section>
 
