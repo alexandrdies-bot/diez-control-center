@@ -171,6 +171,42 @@ type CustomerAuthSessionContext = {
   };
 };
 
+type CustomerRetentionPayload = {
+  retentionLocked?: unknown;
+  retentionLockReason?: unknown;
+  retentionLockUntil?: unknown;
+};
+
+type ApiCustomerAccountRetentionRow = {
+  customerId: string | null;
+  displayName: string | null;
+  email: string | null;
+  id: string;
+  lastActivityAt: string;
+  phone: string;
+  phoneNormalized: string;
+  retentionLocked: boolean;
+  retentionLockReason: string | null;
+  retentionLockedAt: string | null;
+  retentionLockedByUserId: string | null;
+  retentionLockUntil: string | null;
+};
+
+type ApiCustomerAccountRetentionResponse = {
+  customerId: number | null;
+  displayName: string | null;
+  email: string | null;
+  id: number;
+  lastActivityAt: string;
+  phone: string;
+  phoneNormalized: string;
+  retentionLocked: boolean;
+  retentionLockReason: string | null;
+  retentionLockedAt: string | null;
+  retentionLockedByUserId: number | null;
+  retentionLockUntil: string | null;
+};
+
 type DesktopDraftOrderCustomer = {
   comment?: unknown;
   email?: unknown;
@@ -281,6 +317,17 @@ type ApiOrderSummaryRow = {
 };
 
 type ApiOrderDetailRow = ApiOrderSummaryRow & {
+  customerAccountDisplayName: string | null;
+  customerAccountEmail: string | null;
+  customerAccountId: string | null;
+  customerAccountLastActivityAt: string | null;
+  customerAccountPhone: string | null;
+  customerAccountPhoneNormalized: string | null;
+  customerAccountRetentionLockReason: string | null;
+  customerAccountRetentionLockUntil: string | null;
+  customerAccountRetentionLocked: boolean | null;
+  customerAccountRetentionLockedAt: string | null;
+  customerAccountRetentionLockedByUserId: string | null;
   customerComment: string | null;
   customerId: number | null;
 };
@@ -582,6 +629,60 @@ function buildPublicCustomerAccount(
     phone: row.phone,
     phoneNormalized: row.phoneNormalized
   };
+}
+
+function buildCustomerAccountRetentionResponse(
+  row: ApiCustomerAccountRetentionRow
+): ApiCustomerAccountRetentionResponse {
+  return {
+    customerId: row.customerId === null ? null : Number(row.customerId),
+    displayName: row.displayName,
+    email: row.email,
+    id: Number(row.id),
+    lastActivityAt: row.lastActivityAt,
+    phone: row.phone,
+    phoneNormalized: row.phoneNormalized,
+    retentionLocked: row.retentionLocked,
+    retentionLockReason: row.retentionLockReason,
+    retentionLockedAt: row.retentionLockedAt,
+    retentionLockedByUserId:
+      row.retentionLockedByUserId === null
+        ? null
+        : Number(row.retentionLockedByUserId),
+    retentionLockUntil: row.retentionLockUntil
+  };
+}
+
+function normalizeRetentionLockReason(value: unknown) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const reason = value.trim();
+
+  return reason ? reason : null;
+}
+
+function normalizeRetentionLockUntil(value: unknown) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const timestamp = Date.parse(value);
+
+  if (!Number.isFinite(timestamp)) {
+    return undefined;
+  }
+
+  return new Date(timestamp).toISOString();
 }
 
 function verifyPassword(password: string, passwordHash: string) {
@@ -1998,6 +2099,116 @@ app.get("/customer/auth/me", async (request, reply) => {
   };
 });
 
+app.patch<{ Body: CustomerRetentionPayload; Params: { id: string } }>(
+  "/customer-accounts/:id/retention",
+  async (request, reply) => {
+    const authSession = await requireRole(request, reply, ["manager", "admin"]);
+
+    if (!authSession) {
+      return null;
+    }
+
+    const customerAccountId = Number(request.params.id);
+
+    if (!Number.isInteger(customerAccountId) || customerAccountId <= 0) {
+      return reply.code(400).send({
+        error: "INVALID_CUSTOMER_ACCOUNT_ID"
+      });
+    }
+
+    if (typeof request.body?.retentionLocked !== "boolean") {
+      return reply.code(400).send({
+        error: "INVALID_CUSTOMER_RETENTION_PAYLOAD"
+      });
+    }
+
+    const retentionLocked = request.body.retentionLocked;
+    const retentionLockReason = normalizeRetentionLockReason(
+      request.body.retentionLockReason
+    );
+    const retentionLockUntil = normalizeRetentionLockUntil(
+      request.body.retentionLockUntil
+    );
+
+    if (retentionLockUntil === undefined) {
+      return reply.code(400).send({
+        error: "INVALID_CUSTOMER_RETENTION_PAYLOAD"
+      });
+    }
+
+    const rows = await queryDatabase<ApiCustomerAccountRetentionRow>(
+      retentionLocked
+        ? `
+          update app.customer_accounts
+          set
+            retention_locked = true,
+            retention_lock_reason = $2,
+            retention_locked_at = now(),
+            retention_locked_by_user_id = $3,
+            retention_lock_until = $4,
+            updated_at = now()
+          where id = $1
+          returning
+            id::text as id,
+            customer_id::text as "customerId",
+            phone,
+            phone_normalized as "phoneNormalized",
+            email,
+            display_name as "displayName",
+            last_activity_at::text as "lastActivityAt",
+            retention_locked as "retentionLocked",
+            retention_lock_reason as "retentionLockReason",
+            retention_locked_at::text as "retentionLockedAt",
+            retention_locked_by_user_id::text as "retentionLockedByUserId",
+            retention_lock_until::text as "retentionLockUntil"
+        `
+        : `
+          update app.customer_accounts
+          set
+            retention_locked = false,
+            retention_lock_reason = null,
+            retention_locked_at = null,
+            retention_locked_by_user_id = null,
+            retention_lock_until = null,
+            updated_at = now()
+          where id = $1
+          returning
+            id::text as id,
+            customer_id::text as "customerId",
+            phone,
+            phone_normalized as "phoneNormalized",
+            email,
+            display_name as "displayName",
+            last_activity_at::text as "lastActivityAt",
+            retention_locked as "retentionLocked",
+            retention_lock_reason as "retentionLockReason",
+            retention_locked_at::text as "retentionLockedAt",
+            retention_locked_by_user_id::text as "retentionLockedByUserId",
+            retention_lock_until::text as "retentionLockUntil"
+        `,
+      retentionLocked
+        ? [
+            customerAccountId,
+            retentionLockReason,
+            authSession.user.id,
+            retentionLockUntil
+          ]
+        : [customerAccountId]
+    );
+    const customerAccount = rows[0];
+
+    if (!customerAccount) {
+      return reply.code(404).send({
+        error: "CUSTOMER_ACCOUNT_NOT_FOUND"
+      });
+    }
+
+    return {
+      customerAccount: buildCustomerAccountRetentionResponse(customerAccount)
+    };
+  }
+);
+
 app.post<{ Body: CheckoutOrderPayload }>(
   "/checkout/orders",
   async (request, reply) => {
@@ -2434,6 +2645,17 @@ app.get<{ Params: { id: string } }>("/orders/:id", async (request, reply) => {
         o.source,
         o.source_ref as "sourceRef",
         o.customer_id as "customerId",
+        o.customer_account_id::text as "customerAccountId",
+        ca.phone as "customerAccountPhone",
+        ca.phone_normalized as "customerAccountPhoneNormalized",
+        ca.email as "customerAccountEmail",
+        ca.display_name as "customerAccountDisplayName",
+        ca.last_activity_at::text as "customerAccountLastActivityAt",
+        ca.retention_locked as "customerAccountRetentionLocked",
+        ca.retention_lock_reason as "customerAccountRetentionLockReason",
+        ca.retention_locked_at::text as "customerAccountRetentionLockedAt",
+        ca.retention_locked_by_user_id::text as "customerAccountRetentionLockedByUserId",
+        ca.retention_lock_until::text as "customerAccountRetentionLockUntil",
         o.total_price_minor as "totalPriceMinor",
         o.currency_code as "currencyCode",
         o.customer_comment as "customerComment",
@@ -2448,6 +2670,7 @@ app.get<{ Params: { id: string } }>("/orders/:id", async (request, reply) => {
         first_item.title as "firstItemTitle"
       from app.orders o
       left join app.customers c on c.id = o.customer_id
+      left join app.customer_accounts ca on ca.id = o.customer_account_id
       left join lateral (
         select
           od.delivery_mode,
@@ -2532,6 +2755,24 @@ app.get<{ Params: { id: string } }>("/orders/:id", async (request, reply) => {
       name: order.customerName,
       phone: order.customerPhone
     },
+    customerAccount: order.customerAccountId
+      ? {
+          displayName: order.customerAccountDisplayName,
+          email: order.customerAccountEmail,
+          id: Number(order.customerAccountId),
+          lastActivityAt: order.customerAccountLastActivityAt,
+          phone: order.customerAccountPhone,
+          phoneNormalized: order.customerAccountPhoneNormalized,
+          retentionLocked: Boolean(order.customerAccountRetentionLocked),
+          retentionLockReason: order.customerAccountRetentionLockReason,
+          retentionLockedAt: order.customerAccountRetentionLockedAt,
+          retentionLockedByUserId:
+            order.customerAccountRetentionLockedByUserId === null
+              ? null
+              : Number(order.customerAccountRetentionLockedByUserId),
+          retentionLockUntil: order.customerAccountRetentionLockUntil
+        }
+      : null,
     delivery: delivery[0] ?? null,
     items
   };
