@@ -68,6 +68,15 @@ export type CustomerAccountRetention = {
   retentionLockUntil: string | null;
 };
 
+export type CustomerAccountListItem = CustomerAccountRetention & {
+  activeOrdersCount: number;
+  createdAt: string;
+  isActive: boolean;
+  lastLoginAt: string | null;
+  totalOrdersCount: number;
+  updatedAt: string;
+};
+
 export type UpdateCustomerRetentionPayload = {
   retentionLocked: boolean;
   retentionLockReason?: string | null;
@@ -421,6 +430,24 @@ export async function getCurrentUser(token: string): Promise<AuthMeResult> {
   }
 
   return response.json() as Promise<AuthMeResult>;
+}
+
+export async function getCustomerAccounts(
+  token: string
+): Promise<CustomerAccountListItem[]> {
+  const response = await fetch(`${apiBaseUrl}/customer-accounts`, {
+    headers: createBearerHeaders(token)
+  });
+
+  if (!response.ok) {
+    throw new Error(`/customer-accounts ${response.status}`);
+  }
+
+  const result = (await response.json()) as {
+    customerAccounts: CustomerAccountListItem[];
+  };
+
+  return result.customerAccounts;
 }
 
 export async function getOrders(token?: string): Promise<OrderSummary[]> {
