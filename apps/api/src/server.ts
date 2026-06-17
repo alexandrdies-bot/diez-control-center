@@ -738,14 +738,25 @@ async function getCustomerAuthSession(
     return null;
   }
 
-  await queryDatabase(
-    `
-      update app.customer_sessions
-      set last_seen_at = now()
-      where id = $1
-    `,
-    [session.sessionId]
-  );
+  await withDatabaseTransaction(async (client) => {
+    await client.query(
+      `
+        update app.customer_sessions
+        set last_seen_at = now()
+        where id = $1
+      `,
+      [session.sessionId]
+    );
+
+    await client.query(
+      `
+        update app.customer_accounts
+        set last_activity_at = now()
+        where id = $1
+      `,
+      [session.id]
+    );
+  });
 
   return {
     customer: buildPublicCustomerAccount(session),
@@ -1912,7 +1923,8 @@ app.post<{ Body: CustomerAuthPayload }>(
           set
             failed_login_attempts = 0,
             locked_until = null,
-            last_login_at = now()
+            last_login_at = now(),
+            last_activity_at = now()
           where id = $1
         `,
         [account.id]
@@ -1938,15 +1950,33 @@ app.post("/customer/auth/logout", async (request) => {
     };
   }
 
-  await queryDatabase(
-    `
-      update app.customer_sessions
-      set revoked_at = now()
-      where token_hash = $1
-        and revoked_at is null
-    `,
-    [hashSessionToken(token)]
-  );
+  const tokenHash = hashSessionToken(token);
+
+  await withDatabaseTransaction(async (client) => {
+    await client.query(
+      `
+        update app.customer_accounts a
+        set last_activity_at = now()
+        from app.customer_sessions s
+        where s.customer_account_id = a.id
+          and s.token_hash = $1
+          and s.revoked_at is null
+          and s.expires_at > now()
+          and a.is_active = true
+      `,
+      [tokenHash]
+    );
+
+    await client.query(
+      `
+        update app.customer_sessions
+        set revoked_at = now()
+        where token_hash = $1
+          and revoked_at is null
+      `,
+      [tokenHash]
+    );
+  });
 
   return {
     ok: true
