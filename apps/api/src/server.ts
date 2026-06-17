@@ -207,6 +207,24 @@ type ApiCustomerAccountRetentionResponse = {
   retentionLockUntil: string | null;
 };
 
+type ApiCustomerAccountListRow = ApiCustomerAccountRetentionRow & {
+  activeOrdersCount: number;
+  createdAt: string;
+  isActive: boolean;
+  lastLoginAt: string | null;
+  totalOrdersCount: number;
+  updatedAt: string;
+};
+
+type ApiCustomerAccountListItem = ApiCustomerAccountRetentionResponse & {
+  activeOrdersCount: number;
+  createdAt: string;
+  isActive: boolean;
+  lastLoginAt: string | null;
+  totalOrdersCount: number;
+  updatedAt: string;
+};
+
 type DesktopDraftOrderCustomer = {
   comment?: unknown;
   email?: unknown;
@@ -650,6 +668,20 @@ function buildCustomerAccountRetentionResponse(
         ? null
         : Number(row.retentionLockedByUserId),
     retentionLockUntil: row.retentionLockUntil
+  };
+}
+
+function buildCustomerAccountListItem(
+  row: ApiCustomerAccountListRow
+): ApiCustomerAccountListItem {
+  return {
+    ...buildCustomerAccountRetentionResponse(row),
+    activeOrdersCount: Number(row.activeOrdersCount) || 0,
+    createdAt: row.createdAt,
+    isActive: row.isActive,
+    lastLoginAt: row.lastLoginAt,
+    totalOrdersCount: Number(row.totalOrdersCount) || 0,
+    updatedAt: row.updatedAt
   };
 }
 
@@ -2096,6 +2128,60 @@ app.get("/customer/auth/me", async (request, reply) => {
     session: {
       expiresAt: authSession.session.expiresAt
     }
+  };
+});
+
+app.get("/customer-accounts", async (request, reply) => {
+  const authSession = await requireRole(request, reply, ["manager", "admin"]);
+
+  if (!authSession) {
+    return null;
+  }
+
+  const rows = await queryDatabase<ApiCustomerAccountListRow>(
+    `
+      select
+        ca.id::text as id,
+        ca.customer_id::text as "customerId",
+        ca.phone,
+        ca.phone_normalized as "phoneNormalized",
+        ca.email,
+        ca.display_name as "displayName",
+        ca.is_active as "isActive",
+        ca.last_login_at::text as "lastLoginAt",
+        ca.last_activity_at::text as "lastActivityAt",
+        ca.retention_locked as "retentionLocked",
+        ca.retention_lock_reason as "retentionLockReason",
+        ca.retention_locked_at::text as "retentionLockedAt",
+        ca.retention_locked_by_user_id::text as "retentionLockedByUserId",
+        ca.retention_lock_until::text as "retentionLockUntil",
+        ca.created_at::text as "createdAt",
+        ca.updated_at::text as "updatedAt",
+        order_stats.active_orders_count as "activeOrdersCount",
+        order_stats.total_orders_count as "totalOrdersCount"
+      from app.customer_accounts ca
+      left join lateral (
+        select
+          count(*)::int as total_orders_count,
+          count(*) filter (
+            where o.status not in (
+              'completed',
+              'done',
+              'cancelled',
+              'canceled',
+              'closed',
+              'archived'
+            )
+          )::int as active_orders_count
+        from app.orders o
+        where o.customer_account_id = ca.id
+      ) order_stats on true
+      order by ca.last_activity_at desc nulls last, ca.created_at desc
+    `
+  );
+
+  return {
+    customerAccounts: rows.map(buildCustomerAccountListItem)
   };
 });
 
