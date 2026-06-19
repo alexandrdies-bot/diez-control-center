@@ -339,6 +339,21 @@ type ApiOrderSummaryRow = {
   updatedAt: string;
 };
 
+type ApiCustomerOrderSummaryRow = {
+  createdAt: string;
+  currencyCode: string;
+  deliveryMode: string;
+  deliveryStatus: string;
+  firstItemTitle: string | null;
+  id: number;
+  itemsCount: number;
+  orderNumber: string;
+  source: string;
+  status: string;
+  totalPriceMinor: number;
+  updatedAt: string;
+};
+
 type ApiOrderDetailRow = ApiOrderSummaryRow & {
   customerAccountDisplayName: string | null;
   customerAccountEmail: string | null;
@@ -2259,6 +2274,57 @@ app.patch<{ Body: CustomerProfilePayload }>(
     };
   }
 );
+
+app.get("/customer/orders", async (request, reply) => {
+  const authSession = await requireCustomerAuthSession(request, reply);
+
+  if (!authSession) {
+    return null;
+  }
+
+  return queryDatabase<ApiCustomerOrderSummaryRow>(
+    `
+      select
+        o.id,
+        o.order_number as "orderNumber",
+        o.status,
+        o.source,
+        o.total_price_minor as "totalPriceMinor",
+        o.currency_code as "currencyCode",
+        o.created_at::text as "createdAt",
+        o.updated_at::text as "updatedAt",
+        coalesce(order_delivery.delivery_mode, 'not-required') as "deliveryMode",
+        coalesce(order_delivery.delivery_status, 'not_required') as "deliveryStatus",
+        item_stats.items_count as "itemsCount",
+        first_item.title as "firstItemTitle"
+      from app.orders o
+      left join lateral (
+        select
+          od.delivery_mode,
+          od.delivery_status
+        from app.order_delivery od
+        where od.order_id = o.id
+        order by od.id desc
+        limit 1
+      ) order_delivery on true
+      left join lateral (
+        select count(*)::int as items_count
+        from app.order_items oi
+        where oi.order_id = o.id
+      ) item_stats on true
+      left join lateral (
+        select oi.title
+        from app.order_items oi
+        where oi.order_id = o.id
+        order by oi.sort_order, oi.id
+        limit 1
+      ) first_item on true
+      where o.customer_account_id = $1
+      order by o.created_at desc, o.id desc
+    `,
+    [authSession.customer.id]
+  );
+});
 
 app.get("/customer-accounts", async (request, reply) => {
   const authSession = await requireRole(request, reply, ["manager", "admin"]);
