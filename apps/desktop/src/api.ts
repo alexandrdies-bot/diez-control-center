@@ -68,25 +68,6 @@ export type CustomerAccountRetention = {
   retentionLockUntil: string | null;
 };
 
-export type CustomerAccountListItem = CustomerAccountRetention & {
-  activeOrdersCount: number;
-  createdAt: string;
-  isActive: boolean;
-  lastLoginAt: string | null;
-  totalOrdersCount: number;
-  updatedAt: string;
-};
-
-export type UpdateCustomerRetentionPayload = {
-  retentionLocked: boolean;
-  retentionLockReason?: string | null;
-  retentionLockUntil?: string | null;
-};
-
-export type UpdateCustomerRetentionResult = {
-  customerAccount: CustomerAccountRetention;
-};
-
 export type OrderSummary = {
   createdAt: string;
   currencyCode: string;
@@ -432,24 +413,6 @@ export async function getCurrentUser(token: string): Promise<AuthMeResult> {
   return response.json() as Promise<AuthMeResult>;
 }
 
-export async function getCustomerAccounts(
-  token: string
-): Promise<CustomerAccountListItem[]> {
-  const response = await fetch(`${apiBaseUrl}/customer-accounts`, {
-    headers: createBearerHeaders(token)
-  });
-
-  if (!response.ok) {
-    throw new Error(`/customer-accounts ${response.status}`);
-  }
-
-  const result = (await response.json()) as {
-    customerAccounts: CustomerAccountListItem[];
-  };
-
-  return result.customerAccounts;
-}
-
 export async function getOrders(token?: string): Promise<OrderSummary[]> {
   const response = await fetch(`${apiBaseUrl}/orders`, {
     headers: token ? createBearerHeaders(token) : undefined
@@ -789,32 +752,6 @@ export async function updateOrderFromDraft(
   }
 
   return response.json() as Promise<UpdateOrderResult>;
-}
-
-export async function updateCustomerAccountRetention(
-  customerAccountId: number,
-  payload: UpdateCustomerRetentionPayload,
-  token: string
-): Promise<UpdateCustomerRetentionResult> {
-  const response = await fetch(
-    `${apiBaseUrl}/customer-accounts/${customerAccountId}/retention`,
-    {
-      body: JSON.stringify(payload),
-      headers: createJsonBearerHeaders(token),
-      method: "PATCH"
-    }
-  );
-
-  if (!response.ok) {
-    const responseBody = await response.text();
-    throw new Error(
-      `/customer-accounts/${customerAccountId}/retention ${response.status}${
-        responseBody ? ` ${responseBody}` : ""
-      }`
-    );
-  }
-
-  return response.json() as Promise<UpdateCustomerRetentionResult>;
 }
 
 export async function deleteOrder(

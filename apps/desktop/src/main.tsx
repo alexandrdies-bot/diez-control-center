@@ -18,7 +18,6 @@ import {
   fetchOrderAttachmentBlob,
   getApiHealth,
   getCurrentUser,
-  getCustomerAccounts,
   getMaterialPricingInputs,
   getMaterials,
   getOrder,
@@ -31,7 +30,6 @@ import {
   updateOrderFromDraft,
   type ApiHealth,
   type AuthUser,
-  type CustomerAccountListItem,
   type Material,
   type MaterialPricingInput,
   type OrderAttachment,
@@ -93,7 +91,6 @@ const currentUserRole = "admin";
 
 const settingsHomeSection = "Настройки";
 const materialsSettingsSection = "Материалы и цены";
-const customerAccountsSettingsSection = "Клиенты";
 
 type SettingsCard = {
   description: string;
@@ -137,12 +134,6 @@ const settingsCards: SettingsCard[] = [
     description: "Справочник материалов, закупочные цены и параметры расчётов.",
     isActive: true,
     section: materialsSettingsSection
-  },
-  {
-    title: "Клиенты",
-    description: "Личные кабинеты заказчиков, активность и статус хранения.",
-    isActive: true,
-    section: customerAccountsSettingsSection
   },
   {
     title: "Расчёты",
@@ -1257,14 +1248,6 @@ function App() {
     null
   );
   const [isServerOrdersLoading, setIsServerOrdersLoading] = useState(false);
-  const [customerAccounts, setCustomerAccounts] = useState<
-    CustomerAccountListItem[]
-  >([]);
-  const [customerAccountsStatus, setCustomerAccountsStatus] = useState<
-    string | null
-  >(null);
-  const [isCustomerAccountsLoading, setIsCustomerAccountsLoading] =
-    useState(false);
   const [orderDetailStatus, setOrderDetailStatus] = useState<string | null>(null);
   const [isOrderDetailLoading, setIsOrderDetailLoading] = useState(false);
   const [orderAttachmentsByOrderId, setOrderAttachmentsByOrderId] = useState<
@@ -1965,10 +1948,6 @@ function App() {
     activeWorkspace === "Диез Имидж" &&
     activeSection === "Настройки" &&
     activeSettingsSection === materialsSettingsSection;
-  const isCustomerAccountsScreen =
-    activeWorkspace === "Диез Имидж" &&
-    activeSection === "Настройки" &&
-    activeSettingsSection === customerAccountsSettingsSection;
   const isOzonWorkspaceSection =
     activeWorkspace === "Ozon" && activeSection !== "Главная";
 
@@ -2656,29 +2635,6 @@ function App() {
       setServerConnectionState("disconnected");
     } finally {
       setIsServerOrdersLoading(false);
-    }
-  }
-
-  async function loadCustomerAccounts(sessionToken = authToken) {
-    if (!sessionToken) {
-      setCustomerAccounts([]);
-      setCustomerAccountsStatus("Войдите");
-      return;
-    }
-
-    setIsCustomerAccountsLoading(true);
-    setCustomerAccountsStatus("Загрузка...");
-
-    try {
-      const accounts = await getCustomerAccounts(sessionToken);
-
-      setCustomerAccounts(accounts);
-      setCustomerAccountsStatus(`Загружено: ${accounts.length}`);
-    } catch {
-      setCustomerAccounts([]);
-      setCustomerAccountsStatus("Не удалось загрузить личные кабинеты");
-    } finally {
-      setIsCustomerAccountsLoading(false);
     }
   }
 
@@ -5232,10 +5188,6 @@ function App() {
                           }
 
                           setActiveSettingsSection(card.section);
-
-                          if (card.section === customerAccountsSettingsSection) {
-                            void loadCustomerAccounts(authToken);
-                          }
                         }}
                         type="button"
                       >
@@ -5248,80 +5200,6 @@ function App() {
                 ))}
               </div>
             </section>
-          ) : isCustomerAccountsScreen ? (
-            <>
-              <div className="content-header">
-                <div>
-                  <InnerPageHeader
-                    ariaLabel="Назад к настройкам"
-                    onBack={() => setActiveSettingsSection(settingsHomeSection)}
-                    title="Личные кабинеты заказчиков"
-                  />
-                  <p>
-                    Зарегистрированные клиенты сайта и состояние временного
-                    личного кабинета.
-                  </p>
-                </div>
-              </div>
-
-              <div className="toolbar">
-                <span>
-                  {customerAccountsStatus ??
-                    `Личных кабинетов: ${customerAccounts.length}`}
-                </span>
-              </div>
-
-              <section className="materials-section materials-section-wide">
-                {customerAccounts.length === 0 && !isCustomerAccountsLoading ? (
-                  <p className="draft-summary-muted">
-                    Личных кабинетов пока нет.
-                  </p>
-                ) : (
-                  <div className="table-wrap">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Телефон</th>
-                          <th>Имя / email</th>
-                          <th>Последняя активность</th>
-                          <th>Заказы</th>
-                          <th>Автоочистка</th>
-                          <th>Создан</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {customerAccounts.map((account) => (
-                          <tr key={account.id}>
-                            <td>{formatRussianPhone(account.phone)}</td>
-                            <td>
-                              <strong>
-                                {account.displayName ?? "Без имени"}
-                              </strong>
-                              {account.email ? (
-                                <div className="material-price-status">
-                                  {account.email}
-                                </div>
-                              ) : null}
-                            </td>
-                            <td>{formatDateTimeLabel(account.lastActivityAt)}</td>
-                            <td>
-                              {account.activeOrdersCount} /{" "}
-                              {account.totalOrdersCount}
-                            </td>
-                            <td>
-                              {account.retentionLocked
-                                ? "Запрещена"
-                                : "Разрешена"}
-                            </td>
-                            <td>{formatDateTimeLabel(account.createdAt)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </section>
-            </>
           ) : isMaterialsScreen ? (
             <>
               <div className="content-header">
