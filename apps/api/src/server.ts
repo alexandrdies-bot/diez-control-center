@@ -134,6 +134,11 @@ type CustomerRegisterPayload = CustomerAuthPayload & {
   pinRepeat?: unknown;
 };
 
+type CustomerProfilePayload = {
+  displayName?: unknown;
+  email?: unknown;
+};
+
 type PublicCustomerAccount = {
   customerId: number | null;
   displayName: string | null;
@@ -627,6 +632,42 @@ function normalizeCustomerDisplayName(value: unknown) {
   const displayName = value.trim();
 
   return displayName ? displayName : null;
+}
+
+function normalizeCustomerProfileDisplayName(value: unknown) {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const displayName = value.trim();
+
+  return displayName ? displayName : null;
+}
+
+function normalizeCustomerProfileEmail(value: unknown) {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const email = value.trim().toLowerCase();
+
+  if (!email) {
+    return null;
+  }
+
+  if (!email.includes("@") || !email.split("@")[1]?.includes(".")) {
+    return undefined;
+  }
+
+  return email;
 }
 
 function createPasswordHash(password: string) {
@@ -2130,6 +2171,94 @@ app.get("/customer/auth/me", async (request, reply) => {
     }
   };
 });
+
+app.patch<{ Body: CustomerProfilePayload }>(
+  "/customer/profile",
+  async (request, reply) => {
+    const authSession = await requireCustomerAuthSession(request, reply);
+
+    if (!authSession) {
+      return null;
+    }
+
+    if (
+      !request.body ||
+      typeof request.body !== "object" ||
+      Array.isArray(request.body) ||
+      "phone" in request.body ||
+      "phoneNormalized" in request.body
+    ) {
+      return reply.code(400).send({
+        error: "INVALID_CUSTOMER_PROFILE_PAYLOAD"
+      });
+    }
+
+    const displayName = normalizeCustomerProfileDisplayName(
+      request.body.displayName
+    );
+    const email = normalizeCustomerProfileEmail(request.body.email);
+
+    if (email === undefined) {
+      return reply.code(400).send({
+        error: "INVALID_CUSTOMER_PROFILE_PAYLOAD"
+      });
+    }
+
+    const customer = await withDatabaseTransaction(async (client) => {
+      const accountResult = await client.query<CustomerAccountRow>(
+        `
+          update app.customer_accounts
+          set
+            display_name = $2,
+            email = $3,
+            last_activity_at = now(),
+            updated_at = now()
+          where id = $1
+            and is_active = true
+          returning
+            id::text as id,
+            customer_id::text as "customerId",
+            phone,
+            phone_normalized as "phoneNormalized",
+            email,
+            display_name as "displayName"
+        `,
+        [authSession.customer.id, displayName, email]
+      );
+      const account = accountResult.rows[0];
+
+      if (!account) {
+        return null;
+      }
+
+      if (account.customerId) {
+        await client.query(
+          `
+            update app.customers
+            set
+              name = $2,
+              email = $3,
+              updated_at = now()
+            where id = $1
+          `,
+          [account.customerId, displayName, email]
+        );
+      }
+
+      return buildPublicCustomerAccount(account);
+    });
+
+    if (!customer) {
+      return reply.code(404).send({
+        error: "CUSTOMER_ACCOUNT_NOT_FOUND"
+      });
+    }
+
+    return {
+      customer
+    };
+  }
+);
 
 app.get("/customer-accounts", async (request, reply) => {
   const authSession = await requireRole(request, reply, ["manager", "admin"]);
