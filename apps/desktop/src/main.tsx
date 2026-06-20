@@ -976,6 +976,17 @@ const orderWorkflowStatusOptions: Array<{
   { label: "Отменён", value: "canceled" }
 ];
 
+const managerQuickStatusActions: Array<{
+  label: string;
+  value: OrderWorkflowStatus;
+}> = [
+  { label: "Взять в работу", value: "in_work" },
+  { label: "Подтвердить заказ", value: "confirmed" },
+  { label: "Заказ готов", value: "ready" },
+  { label: "Завершить", value: "completed" },
+  { label: "Отменить", value: "canceled" }
+];
+
 function getDatabaseOrderDisplayStatus(status: string) {
   const statusLabels: Record<string, string> = Object.fromEntries(
     orderWorkflowStatusOptions.map((option) => [option.value, option.label])
@@ -1314,14 +1325,13 @@ function App() {
   const [isServerOrdersLoading, setIsServerOrdersLoading] = useState(false);
   const [orderDetailStatus, setOrderDetailStatus] = useState<string | null>(null);
   const [isOrderDetailLoading, setIsOrderDetailLoading] = useState(false);
-  const [managerStatusForm, setManagerStatusForm] =
-    useState<OrderWorkflowStatus>("new");
-  const [managerStatusComment, setManagerStatusComment] = useState("");
   const [managerCommentText, setManagerCommentText] = useState("");
   const [managerWorkflowStatus, setManagerWorkflowStatus] = useState<
     string | null
   >(null);
   const [isManagerWorkflowSaving, setIsManagerWorkflowSaving] = useState(false);
+  const [isManagerHistoryExpanded, setIsManagerHistoryExpanded] =
+    useState(false);
   const [orderAttachmentsByOrderId, setOrderAttachmentsByOrderId] = useState<
     Record<number, OrderAttachment[]>
   >({});
@@ -1661,13 +1671,6 @@ function App() {
     );
   }, [activeDraftOrder, draftOrders, selectedDraftOrderId]);
 
-  useEffect(() => {
-    if (!detailDraftOrder?.serverOrderId) {
-      return;
-    }
-
-    setManagerStatusForm(detailDraftOrder.databaseStatus ?? "new");
-  }, [detailDraftOrder?.databaseStatus, detailDraftOrder?.serverOrderId]);
   const localDraftOrders = useMemo(
     () =>
       draftOrders.filter(
@@ -3270,13 +3273,19 @@ function App() {
       );
     });
     setSelectedDraftOrderId(mappedDraftOrder.id);
-    setManagerStatusForm(mappedDraftOrder.databaseStatus ?? "new");
 
     return mappedDraftOrder;
   }
 
-  async function handleSaveManagerOrderStatus(draftOrder: DraftOrder) {
+  async function handleSaveManagerOrderStatus(
+    draftOrder: DraftOrder,
+    nextStatus: OrderWorkflowStatus
+  ) {
     if (!draftOrder.serverOrderId || !authToken || isManagerWorkflowSaving) {
+      return;
+    }
+
+    if ((draftOrder.databaseStatus ?? "new") === nextStatus) {
       return;
     }
 
@@ -3286,13 +3295,12 @@ function App() {
     try {
       await updateOrderStatus(
         draftOrder.serverOrderId,
-        managerStatusForm,
-        managerStatusComment,
+        nextStatus,
+        "",
         authToken
       );
       await refreshOpenedServerOrder(draftOrder.serverOrderId, draftOrder.id);
       await loadServerOrders(authToken);
-      setManagerStatusComment("");
       setManagerWorkflowStatus("Статус сохранён");
       setServerConnectionState("connected");
     } catch {
@@ -3401,9 +3409,9 @@ function App() {
       setDraftOrderPanelMode(panelMode);
       setIsDraftOrderDetailsOpen(true);
       setOrderDetailStatus(null);
-      setManagerStatusComment("");
       setManagerCommentText("");
       setManagerWorkflowStatus(null);
+      setIsManagerHistoryExpanded(false);
       setServerConnectionState("connected");
       void loadOrderAttachments(orderDetail.id, authToken);
     } catch {
@@ -4576,69 +4584,58 @@ function App() {
 
                     {detailDraftOrder.serverOrderId ? (
                       <section className="manager-workflow-card">
-                        <div className="section-heading">
+                        <div className="manager-workflow-header">
                           <div>
                             <h3>Работа менеджера</h3>
-                            <p>
-                              Текущий статус:{" "}
-                              {getDatabaseOrderDisplayStatus(
-                                detailDraftOrder.databaseStatus ?? "new"
-                              )}
-                            </p>
+                            <p>Быстрые действия по заказу</p>
                           </div>
+                          <strong>
+                            Статус:{" "}
+                            {getDatabaseOrderDisplayStatus(
+                              detailDraftOrder.databaseStatus ?? "new"
+                            )}
+                          </strong>
                         </div>
 
-                        <div className="manager-workflow-grid">
-                          <label className="form-field">
-                            <span>Новый статус</span>
-                            <select
-                              value={managerStatusForm}
-                              onChange={(event) =>
-                                setManagerStatusForm(
-                                  event.target.value as OrderWorkflowStatus
-                                )
-                              }
-                            >
-                              {orderWorkflowStatusOptions.map((status) => (
-                                <option key={status.value} value={status.value}>
-                                  {status.label}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
+                        <div className="manager-status-actions">
+                          {managerQuickStatusActions.map((action) => {
+                            const isCurrentStatus =
+                              (detailDraftOrder.databaseStatus ?? "new") ===
+                              action.value;
 
-                          <label className="form-field">
-                            <span>Комментарий к смене статуса</span>
-                            <textarea
-                              onChange={(event) =>
-                                setManagerStatusComment(event.target.value)
-                              }
-                              placeholder="Например: согласовано с клиентом"
-                              rows={3}
-                              value={managerStatusComment}
-                            />
-                          </label>
-
-                          <button
-                            className="secondary-action-button"
-                            disabled={isManagerWorkflowSaving}
-                            onClick={() =>
-                              void handleSaveManagerOrderStatus(detailDraftOrder)
-                            }
-                            type="button"
-                          >
-                            Сохранить статус
-                          </button>
+                            return (
+                              <button
+                                className={
+                                  isCurrentStatus
+                                    ? "manager-status-action manager-status-action-current"
+                                    : "manager-status-action"
+                                }
+                                disabled={
+                                  isManagerWorkflowSaving || isCurrentStatus
+                                }
+                                key={action.value}
+                                onClick={() =>
+                                  void handleSaveManagerOrderStatus(
+                                    detailDraftOrder,
+                                    action.value
+                                  )
+                                }
+                                type="button"
+                              >
+                                {action.label}
+                              </button>
+                            );
+                          })}
                         </div>
 
-                        <div className="manager-workflow-grid">
+                        <div className="manager-note-row">
                           <label className="form-field">
-                            <span>Комментарий менеджера</span>
+                            <span>Заметка менеджера</span>
                             <textarea
                               onChange={(event) =>
                                 setManagerCommentText(event.target.value)
                               }
-                              placeholder="Что обсудили с клиентом"
+                              placeholder="Например: клиенту отправлен счёт в MAX"
                               rows={3}
                               value={managerCommentText}
                             />
@@ -4652,7 +4649,7 @@ function App() {
                             }
                             type="button"
                           >
-                            Добавить комментарий
+                            Добавить заметку
                           </button>
                         </div>
 
@@ -4666,24 +4663,42 @@ function App() {
                           <h4>История</h4>
                           {detailDraftOrder.events &&
                           detailDraftOrder.events.length > 0 ? (
-                            <ol>
-                              {detailDraftOrder.events.map((event) => (
-                                <li key={event.id}>
-                                  <div>
-                                    <strong>{getOrderEventTitle(event)}</strong>
-                                    <span>
-                                      {formatDateTimeLabel(event.createdAt)}
-                                      {event.actorName
-                                        ? ` · ${event.actorName}`
-                                        : ""}
-                                    </span>
-                                  </div>
-                                  {getOrderEventComment(event) ? (
-                                    <p>{getOrderEventComment(event)}</p>
-                                  ) : null}
-                                </li>
-                              ))}
-                            </ol>
+                            <>
+                              <ol>
+                                {(isManagerHistoryExpanded
+                                  ? detailDraftOrder.events
+                                  : detailDraftOrder.events.slice(0, 3)
+                                ).map((event) => (
+                                  <li key={event.id}>
+                                    <div>
+                                      <strong>{getOrderEventTitle(event)}</strong>
+                                      <span>
+                                        {formatDateTimeLabel(event.createdAt)}
+                                        {event.actorName
+                                          ? ` · ${event.actorName}`
+                                          : ""}
+                                      </span>
+                                    </div>
+                                    {getOrderEventComment(event) ? (
+                                      <p>{getOrderEventComment(event)}</p>
+                                    ) : null}
+                                  </li>
+                                ))}
+                              </ol>
+                              {detailDraftOrder.events.length > 3 ? (
+                                <button
+                                  className="manager-history-toggle"
+                                  onClick={() =>
+                                    setIsManagerHistoryExpanded((current) => !current)
+                                  }
+                                  type="button"
+                                >
+                                  {isManagerHistoryExpanded
+                                    ? "Скрыть историю"
+                                    : "Показать всю историю"}
+                                </button>
+                              ) : null}
+                            </>
                           ) : (
                             <p className="draft-summary-muted">
                               История пока пустая.

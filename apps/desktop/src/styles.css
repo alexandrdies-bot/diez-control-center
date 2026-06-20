@@ -2362,20 +2362,77 @@ tbody tr {
   background: rgba(255, 255, 255, 0.055);
 }
 
-.manager-workflow-grid {
-  display: grid;
-  grid-template-columns: minmax(180px, 0.55fr) minmax(240px, 1fr) auto;
-  gap: 10px;
-  align-items: end;
+.manager-workflow-header {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
 }
 
-.manager-workflow-grid + .manager-workflow-grid {
+.manager-workflow-header h3,
+.manager-workflow-header p {
+  margin: 0;
+}
+
+.manager-workflow-header p {
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 13px;
+}
+
+.manager-workflow-header > strong {
+  flex: 0 0 auto;
+  padding: 7px 10px;
+  border-radius: 999px;
+  color: #ffffff;
+  background: rgba(159, 183, 255, 0.16);
+  font-size: 13px;
+}
+
+.manager-status-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.manager-status-action {
+  min-height: 34px;
+  padding: 8px 11px;
+  border: 1px solid rgba(159, 183, 255, 0.24);
+  border-radius: 999px;
+  color: rgba(255, 255, 255, 0.82);
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.manager-status-action:hover:not(:disabled) {
+  border-color: rgba(159, 183, 255, 0.46);
+  color: #ffffff;
+  background: rgba(159, 183, 255, 0.18);
+}
+
+.manager-status-action:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.manager-status-action-current {
+  color: rgba(159, 255, 191, 0.92);
+  background: rgba(64, 197, 103, 0.14);
+}
+
+.manager-note-row {
+  display: grid;
   grid-template-columns: minmax(240px, 1fr) auto;
+  gap: 10px;
+  align-items: end;
 }
 
 .manager-event-history {
   display: grid;
   gap: 8px;
+  padding-top: 2px;
 }
 
 .manager-event-history h4 {
@@ -2423,6 +2480,21 @@ tbody tr {
   color: rgba(255, 255, 255, 0.74);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.manager-history-toggle {
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  color: rgba(159, 183, 255, 0.92);
+  background: transparent;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.manager-history-toggle:hover {
+  color: #ffffff;
 }
 
 .order-attachments-section {
