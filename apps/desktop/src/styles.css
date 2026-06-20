@@ -2891,6 +2891,7 @@ tbody tr {
 
 .draft-total-row {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
   align-items: baseline;
 }
@@ -2901,6 +2902,90 @@ tbody tr {
 
 .draft-total-row strong {
   font-size: 21px;
+}
+
+.payment-preparation-button {
+  min-height: 30px;
+  padding: 6px 10px;
+  border: 1px solid rgba(159, 183, 255, 0.24);
+  border-radius: 999px;
+  color: rgba(255, 255, 255, 0.82);
+  background: rgba(159, 183, 255, 0.12);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.payment-preparation-button:hover {
+  border-color: rgba(159, 183, 255, 0.44);
+  color: #ffffff;
+  background: rgba(159, 183, 255, 0.2);
+}
+
+.payment-preparation-content {
+  width: min(560px, 100%);
+}
+
+.payment-preparation-header {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.payment-preparation-header h2 {
+  margin-top: 2px;
+}
+
+.payment-preparation-details {
+  display: grid;
+  grid-template-columns: minmax(110px, auto) minmax(0, 1fr);
+  gap: 8px 14px;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.payment-preparation-details span {
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 12px;
+}
+
+.payment-preparation-details strong {
+  min-width: 0;
+  color: #ffffff;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.payment-method-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.payment-method-button {
+  min-height: 32px;
+  padding: 7px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  color: rgba(255, 255, 255, 0.74);
+  background: rgba(255, 255, 255, 0.07);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.payment-method-button:hover,
+.payment-method-button-active {
+  border-color: rgba(159, 255, 191, 0.34);
+  color: rgba(159, 255, 191, 0.94);
+  background: rgba(64, 197, 103, 0.14);
+}
+
+.payment-message-field textarea {
+  min-height: 118px;
+  resize: vertical;
 }
 
 .accept-order-button {

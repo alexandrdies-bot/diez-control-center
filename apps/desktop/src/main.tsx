@@ -339,6 +339,12 @@ type DraftOrder = {
   updatedAt: string;
 };
 
+type PaymentPreparationMethod =
+  | "invoice"
+  | "qr"
+  | "payment-link"
+  | "on-delivery";
+
 type DraftOrdersStorage = {
   activeDraftOrderId: string | null;
   draftOrders: DraftOrder[];
@@ -745,6 +751,56 @@ function isDtfQuoteRequestItem(item: DraftOrderItem) {
 
 function isDtfQuoteRequestOrder(draftOrder: DraftOrder) {
   return draftOrder.totalPriceMinor === 0 && draftOrder.items.some(isDtfQuoteRequestItem);
+}
+
+function hasDtfPrintItem(draftOrder: DraftOrder) {
+  return draftOrder.items.some((item) => item.serviceType === "dtf-print");
+}
+
+const paymentPreparationMethods: Array<{
+  label: string;
+  messageText: string;
+  value: PaymentPreparationMethod;
+}> = [
+  { label: "Счёт", messageText: "счёт", value: "invoice" },
+  { label: "QR-код", messageText: "QR-код", value: "qr" },
+  {
+    label: "Ссылка на оплату",
+    messageText: "ссылку на оплату",
+    value: "payment-link"
+  },
+  {
+    label: "Оплата при получении",
+    messageText: "информацию об оплате при получении",
+    value: "on-delivery"
+  }
+];
+
+function getPaymentPreparationMethodText(method: PaymentPreparationMethod) {
+  return (
+    paymentPreparationMethods.find((option) => option.value === method)
+      ?.messageText ?? "QR-код"
+  );
+}
+
+function getPaymentPreparationMessage(
+  draftOrder: DraftOrder,
+  method: PaymentPreparationMethod
+) {
+  const orderNumber = draftOrder.serverOrderNumber ?? "заказа";
+  const methodText = getPaymentPreparationMethodText(method);
+
+  if (draftOrder.totalPriceMinor <= 0) {
+    return `Здравствуйте! Заявка №${orderNumber} принята. Менеджер уточнит стоимость и отправит информацию по оплате.`;
+  }
+
+  const amount = formatMinorPrice(draftOrder.totalPriceMinor, "RUB");
+
+  if (hasDtfPrintItem(draftOrder)) {
+    return `Здравствуйте! Заявка №${orderNumber} по DTF-печати проверена. Стоимость печати: ${amount}. Для оплаты отправляем ${methodText}. После оплаты запускаем заказ в работу.`;
+  }
+
+  return `Здравствуйте! Заявка №${orderNumber} проверена. Стоимость заказа: ${amount}. Для оплаты отправляем ${methodText}. После оплаты запускаем заказ в работу.`;
 }
 
 function getDraftOrderRequestComment(draftOrder: DraftOrder) {
@@ -1435,6 +1491,13 @@ function App() {
   const [isServerOrdersLoading, setIsServerOrdersLoading] = useState(false);
   const [orderDetailStatus, setOrderDetailStatus] = useState<string | null>(null);
   const [isOrderDetailLoading, setIsOrderDetailLoading] = useState(false);
+  const [paymentPreparationDraftOrderId, setPaymentPreparationDraftOrderId] =
+    useState<string | null>(null);
+  const [paymentPreparationMethod, setPaymentPreparationMethod] =
+    useState<PaymentPreparationMethod>("qr");
+  const [paymentPreparationStatus, setPaymentPreparationStatus] = useState<
+    string | null
+  >(null);
   const [orderAttachmentsByOrderId, setOrderAttachmentsByOrderId] = useState<
     Record<number, OrderAttachment[]>
   >({});
@@ -1773,6 +1836,13 @@ function App() {
       activeDraftOrder
     );
   }, [activeDraftOrder, draftOrders, selectedDraftOrderId]);
+  const paymentPreparationDraftOrder = useMemo(() => {
+    return (
+      draftOrders.find(
+        (draftOrder) => draftOrder.id === paymentPreparationDraftOrderId
+      ) ?? null
+    );
+  }, [draftOrders, paymentPreparationDraftOrderId]);
 
   const localDraftOrders = useMemo(
     () =>
@@ -3380,6 +3450,36 @@ function App() {
     return mappedDraftOrder;
   }
 
+  function openPaymentPreparationPanel(draftOrder: DraftOrder) {
+    setPaymentPreparationDraftOrderId(draftOrder.id);
+    setPaymentPreparationMethod("qr");
+    setPaymentPreparationStatus(null);
+  }
+
+  function closePaymentPreparationPanel() {
+    setPaymentPreparationDraftOrderId(null);
+    setPaymentPreparationStatus(null);
+  }
+
+  async function handleCopyPaymentPreparationText(draftOrder: DraftOrder) {
+    const message = getPaymentPreparationMessage(
+      draftOrder,
+      paymentPreparationMethod
+    );
+
+    if (!navigator.clipboard?.writeText) {
+      setPaymentPreparationStatus("Скопируйте текст вручную из поля ниже");
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(message);
+      setPaymentPreparationStatus("Текст скопирован");
+    } catch {
+      setPaymentPreparationStatus("Не удалось скопировать автоматически");
+    }
+  }
+
   async function handleOpenOrderDetail(
     order: OrderSummary,
     panelMode: DraftOrderPanelMode = "details"
@@ -3723,6 +3823,132 @@ function App() {
                 </button>
               </div>
             )}
+          </section>
+        </div>
+      ) : null}
+
+      {paymentPreparationDraftOrder ? (
+        <div
+          aria-modal="true"
+          className="app-modal-backdrop payment-preparation-modal"
+          role="dialog"
+        >
+          <section className="app-modal payment-preparation-content">
+            <div className="payment-preparation-header">
+              <div>
+                <p className="eyebrow">
+                  {paymentPreparationDraftOrder.serverOrderNumber ??
+                    "Локальный заказ"}
+                </p>
+                <h2>Подготовка оплаты</h2>
+              </div>
+              <button
+                aria-label="Закрыть подготовку оплаты"
+                className="attachment-preview-close-button"
+                onClick={closePaymentPreparationPanel}
+                title="Закрыть подготовку оплаты"
+                type="button"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="payment-preparation-details">
+              <span>Номер заказа</span>
+              <strong>
+                {paymentPreparationDraftOrder.serverOrderNumber ?? "Не создан"}
+              </strong>
+              <span>Клиент</span>
+              <strong>
+                {paymentPreparationDraftOrder.customer?.name?.trim() ||
+                  "Не указан"}
+              </strong>
+              <span>Телефон</span>
+              <strong>
+                {paymentPreparationDraftOrder.customer?.phone
+                  ? formatRussianPhone(paymentPreparationDraftOrder.customer.phone)
+                  : "Не указан"}
+              </strong>
+              <span>Email</span>
+              <strong>
+                {paymentPreparationDraftOrder.customer?.email?.trim() ||
+                  "Не указан"}
+              </strong>
+              <span>Сумма</span>
+              <strong>
+                {paymentPreparationDraftOrder.totalPriceMinor > 0
+                  ? formatMinorPrice(
+                      paymentPreparationDraftOrder.totalPriceMinor,
+                      "RUB"
+                    )
+                  : "Требует расчёта"}
+              </strong>
+              <span>Способ оплаты</span>
+              <strong>
+                {
+                  paymentPreparationMethods.find(
+                    (option) => option.value === paymentPreparationMethod
+                  )?.label
+                }
+              </strong>
+            </div>
+
+            <div className="payment-method-options" role="group">
+              {paymentPreparationMethods.map((method) => (
+                <button
+                  className={
+                    method.value === paymentPreparationMethod
+                      ? "payment-method-button payment-method-button-active"
+                      : "payment-method-button"
+                  }
+                  key={method.value}
+                  onClick={() => {
+                    setPaymentPreparationMethod(method.value);
+                    setPaymentPreparationStatus(null);
+                  }}
+                  type="button"
+                >
+                  {method.label}
+                </button>
+              ))}
+            </div>
+
+            <label className="form-field payment-message-field">
+              <span>Текст для клиента</span>
+              <textarea
+                readOnly
+                rows={5}
+                value={getPaymentPreparationMessage(
+                  paymentPreparationDraftOrder,
+                  paymentPreparationMethod
+                )}
+              />
+            </label>
+
+            {paymentPreparationStatus ? (
+              <p className="draft-summary-muted">{paymentPreparationStatus}</p>
+            ) : null}
+
+            <div className="app-modal-actions">
+              <button
+                className="secondary-action-button"
+                onClick={closePaymentPreparationPanel}
+                type="button"
+              >
+                Закрыть
+              </button>
+              <button
+                className="primary-action-button"
+                onClick={() =>
+                  void handleCopyPaymentPreparationText(
+                    paymentPreparationDraftOrder
+                  )
+                }
+                type="button"
+              >
+                Скопировать текст
+              </button>
+            </div>
           </section>
         </div>
       ) : null}
@@ -4676,6 +4902,17 @@ function App() {
                             ? "Стоимость рассчитает менеджер"
                             : formatMinorPrice(detailDraftOrder.totalPriceMinor, "RUB")}
                         </strong>
+                        {detailDraftOrder.serverOrderNumber ? (
+                          <button
+                            className="payment-preparation-button"
+                            onClick={() =>
+                              openPaymentPreparationPanel(detailDraftOrder)
+                            }
+                            type="button"
+                          >
+                            Подготовить оплату
+                          </button>
+                        ) : null}
                       </div>
 
                       <div className="draft-order-actions">
