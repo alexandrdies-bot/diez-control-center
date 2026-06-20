@@ -26,6 +26,7 @@
 * Startup проверки `/health` и `/materials` в desktop сделаны не блокирующими для login/online orders.
 * Добавлен публичный site checkout endpoint `POST /checkout/orders`: checkout-заказы сайта сохраняются в общую базу с `source='checkout'` и событием `actor_type='site'`, без использования desktop `POST /orders`.
 * Добавлен MVP order attachments: API endpoints для upload/list/download/preview вложений заказа через Bearer manager/admin auth и desktop UI с карточками 3:5, authenticated preview и download.
+* Добавлен менеджерский workflow заказа: статус меняется через `PATCH /orders/:id/status`, комментарии менеджера пишутся в `order_events` через `POST /orders/:id/comments`, а desktop показывает блок `Работа менеджера` с историей событий. DB schema/migrations не менялись.
 * Добавлен customer auth v1: регистрация заказчика по телефону и 4-значному коду, хранение кода только как hash, отдельные customer sessions и отделение от manager/admin auth.
 * Зафиксирована модель личного кабинета заказчика как временного рабочего пространства для выполнения, обсуждения и доработки заказов, а не вечного файлового архива.
 * Зафиксирована временная заморозка публичного личного кабинета заказчика: заявки остаются без обязательной регистрации, связь идёт через телефон, email, MAX и чат сайта, а `app.customer_accounts`, `app.customer_sessions`, customer auth/profile/orders API и retention-поля остаются заделом на будущее.

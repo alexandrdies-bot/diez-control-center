@@ -370,6 +370,15 @@ type ApiOrderDetailRow = ApiOrderSummaryRow & {
   customerId: number | null;
 };
 
+type ApiOrderEventRow = {
+  actorName: string | null;
+  actorType: string;
+  createdAt: string;
+  eventType: string;
+  id: number;
+  payload: unknown;
+};
+
 type OrderAttachmentSource = "site" | "desktop" | "manager";
 
 type OrderAttachmentType =
@@ -379,6 +388,24 @@ type OrderAttachmentType =
   | "placement_photo"
   | "print_file"
   | "other";
+
+type UpdateOrderStatusPayload = {
+  comment?: unknown;
+  status?: unknown;
+};
+
+type CreateOrderCommentPayload = {
+  comment?: unknown;
+};
+
+const editableOrderStatuses = new Set([
+  "new",
+  "confirmed",
+  "in_work",
+  "ready",
+  "completed",
+  "canceled"
+]);
 
 type ApiOrderAttachmentRow = {
   attachmentType: OrderAttachmentType;
@@ -974,6 +1001,20 @@ async function requireCustomerAuthSession(
 
 function getOptionalString(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function normalizeManagerWorkflowComment(value: unknown) {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const comment = value.trim();
+
+  return comment ? comment.slice(0, 5000) : null;
 }
 
 function getMultipartFieldString(
@@ -2986,7 +3027,7 @@ app.get<{ Params: { id: string } }>("/orders/:id", async (request, reply) => {
     });
   }
 
-  const [delivery, items] = await Promise.all([
+  const [delivery, items, events] = await Promise.all([
     queryDatabase<ApiOrderDeliveryRow>(
       `
         select
@@ -3024,6 +3065,27 @@ app.get<{ Params: { id: string } }>("/orders/:id", async (request, reply) => {
         order by sort_order, id
       `,
       [orderId]
+    ),
+    queryDatabase<ApiOrderEventRow>(
+      `
+        select
+          id,
+          event_type as "eventType",
+          actor_type as "actorType",
+          actor_name as "actorName",
+          payload_json as payload,
+          created_at::text as "createdAt"
+        from app.order_events
+        where order_id = $1
+          and event_type in (
+            'order_created',
+            'attachment_added',
+            'order_status_changed',
+            'comment_added'
+          )
+        order by created_at desc, id desc
+      `,
+      [orderId]
     )
   ]);
 
@@ -3055,8 +3117,235 @@ app.get<{ Params: { id: string } }>("/orders/:id", async (request, reply) => {
         }
       : null,
     delivery: delivery[0] ?? null,
+    events,
     items
   };
+});
+
+app.patch<{
+  Body: UpdateOrderStatusPayload;
+  Params: { id: string };
+}>("/orders/:id/status", async (request, reply) => {
+  const authSession = await requireRole(request, reply, ["manager", "admin"]);
+
+  if (!authSession) {
+    return null;
+  }
+
+  const orderId = Number(request.params.id);
+
+  if (!Number.isInteger(orderId) || orderId <= 0) {
+    return reply.code(400).send({
+      error: "INVALID_ORDER_ID"
+    });
+  }
+
+  if (!isRecord(request.body) || typeof request.body.status !== "string") {
+    return reply.code(400).send({
+      error: "INVALID_ORDER_STATUS_PAYLOAD"
+    });
+  }
+
+  const nextStatus = request.body.status.trim();
+
+  if (!editableOrderStatuses.has(nextStatus)) {
+    return reply.code(400).send({
+      error: "INVALID_ORDER_STATUS"
+    });
+  }
+
+  const comment = normalizeManagerWorkflowComment(request.body.comment);
+
+  if (comment === undefined) {
+    return reply.code(400).send({
+      error: "INVALID_ORDER_STATUS_PAYLOAD"
+    });
+  }
+
+  const result = await withDatabaseTransaction(async (client) => {
+    const existingOrder = await client.query<{
+      id: number;
+      order_number: string;
+      status: string;
+    }>(
+      `
+        select id, order_number, status
+        from app.orders
+        where id = $1
+        for update
+      `,
+      [orderId]
+    );
+    const order = existingOrder.rows[0];
+
+    if (!order) {
+      return null;
+    }
+
+    await client.query(
+      `
+        update app.orders
+        set
+          status = $2,
+          updated_at = now()
+        where id = $1
+      `,
+      [orderId, nextStatus]
+    );
+
+    const eventResult = await client.query<ApiOrderEventRow>(
+      `
+        insert into app.order_events (
+          order_id,
+          event_type,
+          actor_type,
+          actor_user_id,
+          actor_name,
+          payload_json
+        )
+        values ($1, 'order_status_changed', 'manager', $2, $3, $4::jsonb)
+        returning
+          id,
+          event_type as "eventType",
+          actor_type as "actorType",
+          actor_name as "actorName",
+          payload_json as payload,
+          created_at::text as "createdAt"
+      `,
+      [
+        orderId,
+        authSession.user.id,
+        authSession.user.displayName ?? authSession.user.login,
+        JSON.stringify({
+          comment,
+          newStatus: nextStatus,
+          oldStatus: order.status
+        })
+      ]
+    );
+
+    return {
+      event: eventResult.rows[0],
+      id: order.id,
+      orderNumber: order.order_number,
+      status: nextStatus
+    };
+  });
+
+  if (!result) {
+    return reply.code(404).send({
+      error: "ORDER_NOT_FOUND"
+    });
+  }
+
+  return result;
+});
+
+app.post<{
+  Body: CreateOrderCommentPayload;
+  Params: { id: string };
+}>("/orders/:id/comments", async (request, reply) => {
+  const authSession = await requireRole(request, reply, ["manager", "admin"]);
+
+  if (!authSession) {
+    return null;
+  }
+
+  const orderId = Number(request.params.id);
+
+  if (!Number.isInteger(orderId) || orderId <= 0) {
+    return reply.code(400).send({
+      error: "INVALID_ORDER_ID"
+    });
+  }
+
+  if (!isRecord(request.body)) {
+    return reply.code(400).send({
+      error: "INVALID_ORDER_COMMENT_PAYLOAD"
+    });
+  }
+
+  const comment = normalizeManagerWorkflowComment(request.body.comment);
+
+  if (!comment) {
+    return reply.code(400).send({
+      error: "INVALID_ORDER_COMMENT"
+    });
+  }
+
+  const result = await withDatabaseTransaction(async (client) => {
+    const existingOrder = await client.query<{
+      id: number;
+      order_number: string;
+    }>(
+      `
+        select id, order_number
+        from app.orders
+        where id = $1
+        for update
+      `,
+      [orderId]
+    );
+    const order = existingOrder.rows[0];
+
+    if (!order) {
+      return null;
+    }
+
+    await client.query(
+      `
+        update app.orders
+        set
+          manager_comment = $2,
+          updated_at = now()
+        where id = $1
+      `,
+      [orderId, comment]
+    );
+
+    const eventResult = await client.query<ApiOrderEventRow>(
+      `
+        insert into app.order_events (
+          order_id,
+          event_type,
+          actor_type,
+          actor_user_id,
+          actor_name,
+          payload_json
+        )
+        values ($1, 'comment_added', 'manager', $2, $3, $4::jsonb)
+        returning
+          id,
+          event_type as "eventType",
+          actor_type as "actorType",
+          actor_name as "actorName",
+          payload_json as payload,
+          created_at::text as "createdAt"
+      `,
+      [
+        orderId,
+        authSession.user.id,
+        authSession.user.displayName ?? authSession.user.login,
+        JSON.stringify({
+          comment
+        })
+      ]
+    );
+
+    return {
+      event: eventResult.rows[0],
+      id: order.id,
+      orderNumber: order.order_number
+    };
+  });
+
+  if (!result) {
+    return reply.code(404).send({
+      error: "ORDER_NOT_FOUND"
+    });
+  }
+
+  return result;
 });
 
 app.get<{ Params: { id: string } }>(

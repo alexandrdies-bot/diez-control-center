@@ -68,6 +68,14 @@ export type CustomerAccountRetention = {
   retentionLockUntil: string | null;
 };
 
+export type OrderWorkflowStatus =
+  | "new"
+  | "confirmed"
+  | "in_work"
+  | "ready"
+  | "completed"
+  | "canceled";
+
 export type OrderSummary = {
   createdAt: string;
   currencyCode: string;
@@ -110,6 +118,7 @@ export type OrderDetail = OrderSummary & {
     recipientPhone: string | null;
     trackingNumber: string | null;
   } | null;
+  events: OrderEvent[];
   items: Array<{
     calculationSnapshot: unknown;
     currencyCode: string;
@@ -122,6 +131,15 @@ export type OrderDetail = OrderSummary & {
     totalPriceMinor: number;
     unitPriceMinor: number;
   }>;
+};
+
+export type OrderEvent = {
+  actorName: string | null;
+  actorType: string;
+  createdAt: string;
+  eventType: string;
+  id: number;
+  payload: unknown;
 };
 
 export type OrderAttachment = {
@@ -177,6 +195,19 @@ export type UpdateOrderResult = {
   id: number;
   orderNumber: string;
   updated: boolean;
+};
+
+export type UpdateOrderStatusResult = {
+  event: OrderEvent;
+  id: number;
+  orderNumber: string;
+  status: OrderWorkflowStatus;
+};
+
+export type AddOrderManagerCommentResult = {
+  event: OrderEvent;
+  id: number;
+  orderNumber: string;
 };
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "https://api.diezimg.ru";
@@ -752,6 +783,58 @@ export async function updateOrderFromDraft(
   }
 
   return response.json() as Promise<UpdateOrderResult>;
+}
+
+export async function updateOrderStatus(
+  orderId: number,
+  status: OrderWorkflowStatus,
+  comment: string,
+  token: string
+): Promise<UpdateOrderStatusResult> {
+  const response = await fetch(`${apiBaseUrl}/orders/${orderId}/status`, {
+    body: JSON.stringify({
+      comment: comment.trim() || undefined,
+      status
+    }),
+    headers: createJsonBearerHeaders(token),
+    method: "PATCH"
+  });
+
+  if (!response.ok) {
+    const responseBody = await response.text();
+    throw new Error(
+      `/orders/${orderId}/status ${response.status}${
+        responseBody ? ` ${responseBody}` : ""
+      }`
+    );
+  }
+
+  return response.json() as Promise<UpdateOrderStatusResult>;
+}
+
+export async function addOrderManagerComment(
+  orderId: number,
+  comment: string,
+  token: string
+): Promise<AddOrderManagerCommentResult> {
+  const response = await fetch(`${apiBaseUrl}/orders/${orderId}/comments`, {
+    body: JSON.stringify({
+      comment
+    }),
+    headers: createJsonBearerHeaders(token),
+    method: "POST"
+  });
+
+  if (!response.ok) {
+    const responseBody = await response.text();
+    throw new Error(
+      `/orders/${orderId}/comments ${response.status}${
+        responseBody ? ` ${responseBody}` : ""
+      }`
+    );
+  }
+
+  return response.json() as Promise<AddOrderManagerCommentResult>;
 }
 
 export async function deleteOrder(

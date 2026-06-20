@@ -2353,6 +2353,78 @@ tbody tr {
   white-space: pre-wrap;
 }
 
+.manager-workflow-card {
+  display: grid;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid rgba(159, 183, 255, 0.14);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.055);
+}
+
+.manager-workflow-grid {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.55fr) minmax(240px, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.manager-workflow-grid + .manager-workflow-grid {
+  grid-template-columns: minmax(240px, 1fr) auto;
+}
+
+.manager-event-history {
+  display: grid;
+  gap: 8px;
+}
+
+.manager-event-history h4 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.manager-event-history ol {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.manager-event-history li {
+  display: grid;
+  gap: 4px;
+  padding: 9px 10px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.manager-event-history li > div {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.manager-event-history strong {
+  color: #ffffff;
+  font-size: 13px;
+}
+
+.manager-event-history span,
+.manager-event-history p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.manager-event-history p {
+  color: rgba(255, 255, 255, 0.74);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .order-attachments-section {
   display: grid;
   gap: 12px;

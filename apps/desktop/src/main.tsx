@@ -12,6 +12,7 @@ import truckIconUrl from "./assets/svg/truck.svg";
 import truckOffIconUrl from "./assets/svg/truck-off.svg";
 import userIconUrl from "./assets/svg/user.svg";
 import {
+  addOrderManagerComment,
   createOrderFromDraft,
   deleteOrder,
   downloadOrderAttachment,
@@ -28,12 +29,15 @@ import {
   updateMaterialPurchasePrice,
   uploadOrderAttachment,
   updateOrderFromDraft,
+  updateOrderStatus,
   type ApiHealth,
   type AuthUser,
   type Material,
   type MaterialPricingInput,
   type OrderAttachment,
   type OrderDetail,
+  type OrderEvent,
+  type OrderWorkflowStatus,
   type OrderSummary
 } from "./api";
 import {
@@ -320,7 +324,9 @@ type DraftOrder = {
   id: string;
   status: DraftOrderStatus;
   customer?: DraftOrderCustomer;
+  databaseStatus?: OrderWorkflowStatus;
   delivery: DraftOrderDelivery;
+  events?: OrderEvent[];
   items: DraftOrderItem[];
   requestComment?: string;
   serverOrderId?: number;
@@ -462,6 +468,12 @@ function getDraftItemTypeFromServiceType(
   return "Позиция заказа";
 }
 
+function normalizeOrderWorkflowStatus(status: string): OrderWorkflowStatus {
+  return orderWorkflowStatusOptions.some((option) => option.value === status)
+    ? (status as OrderWorkflowStatus)
+    : "new";
+}
+
 function mapOrderDetailsToDraftOrder(
   orderDetails: OrderDetail,
   existingDraftOrderId?: string
@@ -494,6 +506,7 @@ function mapOrderDetailsToDraftOrder(
       name: orderDetails.customer.name ?? orderDetails.customerName ?? "",
       phone: orderDetails.customer.phone ?? orderDetails.customerPhone ?? ""
     },
+    databaseStatus: normalizeOrderWorkflowStatus(orderDetails.status),
     delivery: orderDetails.delivery
       ? {
           address: orderDetails.delivery.addressText ?? "",
@@ -510,6 +523,7 @@ function mapOrderDetailsToDraftOrder(
           mode: "not-required"
         },
     id: existingDraftOrderId ?? `database-order-${orderDetails.id}`,
+    events: orderDetails.events ?? [],
     items,
     requestComment: orderDetails.customerComment ?? orderDetails.customer.comment ?? "",
     serverOrderId: orderDetails.id,
@@ -932,7 +946,7 @@ function normalizeDraftOrderDelivery(
 
 function getDraftOrderDisplayStatus(draftOrder: DraftOrder) {
   if (draftOrder.serverOrderId || draftOrder.serverOrderNumber) {
-    return "заказ создан";
+    return getDatabaseOrderDisplayStatus(draftOrder.databaseStatus ?? "new");
   }
 
   if (draftOrder.items.length === 0) {
@@ -950,18 +964,68 @@ function getDraftOrderDisplayStatus(draftOrder: DraftOrder) {
   return "оформлен";
 }
 
-function getDatabaseOrderDisplayStatus(status: string) {
-  const statusLabels: Record<string, string> = {
-    canceled: "отменён",
-    completed: "завершён",
-    confirmed: "подтверждён",
-    draft: "черновик",
-    in_work: "в работе",
-    new: "новый",
-    ready: "готов"
-  };
+const orderWorkflowStatusOptions: Array<{
+  label: string;
+  value: OrderWorkflowStatus;
+}> = [
+  { label: "Новый", value: "new" },
+  { label: "Подтверждён", value: "confirmed" },
+  { label: "В работе", value: "in_work" },
+  { label: "Готов", value: "ready" },
+  { label: "Завершён", value: "completed" },
+  { label: "Отменён", value: "canceled" }
+];
 
-  return statusLabels[status] ?? status;
+function getDatabaseOrderDisplayStatus(status: string) {
+  const statusLabels: Record<string, string> = Object.fromEntries(
+    orderWorkflowStatusOptions.map((option) => [option.value, option.label])
+  );
+
+  return status === "draft" ? "Черновик" : statusLabels[status] ?? status;
+}
+
+function getOrderEventPayload(event: OrderEvent) {
+  return typeof event.payload === "object" &&
+    event.payload !== null &&
+    !Array.isArray(event.payload)
+    ? (event.payload as Record<string, unknown>)
+    : {};
+}
+
+function getOrderEventTitle(event: OrderEvent) {
+  if (event.eventType === "order_status_changed") {
+    const payload = getOrderEventPayload(event);
+    const oldStatus =
+      typeof payload.oldStatus === "string"
+        ? getDatabaseOrderDisplayStatus(payload.oldStatus)
+        : "не указан";
+    const newStatus =
+      typeof payload.newStatus === "string"
+        ? getDatabaseOrderDisplayStatus(payload.newStatus)
+        : "не указан";
+
+    return `Статус: ${oldStatus} -> ${newStatus}`;
+  }
+
+  if (event.eventType === "comment_added") {
+    return "Комментарий менеджера";
+  }
+
+  if (event.eventType === "attachment_added") {
+    return "Добавлен файл";
+  }
+
+  if (event.eventType === "order_created") {
+    return "Заказ создан";
+  }
+
+  return event.eventType;
+}
+
+function getOrderEventComment(event: OrderEvent) {
+  const payload = getOrderEventPayload(event);
+
+  return typeof payload.comment === "string" ? payload.comment : null;
 }
 
 function createDraftOrder(items: DraftOrderItem[] = []): DraftOrder {
@@ -1250,6 +1314,14 @@ function App() {
   const [isServerOrdersLoading, setIsServerOrdersLoading] = useState(false);
   const [orderDetailStatus, setOrderDetailStatus] = useState<string | null>(null);
   const [isOrderDetailLoading, setIsOrderDetailLoading] = useState(false);
+  const [managerStatusForm, setManagerStatusForm] =
+    useState<OrderWorkflowStatus>("new");
+  const [managerStatusComment, setManagerStatusComment] = useState("");
+  const [managerCommentText, setManagerCommentText] = useState("");
+  const [managerWorkflowStatus, setManagerWorkflowStatus] = useState<
+    string | null
+  >(null);
+  const [isManagerWorkflowSaving, setIsManagerWorkflowSaving] = useState(false);
   const [orderAttachmentsByOrderId, setOrderAttachmentsByOrderId] = useState<
     Record<number, OrderAttachment[]>
   >({});
@@ -1588,6 +1660,14 @@ function App() {
       activeDraftOrder
     );
   }, [activeDraftOrder, draftOrders, selectedDraftOrderId]);
+
+  useEffect(() => {
+    if (!detailDraftOrder?.serverOrderId) {
+      return;
+    }
+
+    setManagerStatusForm(detailDraftOrder.databaseStatus ?? "new");
+  }, [detailDraftOrder?.databaseStatus, detailDraftOrder?.serverOrderId]);
   const localDraftOrders = useMemo(
     () =>
       draftOrders.filter(
@@ -3157,6 +3237,104 @@ function App() {
     }
   }
 
+  async function refreshOpenedServerOrder(
+    orderId: number,
+    existingDraftOrderId?: string
+  ) {
+    if (!authToken) {
+      return null;
+    }
+
+    const orderDetail = await getOrder(orderId, authToken);
+    const mappedDraftOrder = mapOrderDetailsToDraftOrder(
+      orderDetail,
+      existingDraftOrderId
+    );
+
+    setDraftOrders((current) => {
+      const hasExistingDraftOrder = current.some(
+        (draftOrder) =>
+          draftOrder.id === mappedDraftOrder.id ||
+          draftOrder.serverOrderId === mappedDraftOrder.serverOrderId
+      );
+
+      if (!hasExistingDraftOrder) {
+        return [...current, mappedDraftOrder];
+      }
+
+      return current.map((draftOrder) =>
+        draftOrder.id === mappedDraftOrder.id ||
+        draftOrder.serverOrderId === mappedDraftOrder.serverOrderId
+          ? mappedDraftOrder
+          : draftOrder
+      );
+    });
+    setSelectedDraftOrderId(mappedDraftOrder.id);
+    setManagerStatusForm(mappedDraftOrder.databaseStatus ?? "new");
+
+    return mappedDraftOrder;
+  }
+
+  async function handleSaveManagerOrderStatus(draftOrder: DraftOrder) {
+    if (!draftOrder.serverOrderId || !authToken || isManagerWorkflowSaving) {
+      return;
+    }
+
+    setIsManagerWorkflowSaving(true);
+    setManagerWorkflowStatus("Сохраняем статус...");
+
+    try {
+      await updateOrderStatus(
+        draftOrder.serverOrderId,
+        managerStatusForm,
+        managerStatusComment,
+        authToken
+      );
+      await refreshOpenedServerOrder(draftOrder.serverOrderId, draftOrder.id);
+      await loadServerOrders(authToken);
+      setManagerStatusComment("");
+      setManagerWorkflowStatus("Статус сохранён");
+      setServerConnectionState("connected");
+    } catch {
+      setManagerWorkflowStatus("Не удалось сохранить статус");
+      setServerConnectionState("disconnected");
+    } finally {
+      setIsManagerWorkflowSaving(false);
+    }
+  }
+
+  async function handleAddManagerOrderComment(draftOrder: DraftOrder) {
+    if (!draftOrder.serverOrderId || !authToken || isManagerWorkflowSaving) {
+      return;
+    }
+
+    if (!managerCommentText.trim()) {
+      setManagerWorkflowStatus("Введите комментарий менеджера");
+      return;
+    }
+
+    setIsManagerWorkflowSaving(true);
+    setManagerWorkflowStatus("Добавляем комментарий...");
+
+    try {
+      await addOrderManagerComment(
+        draftOrder.serverOrderId,
+        managerCommentText,
+        authToken
+      );
+      await refreshOpenedServerOrder(draftOrder.serverOrderId, draftOrder.id);
+      await loadServerOrders(authToken);
+      setManagerCommentText("");
+      setManagerWorkflowStatus("Комментарий добавлен");
+      setServerConnectionState("connected");
+    } catch {
+      setManagerWorkflowStatus("Не удалось добавить комментарий");
+      setServerConnectionState("disconnected");
+    } finally {
+      setIsManagerWorkflowSaving(false);
+    }
+  }
+
   async function handleOpenOrderDetail(
     order: OrderSummary,
     panelMode: DraftOrderPanelMode = "details"
@@ -3223,6 +3401,9 @@ function App() {
       setDraftOrderPanelMode(panelMode);
       setIsDraftOrderDetailsOpen(true);
       setOrderDetailStatus(null);
+      setManagerStatusComment("");
+      setManagerCommentText("");
+      setManagerWorkflowStatus(null);
       setServerConnectionState("connected");
       void loadOrderAttachments(orderDetail.id, authToken);
     } catch {
@@ -4390,6 +4571,125 @@ function App() {
                       <section className="draft-comment-card">
                         <h4>Заявка / комментарий</h4>
                         <p>{getDraftOrderRequestComment(detailDraftOrder)}</p>
+                      </section>
+                    ) : null}
+
+                    {detailDraftOrder.serverOrderId ? (
+                      <section className="manager-workflow-card">
+                        <div className="section-heading">
+                          <div>
+                            <h3>Работа менеджера</h3>
+                            <p>
+                              Текущий статус:{" "}
+                              {getDatabaseOrderDisplayStatus(
+                                detailDraftOrder.databaseStatus ?? "new"
+                              )}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="manager-workflow-grid">
+                          <label className="form-field">
+                            <span>Новый статус</span>
+                            <select
+                              value={managerStatusForm}
+                              onChange={(event) =>
+                                setManagerStatusForm(
+                                  event.target.value as OrderWorkflowStatus
+                                )
+                              }
+                            >
+                              {orderWorkflowStatusOptions.map((status) => (
+                                <option key={status.value} value={status.value}>
+                                  {status.label}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+
+                          <label className="form-field">
+                            <span>Комментарий к смене статуса</span>
+                            <textarea
+                              onChange={(event) =>
+                                setManagerStatusComment(event.target.value)
+                              }
+                              placeholder="Например: согласовано с клиентом"
+                              rows={3}
+                              value={managerStatusComment}
+                            />
+                          </label>
+
+                          <button
+                            className="secondary-action-button"
+                            disabled={isManagerWorkflowSaving}
+                            onClick={() =>
+                              void handleSaveManagerOrderStatus(detailDraftOrder)
+                            }
+                            type="button"
+                          >
+                            Сохранить статус
+                          </button>
+                        </div>
+
+                        <div className="manager-workflow-grid">
+                          <label className="form-field">
+                            <span>Комментарий менеджера</span>
+                            <textarea
+                              onChange={(event) =>
+                                setManagerCommentText(event.target.value)
+                              }
+                              placeholder="Что обсудили с клиентом"
+                              rows={3}
+                              value={managerCommentText}
+                            />
+                          </label>
+
+                          <button
+                            className="secondary-action-button"
+                            disabled={isManagerWorkflowSaving}
+                            onClick={() =>
+                              void handleAddManagerOrderComment(detailDraftOrder)
+                            }
+                            type="button"
+                          >
+                            Добавить комментарий
+                          </button>
+                        </div>
+
+                        {managerWorkflowStatus ? (
+                          <p className="draft-summary-muted">
+                            {managerWorkflowStatus}
+                          </p>
+                        ) : null}
+
+                        <div className="manager-event-history">
+                          <h4>История</h4>
+                          {detailDraftOrder.events &&
+                          detailDraftOrder.events.length > 0 ? (
+                            <ol>
+                              {detailDraftOrder.events.map((event) => (
+                                <li key={event.id}>
+                                  <div>
+                                    <strong>{getOrderEventTitle(event)}</strong>
+                                    <span>
+                                      {formatDateTimeLabel(event.createdAt)}
+                                      {event.actorName
+                                        ? ` · ${event.actorName}`
+                                        : ""}
+                                    </span>
+                                  </div>
+                                  {getOrderEventComment(event) ? (
+                                    <p>{getOrderEventComment(event)}</p>
+                                  ) : null}
+                                </li>
+                              ))}
+                            </ol>
+                          ) : (
+                            <p className="draft-summary-muted">
+                              История пока пустая.
+                            </p>
+                          )}
+                        </div>
                       </section>
                     ) : null}
 
