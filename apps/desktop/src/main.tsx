@@ -12,7 +12,6 @@ import truckIconUrl from "./assets/svg/truck.svg";
 import truckOffIconUrl from "./assets/svg/truck-off.svg";
 import userIconUrl from "./assets/svg/user.svg";
 import {
-  addOrderManagerComment,
   createOrderFromDraft,
   deleteOrder,
   downloadOrderAttachment,
@@ -29,7 +28,6 @@ import {
   updateMaterialPurchasePrice,
   uploadOrderAttachment,
   updateOrderFromDraft,
-  updateOrderStatus,
   type ApiHealth,
   type AuthUser,
   type Material,
@@ -976,67 +974,12 @@ const orderWorkflowStatusOptions: Array<{
   { label: "Отменён", value: "canceled" }
 ];
 
-const managerQuickStatusActions: Array<{
-  label: string;
-  value: OrderWorkflowStatus;
-}> = [
-  { label: "Взять в работу", value: "in_work" },
-  { label: "Подтвердить заказ", value: "confirmed" },
-  { label: "Заказ готов", value: "ready" },
-  { label: "Завершить", value: "completed" },
-  { label: "Отменить", value: "canceled" }
-];
-
 function getDatabaseOrderDisplayStatus(status: string) {
   const statusLabels: Record<string, string> = Object.fromEntries(
     orderWorkflowStatusOptions.map((option) => [option.value, option.label])
   );
 
   return status === "draft" ? "Черновик" : statusLabels[status] ?? status;
-}
-
-function getOrderEventPayload(event: OrderEvent) {
-  return typeof event.payload === "object" &&
-    event.payload !== null &&
-    !Array.isArray(event.payload)
-    ? (event.payload as Record<string, unknown>)
-    : {};
-}
-
-function getOrderEventTitle(event: OrderEvent) {
-  if (event.eventType === "order_status_changed") {
-    const payload = getOrderEventPayload(event);
-    const oldStatus =
-      typeof payload.oldStatus === "string"
-        ? getDatabaseOrderDisplayStatus(payload.oldStatus)
-        : "не указан";
-    const newStatus =
-      typeof payload.newStatus === "string"
-        ? getDatabaseOrderDisplayStatus(payload.newStatus)
-        : "не указан";
-
-    return `Статус: ${oldStatus} -> ${newStatus}`;
-  }
-
-  if (event.eventType === "comment_added") {
-    return "Комментарий менеджера";
-  }
-
-  if (event.eventType === "attachment_added") {
-    return "Добавлен файл";
-  }
-
-  if (event.eventType === "order_created") {
-    return "Заказ создан";
-  }
-
-  return event.eventType;
-}
-
-function getOrderEventComment(event: OrderEvent) {
-  const payload = getOrderEventPayload(event);
-
-  return typeof payload.comment === "string" ? payload.comment : null;
 }
 
 function createDraftOrder(items: DraftOrderItem[] = []): DraftOrder {
@@ -1325,13 +1268,6 @@ function App() {
   const [isServerOrdersLoading, setIsServerOrdersLoading] = useState(false);
   const [orderDetailStatus, setOrderDetailStatus] = useState<string | null>(null);
   const [isOrderDetailLoading, setIsOrderDetailLoading] = useState(false);
-  const [managerCommentText, setManagerCommentText] = useState("");
-  const [managerWorkflowStatus, setManagerWorkflowStatus] = useState<
-    string | null
-  >(null);
-  const [isManagerWorkflowSaving, setIsManagerWorkflowSaving] = useState(false);
-  const [isManagerHistoryExpanded, setIsManagerHistoryExpanded] =
-    useState(false);
   const [orderAttachmentsByOrderId, setOrderAttachmentsByOrderId] = useState<
     Record<number, OrderAttachment[]>
   >({});
@@ -3277,72 +3213,6 @@ function App() {
     return mappedDraftOrder;
   }
 
-  async function handleSaveManagerOrderStatus(
-    draftOrder: DraftOrder,
-    nextStatus: OrderWorkflowStatus
-  ) {
-    if (!draftOrder.serverOrderId || !authToken || isManagerWorkflowSaving) {
-      return;
-    }
-
-    if ((draftOrder.databaseStatus ?? "new") === nextStatus) {
-      return;
-    }
-
-    setIsManagerWorkflowSaving(true);
-    setManagerWorkflowStatus("Сохраняем статус...");
-
-    try {
-      await updateOrderStatus(
-        draftOrder.serverOrderId,
-        nextStatus,
-        "",
-        authToken
-      );
-      await refreshOpenedServerOrder(draftOrder.serverOrderId, draftOrder.id);
-      await loadServerOrders(authToken);
-      setManagerWorkflowStatus("Статус сохранён");
-      setServerConnectionState("connected");
-    } catch {
-      setManagerWorkflowStatus("Не удалось сохранить статус");
-      setServerConnectionState("disconnected");
-    } finally {
-      setIsManagerWorkflowSaving(false);
-    }
-  }
-
-  async function handleAddManagerOrderComment(draftOrder: DraftOrder) {
-    if (!draftOrder.serverOrderId || !authToken || isManagerWorkflowSaving) {
-      return;
-    }
-
-    if (!managerCommentText.trim()) {
-      setManagerWorkflowStatus("Введите комментарий менеджера");
-      return;
-    }
-
-    setIsManagerWorkflowSaving(true);
-    setManagerWorkflowStatus("Добавляем комментарий...");
-
-    try {
-      await addOrderManagerComment(
-        draftOrder.serverOrderId,
-        managerCommentText,
-        authToken
-      );
-      await refreshOpenedServerOrder(draftOrder.serverOrderId, draftOrder.id);
-      await loadServerOrders(authToken);
-      setManagerCommentText("");
-      setManagerWorkflowStatus("Комментарий добавлен");
-      setServerConnectionState("connected");
-    } catch {
-      setManagerWorkflowStatus("Не удалось добавить комментарий");
-      setServerConnectionState("disconnected");
-    } finally {
-      setIsManagerWorkflowSaving(false);
-    }
-  }
-
   async function handleOpenOrderDetail(
     order: OrderSummary,
     panelMode: DraftOrderPanelMode = "details"
@@ -3409,9 +3279,6 @@ function App() {
       setDraftOrderPanelMode(panelMode);
       setIsDraftOrderDetailsOpen(true);
       setOrderDetailStatus(null);
-      setManagerCommentText("");
-      setManagerWorkflowStatus(null);
-      setIsManagerHistoryExpanded(false);
       setServerConnectionState("connected");
       void loadOrderAttachments(orderDetail.id, authToken);
     } catch {
@@ -4579,132 +4446,6 @@ function App() {
                       <section className="draft-comment-card">
                         <h4>Заявка / комментарий</h4>
                         <p>{getDraftOrderRequestComment(detailDraftOrder)}</p>
-                      </section>
-                    ) : null}
-
-                    {detailDraftOrder.serverOrderId ? (
-                      <section className="manager-workflow-card">
-                        <div className="manager-workflow-header">
-                          <div>
-                            <h3>Работа менеджера</h3>
-                            <p>Быстрые действия по заказу</p>
-                          </div>
-                          <strong>
-                            Статус:{" "}
-                            {getDatabaseOrderDisplayStatus(
-                              detailDraftOrder.databaseStatus ?? "new"
-                            )}
-                          </strong>
-                        </div>
-
-                        <div className="manager-status-actions">
-                          {managerQuickStatusActions.map((action) => {
-                            const isCurrentStatus =
-                              (detailDraftOrder.databaseStatus ?? "new") ===
-                              action.value;
-
-                            return (
-                              <button
-                                className={
-                                  isCurrentStatus
-                                    ? "manager-status-action manager-status-action-current"
-                                    : "manager-status-action"
-                                }
-                                disabled={
-                                  isManagerWorkflowSaving || isCurrentStatus
-                                }
-                                key={action.value}
-                                onClick={() =>
-                                  void handleSaveManagerOrderStatus(
-                                    detailDraftOrder,
-                                    action.value
-                                  )
-                                }
-                                type="button"
-                              >
-                                {action.label}
-                              </button>
-                            );
-                          })}
-                        </div>
-
-                        <div className="manager-note-row">
-                          <label className="form-field">
-                            <span>Заметка менеджера</span>
-                            <textarea
-                              onChange={(event) =>
-                                setManagerCommentText(event.target.value)
-                              }
-                              placeholder="Например: клиенту отправлен счёт в MAX"
-                              rows={3}
-                              value={managerCommentText}
-                            />
-                          </label>
-
-                          <button
-                            className="secondary-action-button"
-                            disabled={isManagerWorkflowSaving}
-                            onClick={() =>
-                              void handleAddManagerOrderComment(detailDraftOrder)
-                            }
-                            type="button"
-                          >
-                            Добавить заметку
-                          </button>
-                        </div>
-
-                        {managerWorkflowStatus ? (
-                          <p className="draft-summary-muted">
-                            {managerWorkflowStatus}
-                          </p>
-                        ) : null}
-
-                        <div className="manager-event-history">
-                          <h4>История</h4>
-                          {detailDraftOrder.events &&
-                          detailDraftOrder.events.length > 0 ? (
-                            <>
-                              <ol>
-                                {(isManagerHistoryExpanded
-                                  ? detailDraftOrder.events
-                                  : detailDraftOrder.events.slice(0, 3)
-                                ).map((event) => (
-                                  <li key={event.id}>
-                                    <div>
-                                      <strong>{getOrderEventTitle(event)}</strong>
-                                      <span>
-                                        {formatDateTimeLabel(event.createdAt)}
-                                        {event.actorName
-                                          ? ` · ${event.actorName}`
-                                          : ""}
-                                      </span>
-                                    </div>
-                                    {getOrderEventComment(event) ? (
-                                      <p>{getOrderEventComment(event)}</p>
-                                    ) : null}
-                                  </li>
-                                ))}
-                              </ol>
-                              {detailDraftOrder.events.length > 3 ? (
-                                <button
-                                  className="manager-history-toggle"
-                                  onClick={() =>
-                                    setIsManagerHistoryExpanded((current) => !current)
-                                  }
-                                  type="button"
-                                >
-                                  {isManagerHistoryExpanded
-                                    ? "Скрыть историю"
-                                    : "Показать всю историю"}
-                                </button>
-                              ) : null}
-                            </>
-                          ) : (
-                            <p className="draft-summary-muted">
-                              История пока пустая.
-                            </p>
-                          )}
-                        </div>
                       </section>
                     ) : null}
 
