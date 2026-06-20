@@ -3021,31 +3021,6 @@ tbody tr {
   overflow-wrap: anywhere;
 }
 
-.payment-method-options {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.payment-method-button {
-  min-height: 32px;
-  padding: 7px 10px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 999px;
-  color: rgba(255, 255, 255, 0.74);
-  background: rgba(255, 255, 255, 0.07);
-  font-size: 12px;
-  font-weight: 800;
-  cursor: pointer;
-}
-
-.payment-method-button:hover,
-.payment-method-button-active {
-  border-color: rgba(159, 255, 191, 0.34);
-  color: rgba(159, 255, 191, 0.94);
-  background: rgba(64, 197, 103, 0.14);
-}
-
 .payment-message-field textarea {
   min-height: 118px;
   resize: vertical;

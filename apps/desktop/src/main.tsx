@@ -343,12 +343,6 @@ type DraftOrder = {
   updatedAt: string;
 };
 
-type PaymentPreparationMethod =
-  | "invoice"
-  | "qr"
-  | "payment-link"
-  | "on-delivery";
-
 type DraftOrdersStorage = {
   activeDraftOrderId: string | null;
   draftOrders: DraftOrder[];
@@ -761,32 +755,6 @@ function hasDtfPrintItem(draftOrder: DraftOrder) {
   return draftOrder.items.some((item) => item.serviceType === "dtf-print");
 }
 
-const paymentPreparationMethods: Array<{
-  label: string;
-  messageText: string;
-  value: PaymentPreparationMethod;
-}> = [
-  { label: "Счёт", messageText: "счёт", value: "invoice" },
-  { label: "QR-код", messageText: "QR-код", value: "qr" },
-  {
-    label: "Ссылка на оплату",
-    messageText: "ссылку на оплату",
-    value: "payment-link"
-  },
-  {
-    label: "Оплата при получении",
-    messageText: "информацию об оплате при получении",
-    value: "on-delivery"
-  }
-];
-
-function getPaymentPreparationMethodText(method: PaymentPreparationMethod) {
-  return (
-    paymentPreparationMethods.find((option) => option.value === method)
-      ?.messageText ?? "QR-код"
-  );
-}
-
 const ozonPaymentStatusLabels: Record<string, string> = {
   authorized: "Авторизована",
   canceled: "Отменена",
@@ -821,31 +789,29 @@ function getOzonPaymentErrorMessage(error: unknown) {
 
 function getPaymentPreparationMessage(
   draftOrder: DraftOrder,
-  method: PaymentPreparationMethod,
   payLink?: string | null
 ) {
   const orderNumber = draftOrder.serverOrderNumber ?? "заказа";
-  const methodText = getPaymentPreparationMethodText(method);
 
   if (draftOrder.totalPriceMinor <= 0) {
-    return `Здравствуйте! Заявка №${orderNumber} принята. Менеджер уточнит стоимость и отправит информацию по оплате.`;
+    return `Здравствуйте! Заявка №${orderNumber} принята. Менеджер уточнит стоимость и подготовит страницу оплаты Ozon Pay.`;
   }
 
   const amount = formatMinorPrice(draftOrder.totalPriceMinor, "RUB");
 
   if (payLink) {
     if (hasDtfPrintItem(draftOrder)) {
-      return `Здравствуйте! Заявка №${orderNumber} по DTF-печати проверена. Стоимость печати: ${amount}. Для оплаты перейдите по ссылке: ${payLink}. После поступления оплаты запускаем заказ в работу.`;
+      return `Здравствуйте! Заявка №${orderNumber} по DTF-печати проверена. Стоимость печати: ${amount}. Для оплаты откройте страницу Ozon Pay: ${payLink}. На странице можно оплатить картой, СБП или Ozon картой. После поступления оплаты запускаем заказ в работу.`;
     }
 
-    return `Здравствуйте! Заявка №${orderNumber} проверена. Стоимость заказа: ${amount}. Для оплаты перейдите по ссылке: ${payLink}. После поступления оплаты запускаем заказ в работу.`;
+    return `Здравствуйте! Заявка №${orderNumber} проверена. Стоимость заказа: ${amount}. Для оплаты откройте страницу Ozon Pay: ${payLink}. На странице можно оплатить картой, СБП или Ozon картой. После поступления оплаты запускаем заказ в работу.`;
   }
 
   if (hasDtfPrintItem(draftOrder)) {
-    return `Здравствуйте! Заявка №${orderNumber} по DTF-печати проверена. Стоимость печати: ${amount}. Для оплаты отправляем ${methodText}. После оплаты запускаем заказ в работу.`;
+    return `Здравствуйте! Заявка №${orderNumber} по DTF-печати проверена. Стоимость печати: ${amount}. Сейчас подготовим страницу оплаты Ozon Pay. После поступления оплаты запускаем заказ в работу.`;
   }
 
-  return `Здравствуйте! Заявка №${orderNumber} проверена. Стоимость заказа: ${amount}. Для оплаты отправляем ${methodText}. После оплаты запускаем заказ в работу.`;
+  return `Здравствуйте! Заявка №${orderNumber} проверена. Стоимость заказа: ${amount}. Сейчас подготовим страницу оплаты Ozon Pay. После поступления оплаты запускаем заказ в работу.`;
 }
 
 function getDraftOrderRequestComment(draftOrder: DraftOrder) {
@@ -1538,8 +1504,6 @@ function App() {
   const [isOrderDetailLoading, setIsOrderDetailLoading] = useState(false);
   const [paymentPreparationDraftOrderId, setPaymentPreparationDraftOrderId] =
     useState<string | null>(null);
-  const [paymentPreparationMethod, setPaymentPreparationMethod] =
-    useState<PaymentPreparationMethod>("payment-link");
   const [paymentPreparationStatus, setPaymentPreparationStatus] = useState<
     string | null
   >(null);
@@ -3254,8 +3218,11 @@ function App() {
       <section className="payment-preparation-ozon-panel">
         <div className="payment-preparation-ozon-header">
           <div>
-            <strong>Ozon Pay Checkout</strong>
-            <p>Ссылка будет создана через Ozon Pay Checkout на сервере.</p>
+            <strong>Оплата Ozon Pay</strong>
+            <p>
+              Клиент откроет страницу Ozon Pay и сможет оплатить картой, СБП
+              или Ozon картой.
+            </p>
           </div>
           {!payment ? (
             <button
@@ -3264,7 +3231,7 @@ function App() {
               onClick={() => void handleCreateOzonPayment(draftOrder)}
               type="button"
             >
-              {action === "create" ? "Создаём..." : "Создать оплату Ozon"}
+              {action === "create" ? "Создаём..." : "Создать оплату Ozon Pay"}
             </button>
           ) : null}
         </div>
@@ -3299,6 +3266,22 @@ function App() {
                 type="button"
               >
                 Скопировать ссылку
+              </button>
+              <button
+                className="secondary-action-button"
+                disabled={!payment.payLink}
+                onClick={() => {
+                  if (payment.payLink) {
+                    void copyTextToClipboard(
+                      getPaymentPreparationMessage(draftOrder, payment.payLink),
+                      orderId,
+                      "Текст для MAX/email скопирован"
+                    );
+                  }
+                }}
+                type="button"
+              >
+                Скопировать текст для MAX/email
               </button>
               <button
                 className="secondary-action-button"
@@ -3634,7 +3617,6 @@ function App() {
 
   function openPaymentPreparationPanel(draftOrder: DraftOrder) {
     setPaymentPreparationDraftOrderId(draftOrder.id);
-    setPaymentPreparationMethod("payment-link");
     setPaymentPreparationStatus(null);
     if (draftOrder.serverOrderId) {
       void loadOrderPayments(draftOrder.serverOrderId);
@@ -3647,14 +3629,9 @@ function App() {
   }
 
   async function handleCopyPaymentPreparationText(draftOrder: DraftOrder) {
-    const payLink =
-      paymentPreparationMethod === "payment-link"
-        ? paymentPreparationOzonPayment?.payLink
-        : null;
     const message = getPaymentPreparationMessage(
       draftOrder,
-      paymentPreparationMethod,
-      payLink
+      paymentPreparationOzonPayment?.payLink
     );
 
     if (!navigator.clipboard?.writeText) {
@@ -4213,33 +4190,7 @@ function App() {
                   : "Требует расчёта"}
               </strong>
               <span>Способ оплаты</span>
-              <strong>
-                {
-                  paymentPreparationMethods.find(
-                    (option) => option.value === paymentPreparationMethod
-                  )?.label
-                }
-              </strong>
-            </div>
-
-            <div className="payment-method-options" role="group">
-              {paymentPreparationMethods.map((method) => (
-                <button
-                  className={
-                    method.value === paymentPreparationMethod
-                      ? "payment-method-button payment-method-button-active"
-                      : "payment-method-button"
-                  }
-                  key={method.value}
-                  onClick={() => {
-                    setPaymentPreparationMethod(method.value);
-                    setPaymentPreparationStatus(null);
-                  }}
-                  type="button"
-                >
-                  {method.label}
-                </button>
-              ))}
+              <strong>Оплата Ozon Pay</strong>
             </div>
 
             {renderPaymentPreparationOzonPanel(paymentPreparationDraftOrder)}
@@ -4251,10 +4202,7 @@ function App() {
                 rows={5}
                 value={getPaymentPreparationMessage(
                   paymentPreparationDraftOrder,
-                  paymentPreparationMethod,
-                  paymentPreparationMethod === "payment-link"
-                    ? paymentPreparationOzonPayment?.payLink
-                    : null
+                  paymentPreparationOzonPayment?.payLink
                 )}
               />
             </label>
