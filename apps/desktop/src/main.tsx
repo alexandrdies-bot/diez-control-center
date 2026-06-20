@@ -290,6 +290,10 @@ type DraftOrderItem = {
   quantity?: number;
   areaM2?: number;
   totalPriceMinor?: number;
+  unitPriceMinor?: number;
+  currencyCode?: string;
+  calculationSnapshot?: unknown;
+  params?: unknown;
   priceMinor: number;
   formattedPrice: string;
   ledCount?: number;
@@ -485,14 +489,18 @@ function mapOrderDetailsToDraftOrder(
       calculationId: `order-${orderDetails.id}-item-${item.id}`,
       calculationSource: "database-order",
       checkMode: "imported",
+      calculationSnapshot: item.calculationSnapshot,
+      currencyCode: item.currencyCode,
       formattedPrice: formatMinorPrice(priceMinor, item.currencyCode),
       id: `order-${orderDetails.id}-item-${item.id}`,
+      params: item.params,
       priceMinor,
       quantity: Number(item.quantity) || 1,
       serviceType,
       title: item.title || `Позиция ${index + 1}`,
       totalPriceMinor: priceMinor,
-      type: getDraftItemTypeFromServiceType(serviceType)
+      type: getDraftItemTypeFromServiceType(serviceType),
+      unitPriceMinor: Number(item.unitPriceMinor) || 0
     };
   });
 
@@ -741,6 +749,199 @@ function isDtfQuoteRequestOrder(draftOrder: DraftOrder) {
 
 function getDraftOrderRequestComment(draftOrder: DraftOrder) {
   return draftOrder.requestComment?.trim() || draftOrder.customer?.comment?.trim() || "";
+}
+
+type DtfOrderInfo = {
+  a3SheetCount: number | null;
+  aiContactRoutingPlanned: boolean;
+  contactPreference: string;
+  designNeedsEstimate: boolean;
+  fileNames: string[];
+  hasFiles: boolean;
+  printTotalRub: number | null;
+  requestKindLabel: string;
+  responsePolicy: string;
+  responsePolicyLabel: string;
+  unitPriceRub: number | null;
+};
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function getDtfItemRecords(item: DraftOrderItem) {
+  return [item.params, item.calculationSnapshot].filter(isPlainRecord);
+}
+
+function getDtfItemValue(item: DraftOrderItem, key: string) {
+  const records = getDtfItemRecords(item);
+
+  for (const record of records) {
+    if (key in record) {
+      return record[key];
+    }
+  }
+
+  return undefined;
+}
+
+function getDtfStringValue(item: DraftOrderItem, key: string) {
+  const value = getDtfItemValue(item, key);
+
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function getDtfNumberValue(item: DraftOrderItem, key: string) {
+  const value = getDtfItemValue(item, key);
+  const parsedValue = typeof value === "number" ? value : Number(value);
+
+  return Number.isFinite(parsedValue) ? parsedValue : null;
+}
+
+function getDtfBooleanValue(item: DraftOrderItem, key: string) {
+  const value = getDtfItemValue(item, key);
+
+  return typeof value === "boolean" ? value : null;
+}
+
+function getDtfStringArrayValue(item: DraftOrderItem, key: string) {
+  const value = getDtfItemValue(item, key);
+
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.filter(
+    (entry): entry is string => typeof entry === "string" && entry.trim().length > 0
+  );
+}
+
+function getDtfOrderInfo(draftOrder: DraftOrder): DtfOrderInfo | null {
+  const item = draftOrder.items.find((orderItem) => orderItem.serviceType === "dtf-print");
+
+  if (!item) {
+    return null;
+  }
+
+  const fileNames = getDtfStringArrayValue(item, "fileNames");
+  const unitPriceRub =
+    getDtfNumberValue(item, "unitPriceRub") ??
+    (Number.isFinite(Number(item.unitPriceMinor)) && Number(item.unitPriceMinor) > 0
+      ? Number(item.unitPriceMinor) / 100
+      : null);
+  const printTotalRub =
+    getDtfNumberValue(item, "printTotalRub") ??
+    (Number.isFinite(Number(item.totalPriceMinor)) && Number(item.totalPriceMinor) > 0
+      ? Number(item.totalPriceMinor) / 100
+      : null);
+
+  return {
+    a3SheetCount: getDtfNumberValue(item, "a3SheetCount"),
+    aiContactRoutingPlanned: getDtfBooleanValue(item, "aiContactRoutingPlanned") ?? false,
+    contactPreference: getDtfStringValue(item, "contactPreference") ?? "auto_max_then_email",
+    designNeedsEstimate:
+      getDtfBooleanValue(item, "designNeedsEstimate") ??
+      getDtfBooleanValue(item, "requiresEstimate") ??
+      isDtfQuoteRequestItem(item),
+    fileNames,
+    hasFiles:
+      getDtfBooleanValue(item, "hasFiles") ??
+      getDtfBooleanValue(item, "hasFile") ??
+      fileNames.length > 0,
+    printTotalRub,
+    requestKindLabel: getDtfStringValue(item, "requestKindLabel") ?? item.title,
+    responsePolicy: getDtfStringValue(item, "responsePolicy") ?? "max_then_email",
+    responsePolicyLabel:
+      getDtfStringValue(item, "responsePolicyLabel") ??
+      "Ответ: MAX, если недоступен — email",
+    unitPriceRub
+  };
+}
+
+function formatDtfRubValue(value: number | null) {
+  if (value === null || !Number.isFinite(value)) {
+    return "уточнит менеджер";
+  }
+
+  return value.toLocaleString("ru-RU", {
+    maximumFractionDigits: 0,
+    minimumFractionDigits: 0
+  }) + " ₽";
+}
+
+function getDraftOrderDisplayRequestComment(draftOrder: DraftOrder) {
+  const comment = getDraftOrderRequestComment(draftOrder);
+
+  if (!comment || !getDtfOrderInfo(draftOrder)) {
+    return comment;
+  }
+
+  return comment
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => {
+      if (!line) return false;
+
+      return ![
+        "Тип обращения:",
+        "Способ связи:",
+        "Ответ по умолчанию:",
+        "Ответ:",
+        "Количество листов A3:",
+        "Количество листов А3:",
+        "Требуется оценка"
+      ].some((prefix) => line.startsWith(prefix));
+    })
+    .join("\n");
+}
+
+function renderDtfOrderBlocks(draftOrder: DraftOrder) {
+  const info = getDtfOrderInfo(draftOrder);
+
+  if (!info) {
+    return null;
+  }
+
+  const customerPhone = draftOrder.customer?.phone?.trim();
+  const customerEmail = draftOrder.customer?.email?.trim();
+
+  return (
+    <div className="dtf-order-info-grid">
+      <section className="draft-comment-card dtf-order-info-card">
+        <h4>DTF-заявка</h4>
+        <div className="draft-summary-lines">
+          <span>Тип обращения: {info.requestKindLabel}</span>
+          <span>Количество листов А3: {info.a3SheetCount ?? "не указано"}</span>
+          <span>Цена за лист: {formatDtfRubValue(info.unitPriceRub)}</span>
+          <span>Сумма печати: {formatDtfRubValue(info.printTotalRub)}</span>
+          <span>Оценка дизайна/доработки: {info.designNeedsEstimate ? "нужна" : "не нужна"}</span>
+          {info.fileNames.length > 0 ? (
+            <span>Файлы: {info.fileNames.join(", ")}</span>
+          ) : info.hasFiles ? (
+            <span>Файлы: прикреплены</span>
+          ) : null}
+        </div>
+      </section>
+
+      <section className="draft-comment-card dtf-order-info-card">
+        <h4>Ответ клиенту</h4>
+        <div className="draft-summary-lines">
+          <span>Основной канал: MAX</span>
+          <span>Резерв: email</span>
+          {customerPhone ? (
+            <span>Телефон: {formatRussianPhone(customerPhone)}</span>
+          ) : (
+            <span>Телефон: не указан</span>
+          )}
+          {customerEmail ? <span>Email: {customerEmail}</span> : <span>Email: не указан</span>}
+          <span className="dtf-order-response-note">{info.responsePolicyLabel}</span>
+          {info.aiContactRoutingPlanned ? (
+            <span className="dtf-order-response-note">Автоматический выбор канала планируется позже.</span>
+          ) : null}
+        </div>
+      </section>
+    </div>
+  );
 }
 
 function getOrderSummaryCustomerLabel(order: OrderSummary) {
@@ -4442,12 +4643,14 @@ function App() {
                       </section>
                     </div>
 
-                    {getDraftOrderRequestComment(detailDraftOrder) ? (
+                    {getDraftOrderDisplayRequestComment(detailDraftOrder) ? (
                       <section className="draft-comment-card">
                         <h4>Заявка / комментарий</h4>
-                        <p>{getDraftOrderRequestComment(detailDraftOrder)}</p>
+                        <p>{getDraftOrderDisplayRequestComment(detailDraftOrder)}</p>
                       </section>
                     ) : null}
+
+                    {renderDtfOrderBlocks(detailDraftOrder)}
 
                     <div className="section-heading">
                       <div>
