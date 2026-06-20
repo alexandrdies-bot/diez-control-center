@@ -210,6 +210,30 @@ export type AddOrderManagerCommentResult = {
   orderNumber: string;
 };
 
+export type OrderPayment = {
+  amountMinor: number;
+  canceledAt: string | null;
+  createdAt: string;
+  currencyCode: string;
+  expiresAt: string | null;
+  id: number;
+  lastErrorCode: string | null;
+  lastErrorMessage: string | null;
+  ozonStatus: string | null;
+  paidAt: string | null;
+  payLink: string | null;
+  paymentMethod: string | null;
+  provider: string;
+  refundedAt: string | null;
+  status: string;
+  testMode: boolean | null;
+  updatedAt: string;
+};
+
+export type OrderPaymentResult = {
+  payment: OrderPayment;
+};
+
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "https://api.diezimg.ru";
 const apiWriteKey = import.meta.env.VITE_API_WRITE_KEY?.trim();
 const adminApiKey = import.meta.env.VITE_ADMIN_API_KEY?.trim();
@@ -835,6 +859,74 @@ export async function addOrderManagerComment(
   }
 
   return response.json() as Promise<AddOrderManagerCommentResult>;
+}
+
+export async function getOrderPayments(
+  orderId: number,
+  token: string
+): Promise<OrderPayment[]> {
+  const response = await fetch(`${apiBaseUrl}/orders/${orderId}/payments`, {
+    headers: createBearerHeaders(token)
+  });
+
+  if (!response.ok) {
+    const responseBody = await response.text();
+    throw new Error(
+      `/orders/${orderId}/payments ${response.status}${
+        responseBody ? ` ${responseBody}` : ""
+      }`
+    );
+  }
+
+  return response.json() as Promise<OrderPayment[]>;
+}
+
+export async function createOzonOrderPayment(
+  orderId: number,
+  token: string
+): Promise<OrderPaymentResult> {
+  const response = await fetch(`${apiBaseUrl}/orders/${orderId}/payments/ozon`, {
+    body: "{}",
+    headers: createJsonBearerHeaders(token),
+    method: "POST"
+  });
+
+  if (!response.ok) {
+    const responseBody = await response.text();
+    throw new Error(
+      `/orders/${orderId}/payments/ozon ${response.status}${
+        responseBody ? ` ${responseBody}` : ""
+      }`
+    );
+  }
+
+  return response.json() as Promise<OrderPaymentResult>;
+}
+
+export async function syncOrderPayment(
+  orderId: number,
+  paymentId: number,
+  token: string
+): Promise<OrderPaymentResult> {
+  const response = await fetch(
+    `${apiBaseUrl}/orders/${orderId}/payments/${paymentId}/sync`,
+    {
+      body: "{}",
+      headers: createJsonBearerHeaders(token),
+      method: "POST"
+    }
+  );
+
+  if (!response.ok) {
+    const responseBody = await response.text();
+    throw new Error(
+      `/orders/${orderId}/payments/${paymentId}/sync ${response.status}${
+        responseBody ? ` ${responseBody}` : ""
+      }`
+    );
+  }
+
+  return response.json() as Promise<OrderPaymentResult>;
 }
 
 export async function deleteOrder(

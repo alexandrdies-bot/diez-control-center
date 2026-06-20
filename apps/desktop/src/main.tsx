@@ -12,6 +12,7 @@ import truckIconUrl from "./assets/svg/truck.svg";
 import truckOffIconUrl from "./assets/svg/truck-off.svg";
 import userIconUrl from "./assets/svg/user.svg";
 import {
+  createOzonOrderPayment,
   createOrderFromDraft,
   deleteOrder,
   downloadOrderAttachment,
@@ -22,9 +23,11 @@ import {
   getMaterials,
   getOrder,
   getOrderAttachments,
+  getOrderPayments,
   getOrders,
   login as loginToApi,
   openDownloadedFileLocation,
+  syncOrderPayment,
   updateMaterialPurchasePrice,
   uploadOrderAttachment,
   updateOrderFromDraft,
@@ -35,6 +38,7 @@ import {
   type OrderAttachment,
   type OrderDetail,
   type OrderEvent,
+  type OrderPayment,
   type OrderWorkflowStatus,
   type OrderSummary
 } from "./api";
@@ -783,9 +787,42 @@ function getPaymentPreparationMethodText(method: PaymentPreparationMethod) {
   );
 }
 
+const ozonPaymentStatusLabels: Record<string, string> = {
+  authorized: "Авторизована",
+  canceled: "Отменена",
+  created: "Создана",
+  disputed: "Спор",
+  expired: "Истекла",
+  failed: "Ошибка",
+  paid: "Оплачена",
+  partial_refund: "Частичный возврат",
+  pending: "Ожидает оплаты",
+  refunded: "Возврат",
+  unknown: "Неизвестно"
+};
+
+function getOzonPaymentStatusLabel(status: string) {
+  return ozonPaymentStatusLabels[status] ?? status;
+}
+
+function getLatestOzonPayment(payments: OrderPayment[]) {
+  return payments.find((payment) => payment.provider === "ozon_pay_checkout") ?? null;
+}
+
+function getOzonPaymentErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+
+  if (message.includes("OZON_ACQUIRING_NOT_CONFIGURED")) {
+    return "Ozon Pay ещё не настроен на сервере.";
+  }
+
+  return "Не удалось создать оплату Ozon.";
+}
+
 function getPaymentPreparationMessage(
   draftOrder: DraftOrder,
-  method: PaymentPreparationMethod
+  method: PaymentPreparationMethod,
+  payLink?: string | null
 ) {
   const orderNumber = draftOrder.serverOrderNumber ?? "заказа";
   const methodText = getPaymentPreparationMethodText(method);
@@ -795,6 +832,14 @@ function getPaymentPreparationMessage(
   }
 
   const amount = formatMinorPrice(draftOrder.totalPriceMinor, "RUB");
+
+  if (payLink) {
+    if (hasDtfPrintItem(draftOrder)) {
+      return `Здравствуйте! Заявка №${orderNumber} по DTF-печати проверена. Стоимость печати: ${amount}. Для оплаты перейдите по ссылке: ${payLink}. После поступления оплаты запускаем заказ в работу.`;
+    }
+
+    return `Здравствуйте! Заявка №${orderNumber} проверена. Стоимость заказа: ${amount}. Для оплаты перейдите по ссылке: ${payLink}. После поступления оплаты запускаем заказ в работу.`;
+  }
 
   if (hasDtfPrintItem(draftOrder)) {
     return `Здравствуйте! Заявка №${orderNumber} по DTF-печати проверена. Стоимость печати: ${amount}. Для оплаты отправляем ${methodText}. После оплаты запускаем заказ в работу.`;
@@ -1494,10 +1539,18 @@ function App() {
   const [paymentPreparationDraftOrderId, setPaymentPreparationDraftOrderId] =
     useState<string | null>(null);
   const [paymentPreparationMethod, setPaymentPreparationMethod] =
-    useState<PaymentPreparationMethod>("qr");
+    useState<PaymentPreparationMethod>("payment-link");
   const [paymentPreparationStatus, setPaymentPreparationStatus] = useState<
     string | null
   >(null);
+  const [orderPaymentsByOrderId, setOrderPaymentsByOrderId] = useState<
+    Record<number, OrderPayment[]>
+  >({});
+  const [orderPaymentsStatusByOrderId, setOrderPaymentsStatusByOrderId] =
+    useState<Record<number, string>>({});
+  const [orderPaymentActionByOrderId, setOrderPaymentActionByOrderId] = useState<
+    Record<number, "create" | "sync" | undefined>
+  >({});
   const [orderAttachmentsByOrderId, setOrderAttachmentsByOrderId] = useState<
     Record<number, OrderAttachment[]>
   >({});
@@ -1843,6 +1896,15 @@ function App() {
       ) ?? null
     );
   }, [draftOrders, paymentPreparationDraftOrderId]);
+  const paymentPreparationOzonPayment = useMemo(() => {
+    if (!paymentPreparationDraftOrder?.serverOrderId) {
+      return null;
+    }
+
+    return getLatestOzonPayment(
+      orderPaymentsByOrderId[paymentPreparationDraftOrder.serverOrderId] ?? []
+    );
+  }, [orderPaymentsByOrderId, paymentPreparationDraftOrder]);
 
   const localDraftOrders = useMemo(
     () =>
@@ -2956,6 +3018,43 @@ function App() {
     }
   }
 
+  async function loadOrderPayments(orderId: number, sessionToken = authToken) {
+    if (!sessionToken) {
+      setOrderPaymentsStatusByOrderId((current) => ({
+        ...current,
+        [orderId]: "Войдите, чтобы увидеть оплаты"
+      }));
+      return;
+    }
+
+    setOrderPaymentsStatusByOrderId((current) => ({
+      ...current,
+      [orderId]: "Загружаем оплаты..."
+    }));
+
+    try {
+      const payments = await getOrderPayments(orderId, sessionToken);
+
+      setOrderPaymentsByOrderId((current) => ({
+        ...current,
+        [orderId]: payments
+      }));
+      setOrderPaymentsStatusByOrderId((current) => ({
+        ...current,
+        [orderId]: ""
+      }));
+    } catch {
+      setOrderPaymentsByOrderId((current) => ({
+        ...current,
+        [orderId]: []
+      }));
+      setOrderPaymentsStatusByOrderId((current) => ({
+        ...current,
+        [orderId]: "Не удалось загрузить оплаты"
+      }));
+    }
+  }
+
   async function handleUploadOrderAttachment(orderId: number, file: File | null) {
     if (!authToken) {
       setAttachmentsStatusByOrderId((current) => ({
@@ -3136,6 +3235,89 @@ function App() {
           </button>
         ) : null}
       </div>
+    );
+  }
+
+  function renderPaymentPreparationOzonPanel(draftOrder: DraftOrder) {
+    const orderId = draftOrder.serverOrderId;
+
+    if (!orderId) {
+      return null;
+    }
+
+    const payments = orderPaymentsByOrderId[orderId] ?? [];
+    const payment = getLatestOzonPayment(payments);
+    const status = orderPaymentsStatusByOrderId[orderId];
+    const action = orderPaymentActionByOrderId[orderId];
+
+    return (
+      <section className="payment-preparation-ozon-panel">
+        <div className="payment-preparation-ozon-header">
+          <div>
+            <strong>Ozon Pay Checkout</strong>
+            <p>Ссылка будет создана через Ozon Pay Checkout на сервере.</p>
+          </div>
+          {!payment ? (
+            <button
+              className="secondary-action-button"
+              disabled={action === "create" || draftOrder.totalPriceMinor <= 0}
+              onClick={() => void handleCreateOzonPayment(draftOrder)}
+              type="button"
+            >
+              {action === "create" ? "Создаём..." : "Создать оплату Ozon"}
+            </button>
+          ) : null}
+        </div>
+
+        {payment ? (
+          <div className="payment-preparation-ozon-body">
+            <div className="payment-preparation-ozon-row">
+              <span>Статус</span>
+              <strong>{getOzonPaymentStatusLabel(payment.status)}</strong>
+            </div>
+            <div className="payment-preparation-ozon-row">
+              <span>Сумма</span>
+              <strong>
+                {formatMinorPrice(payment.amountMinor, payment.currencyCode)}
+              </strong>
+            </div>
+            <div className="payment-preparation-ozon-row">
+              <span>Ссылка</span>
+              {payment.payLink ? (
+                <a href={payment.payLink} rel="noreferrer" target="_blank">
+                  {payment.payLink}
+                </a>
+              ) : (
+                <strong>Ссылка не получена</strong>
+              )}
+            </div>
+            <div className="payment-preparation-ozon-actions">
+              <button
+                className="secondary-action-button"
+                disabled={!payment.payLink}
+                onClick={() => handleCopyOzonPaymentLink(draftOrder, payment)}
+                type="button"
+              >
+                Скопировать ссылку
+              </button>
+              <button
+                className="secondary-action-button"
+                disabled={action === "sync"}
+                onClick={() => void handleSyncOzonPayment(draftOrder, payment)}
+                type="button"
+              >
+                {action === "sync" ? "Обновляем..." : "Обновить статус"}
+              </button>
+            </div>
+          </div>
+        ) : draftOrder.totalPriceMinor <= 0 ? (
+          <p className="draft-summary-muted">
+            Сначала укажите сумму заказа, затем создайте ссылку оплаты.
+          </p>
+        ) : null}
+
+        {status ? <p className="draft-summary-muted">{status}</p> : null}
+      </section>
     );
   }
 
@@ -3452,8 +3634,11 @@ function App() {
 
   function openPaymentPreparationPanel(draftOrder: DraftOrder) {
     setPaymentPreparationDraftOrderId(draftOrder.id);
-    setPaymentPreparationMethod("qr");
+    setPaymentPreparationMethod("payment-link");
     setPaymentPreparationStatus(null);
+    if (draftOrder.serverOrderId) {
+      void loadOrderPayments(draftOrder.serverOrderId);
+    }
   }
 
   function closePaymentPreparationPanel() {
@@ -3462,9 +3647,14 @@ function App() {
   }
 
   async function handleCopyPaymentPreparationText(draftOrder: DraftOrder) {
+    const payLink =
+      paymentPreparationMethod === "payment-link"
+        ? paymentPreparationOzonPayment?.payLink
+        : null;
     const message = getPaymentPreparationMessage(
       draftOrder,
-      paymentPreparationMethod
+      paymentPreparationMethod,
+      payLink
     );
 
     if (!navigator.clipboard?.writeText) {
@@ -3478,6 +3668,144 @@ function App() {
     } catch {
       setPaymentPreparationStatus("Не удалось скопировать автоматически");
     }
+  }
+
+  async function copyTextToClipboard(
+    text: string,
+    orderId: number,
+    successMessage: string
+  ) {
+    if (!navigator.clipboard?.writeText) {
+      setOrderPaymentsStatusByOrderId((current) => ({
+        ...current,
+        [orderId]: "Скопируйте текст вручную"
+      }));
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(text);
+      setOrderPaymentsStatusByOrderId((current) => ({
+        ...current,
+        [orderId]: successMessage
+      }));
+    } catch {
+      setOrderPaymentsStatusByOrderId((current) => ({
+        ...current,
+        [orderId]: "Не удалось скопировать автоматически"
+      }));
+    }
+  }
+
+  async function handleCreateOzonPayment(draftOrder: DraftOrder) {
+    const orderId = draftOrder.serverOrderId;
+
+    if (!orderId || !authToken) {
+      return;
+    }
+
+    setOrderPaymentActionByOrderId((current) => ({
+      ...current,
+      [orderId]: "create"
+    }));
+    setOrderPaymentsStatusByOrderId((current) => ({
+      ...current,
+      [orderId]: "Создаём оплату Ozon..."
+    }));
+
+    try {
+      const result = await createOzonOrderPayment(orderId, authToken);
+
+      setOrderPaymentsByOrderId((current) => {
+        const existingPayments = current[orderId] ?? [];
+        const nextPayments = [
+          result.payment,
+          ...existingPayments.filter((payment) => payment.id !== result.payment.id)
+        ];
+
+        return {
+          ...current,
+          [orderId]: nextPayments
+        };
+      });
+      setOrderPaymentsStatusByOrderId((current) => ({
+        ...current,
+        [orderId]: result.payment.payLink
+          ? "Оплата Ozon создана"
+          : "Оплата создана, но ссылка не получена"
+      }));
+    } catch (error) {
+      setOrderPaymentsStatusByOrderId((current) => ({
+        ...current,
+        [orderId]: getOzonPaymentErrorMessage(error)
+      }));
+    } finally {
+      setOrderPaymentActionByOrderId((current) => ({
+        ...current,
+        [orderId]: undefined
+      }));
+    }
+  }
+
+  async function handleSyncOzonPayment(
+    draftOrder: DraftOrder,
+    payment: OrderPayment
+  ) {
+    const orderId = draftOrder.serverOrderId;
+
+    if (!orderId || !authToken) {
+      return;
+    }
+
+    setOrderPaymentActionByOrderId((current) => ({
+      ...current,
+      [orderId]: "sync"
+    }));
+    setOrderPaymentsStatusByOrderId((current) => ({
+      ...current,
+      [orderId]: "Обновляем статус оплаты..."
+    }));
+
+    try {
+      const result = await syncOrderPayment(orderId, payment.id, authToken);
+
+      setOrderPaymentsByOrderId((current) => {
+        const existingPayments = current[orderId] ?? [];
+        const nextPayments = [
+          result.payment,
+          ...existingPayments.filter((item) => item.id !== result.payment.id)
+        ];
+
+        return {
+          ...current,
+          [orderId]: nextPayments
+        };
+      });
+      setOrderPaymentsStatusByOrderId((current) => ({
+        ...current,
+        [orderId]: "Статус оплаты обновлён"
+      }));
+    } catch {
+      setOrderPaymentsStatusByOrderId((current) => ({
+        ...current,
+        [orderId]: "Не удалось обновить статус оплаты"
+      }));
+    } finally {
+      setOrderPaymentActionByOrderId((current) => ({
+        ...current,
+        [orderId]: undefined
+      }));
+    }
+  }
+
+  function handleCopyOzonPaymentLink(draftOrder: DraftOrder, payment: OrderPayment) {
+    const orderId = draftOrder.serverOrderId;
+
+    if (!orderId || !payment.payLink) {
+      return;
+    }
+
+    void copyTextToClipboard(payment.payLink, orderId, "Ссылка скопирована");
   }
 
   async function handleOpenOrderDetail(
@@ -3548,6 +3876,7 @@ function App() {
       setOrderDetailStatus(null);
       setServerConnectionState("connected");
       void loadOrderAttachments(orderDetail.id, authToken);
+      void loadOrderPayments(orderDetail.id, authToken);
     } catch {
       setOrderDetailStatus("Не удалось открыть заказ");
       setServerConnectionState("disconnected");
@@ -3913,6 +4242,8 @@ function App() {
               ))}
             </div>
 
+            {renderPaymentPreparationOzonPanel(paymentPreparationDraftOrder)}
+
             <label className="form-field payment-message-field">
               <span>Текст для клиента</span>
               <textarea
@@ -3920,7 +4251,10 @@ function App() {
                 rows={5}
                 value={getPaymentPreparationMessage(
                   paymentPreparationDraftOrder,
-                  paymentPreparationMethod
+                  paymentPreparationMethod,
+                  paymentPreparationMethod === "payment-link"
+                    ? paymentPreparationOzonPayment?.payLink
+                    : null
                 )}
               />
             </label>
