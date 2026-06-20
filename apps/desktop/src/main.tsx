@@ -753,15 +753,11 @@ function getDraftOrderRequestComment(draftOrder: DraftOrder) {
 
 type DtfOrderInfo = {
   a3SheetCount: number | null;
-  aiContactRoutingPlanned: boolean;
-  contactPreference: string;
   designNeedsEstimate: boolean;
   fileNames: string[];
   hasFiles: boolean;
   printTotalRub: number | null;
   requestKindLabel: string;
-  responsePolicy: string;
-  responsePolicyLabel: string;
   unitPriceRub: number | null;
 };
 
@@ -837,8 +833,6 @@ function getDtfOrderInfo(draftOrder: DraftOrder): DtfOrderInfo | null {
 
   return {
     a3SheetCount: getDtfNumberValue(item, "a3SheetCount"),
-    aiContactRoutingPlanned: getDtfBooleanValue(item, "aiContactRoutingPlanned") ?? false,
-    contactPreference: getDtfStringValue(item, "contactPreference") ?? "auto_max_then_email",
     designNeedsEstimate:
       getDtfBooleanValue(item, "designNeedsEstimate") ??
       getDtfBooleanValue(item, "requiresEstimate") ??
@@ -850,10 +844,6 @@ function getDtfOrderInfo(draftOrder: DraftOrder): DtfOrderInfo | null {
       fileNames.length > 0,
     printTotalRub,
     requestKindLabel: getDtfStringValue(item, "requestKindLabel") ?? item.title,
-    responsePolicy: getDtfStringValue(item, "responsePolicy") ?? "max_then_email",
-    responsePolicyLabel:
-      getDtfStringValue(item, "responsePolicyLabel") ??
-      "Ответ: MAX, если недоступен — email",
     unitPriceRub
   };
 }
@@ -902,48 +892,24 @@ function renderDtfOrderBlocks(draftOrder: DraftOrder) {
     return null;
   }
 
-  const customerPhone = draftOrder.customer?.phone?.trim();
-  const customerEmail = draftOrder.customer?.email?.trim();
-
   return (
-    <div className="dtf-order-info-grid">
-      <section className="draft-comment-card dtf-order-info-card">
-        <h4>DTF-заявка</h4>
-        <div className="draft-summary-lines">
-          <span>Тип обращения: {info.requestKindLabel}</span>
-          <span>Количество листов А3: {info.a3SheetCount ?? "не указано"}</span>
-          <span>Цена за лист: {formatDtfRubValue(info.unitPriceRub)}</span>
-          <span>Сумма печати: {formatDtfRubValue(info.printTotalRub)}</span>
-          <span>Оценка дизайна/доработки: {info.designNeedsEstimate ? "нужна" : "не нужна"}</span>
-          {info.fileNames.length > 0 ? (
-            <span>Файлы: {info.fileNames.join(", ")}</span>
-          ) : info.hasFiles ? (
-            <span>Файлы: прикреплены</span>
-          ) : null}
-        </div>
-      </section>
-
-      <section className="draft-comment-card dtf-order-info-card">
-        <h4>Ответ клиенту</h4>
-        <div className="draft-summary-lines">
-          <span>Основной канал: MAX</span>
-          <span>Резерв: email</span>
-          {customerPhone ? (
-            <span>Телефон: {formatRussianPhone(customerPhone)}</span>
-          ) : (
-            <span>Телефон: не указан</span>
-          )}
-          {customerEmail ? <span>Email: {customerEmail}</span> : <span>Email: не указан</span>}
-          <span className="dtf-order-response-note">{info.responsePolicyLabel}</span>
-          {info.aiContactRoutingPlanned ? (
-            <span className="dtf-order-response-note">Автоматический выбор канала планируется позже.</span>
-          ) : null}
-        </div>
-      </section>
-    </div>
+    <section className="draft-comment-card dtf-order-info-card">
+      <h4>DTF-заявка</h4>
+      <div className="draft-summary-lines">
+        <span>Тип обращения: {info.requestKindLabel}</span>
+        <span>Количество листов А3: {info.a3SheetCount ?? "не указано"}</span>
+        <span>Цена за лист: {formatDtfRubValue(info.unitPriceRub)}</span>
+        <span>Сумма печати: {formatDtfRubValue(info.printTotalRub)}</span>
+        <span>Оценка дизайна/доработки: {info.designNeedsEstimate ? "нужна" : "не нужна"}</span>
+        {info.fileNames.length > 0 ? (
+          <span>Файлы: {info.fileNames.join(", ")}</span>
+        ) : info.hasFiles ? (
+          <span>Файлы: прикреплены</span>
+        ) : null}
+      </div>
+    </section>
   );
 }
-
 function getOrderSummaryCustomerLabel(order: OrderSummary) {
   const customerName = order.customerName?.trim();
   const customerPhone = order.customerPhone?.trim();

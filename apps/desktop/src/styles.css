@@ -2353,19 +2353,10 @@ tbody tr {
   white-space: pre-wrap;
 }
 
-.dtf-order-info-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
 .dtf-order-info-card {
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-.dtf-order-response-note {
-  color: rgba(255, 255, 255, 0.54);
-}
 
 .order-attachments-section {
   display: grid;
@@ -3023,8 +3014,7 @@ tbody tr {
     display: grid;
   }
 
-  .draft-order-overview,
-  .dtf-order-info-grid {
+  .draft-order-overview {
     grid-template-columns: 1fr;
   }
 
