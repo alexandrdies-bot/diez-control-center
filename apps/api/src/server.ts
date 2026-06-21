@@ -5255,6 +5255,40 @@ app.delete<{ Params: { id: string } }>("/orders/:id", async (request, reply) => 
   }
 
   const result = await withDatabaseTransaction(async (client) => {
+    const existingOrder = await client.query<{ id: number }>(
+      `
+        select id
+        from app.orders
+        where id = $1
+        limit 1
+      `,
+      [orderId]
+    );
+
+    if (!existingOrder.rows[0]) {
+      return {
+        status: "not_found" as const
+      };
+    }
+
+    const ozonPayments = await client.query<{ exists: boolean }>(
+      `
+        select exists (
+          select 1
+          from app.order_payments
+          where order_id = $1
+            and provider = 'ozon_pay_checkout'
+        ) as exists
+      `,
+      [orderId]
+    );
+
+    if (ozonPayments.rows[0]?.exists) {
+      return {
+        status: "has_ozon_payment" as const
+      };
+    }
+
     const attachmentPaths = await client.query<{ storage_path: string | null }>(
       `
         select storage_path
@@ -5275,18 +5309,28 @@ app.delete<{ Params: { id: string } }>("/orders/:id", async (request, reply) => 
     const order = deletedOrder.rows[0] ?? null;
 
     if (!order) {
-      return null;
+      return {
+        status: "not_found" as const
+      };
     }
 
     return {
+      status: "deleted" as const,
       attachmentStoragePaths: attachmentPaths.rows.map((row) => row.storage_path),
       id: order.id
     };
   });
 
-  if (!result) {
+  if (result.status === "not_found") {
     return reply.code(404).send({
       error: "ORDER_NOT_FOUND"
+    });
+  }
+
+  if (result.status === "has_ozon_payment") {
+    return reply.code(409).send({
+      error: "ORDER_HAS_OZON_PAYMENT",
+      message: "У заказа есть Ozon-оплата. Удаление запрещено."
     });
   }
 

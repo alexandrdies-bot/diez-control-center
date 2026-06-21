@@ -212,6 +212,8 @@ Desktop получил локальный помощник `Подготовит
 
 Добавлен backend API-слой Ozon Pay Checkout без UI: manager/admin endpoints создают оплату Ozon по заказу, возвращают список оплат и вручную синхронизируют статус, а public webhook принимает уведомления Ozon с проверкой подписи. Ozon env required only на сервере; desktop/site не хранят Ozon secrets. Если env не настроен, Ozon endpoints отвечают `OZON_ACQUIRING_NOT_CONFIGURED`. Webhook route нужно будет открыть через nginx отдельным шагом перед production-проверкой. SMS, личный кабинет и автоматическая смена статусов заказа не добавлялись.
 
+Заказ с Ozon-оплатой нельзя удалить через `DELETE /orders/:id`: это защита от потери финансовой связи между заказом и оплатой. Ozon cancel/refund пока не реализованы и не вызываются; отмена и возврат должны стать отдельным workflow.
+
 ## Database connection
 
 PostgreSQL подключается через `DATABASE_URL` из локального `.env`.

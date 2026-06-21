@@ -801,6 +801,23 @@ export async function updateOrderFromDraft(
 
   if (!response.ok) {
     const responseBody = await response.text();
+    try {
+      const parsedResponse = JSON.parse(responseBody) as {
+        error?: unknown;
+        message?: unknown;
+      };
+
+      if (parsedResponse.error === "ORDER_HAS_OZON_PAYMENT") {
+        throw new Error(
+          "У заказа есть Ozon-оплата. Удаление запрещено. Сначала нужно разобраться с оплатой."
+        );
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("Ozon-оплата")) {
+        throw error;
+      }
+    }
+
     throw new Error(
       `/orders/${orderId} ${response.status}${responseBody ? ` ${responseBody}` : ""}`
     );

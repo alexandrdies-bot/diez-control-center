@@ -3541,9 +3541,12 @@ function App() {
       setOrderDetailStatus("Заказ удалён");
       await loadServerOrders(authToken);
       returnToHomeAfterOrderDelete();
-    } catch {
-      setServerOrdersStatus("Не удалось удалить заказ");
-      throw new Error("Не удалось удалить заказ");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Не удалось удалить заказ";
+
+      setServerOrdersStatus(message);
+      throw new Error(message);
     }
   }
 
@@ -3571,8 +3574,10 @@ function App() {
       setPendingDeleteOrderId(null);
       setPendingDeleteOrderTitle(null);
       setPendingDeleteOrderDescription(null);
-    } catch {
-      setPendingDeleteOrderError("Не удалось удалить заказ");
+    } catch (error) {
+      setPendingDeleteOrderError(
+        error instanceof Error ? error.message : "Не удалось удалить заказ"
+      );
     } finally {
       setIsDeletingOrder(false);
     }
