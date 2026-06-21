@@ -548,6 +548,70 @@ type CdekDeliveryCalculationResponse = {
   weightCalc: number | null;
 };
 
+type CdekDeliveryPackagePayload = {
+  heightCm?: unknown;
+  lengthCm?: unknown;
+  weightGrams?: unknown;
+  widthCm?: unknown;
+};
+
+type SaveCdekDeliveryPayload = {
+  calculation?: unknown;
+  calendarMax?: unknown;
+  calendarMin?: unknown;
+  city?: unknown;
+  cityCode?: unknown;
+  cityUuid?: unknown;
+  comment?: unknown;
+  countryCode?: unknown;
+  currencyCode?: unknown;
+  deliveryPointAddress?: unknown;
+  deliveryPointCode?: unknown;
+  deliveryPointType?: unknown;
+  deliveryPointUuid?: unknown;
+  packages?: unknown;
+  periodMax?: unknown;
+  periodMin?: unknown;
+  priceMinor?: unknown;
+  recipientName?: unknown;
+  recipientPhone?: unknown;
+  region?: unknown;
+  shipmentPointCode?: unknown;
+  tariffCode?: unknown;
+  tariffName?: unknown;
+};
+
+type NormalizedCdekDeliverySelection = {
+  calculation: unknown;
+  calendarMax: string | null;
+  calendarMin: string | null;
+  city: string;
+  cityCode: number;
+  cityUuid: string | null;
+  comment: string | null;
+  countryCode: string;
+  currencyCode: "RUB";
+  deliveryPointAddress: string;
+  deliveryPointCode: string;
+  deliveryPointType: string | null;
+  deliveryPointUuid: string | null;
+  packages: {
+    heightCm: number;
+    lengthCm: number;
+    weightGrams: number;
+    widthCm: number;
+  }[];
+  periodMax: number | null;
+  periodMin: number | null;
+  priceMinor: number;
+  recipientName: string | null;
+  recipientPhone: string | null;
+  region: string | null;
+  shipmentPointCode: string | null;
+  tariffCode: number;
+  tariffName: string | null;
+};
+
 type ApiOrderPaymentRow = {
   amountMinor: number | string;
   canceledAt: string | null;
@@ -2290,6 +2354,203 @@ function normalizeCdekCalculationResponse(
     totalSumMinor,
     warnings: getCdekDiagnosticArray(value, [["warnings"]]),
     weightCalc: getNestedNumber(value, [["weight_calc"], ["weightCalc"]])
+  };
+}
+
+function getOptionalDateString(value: unknown) {
+  const dateValue = getOptionalString(value);
+
+  return dateValue && /^\d{4}-\d{2}-\d{2}$/.test(dateValue) ? dateValue : null;
+}
+
+function normalizeCdekPackages(value: unknown) {
+  if (!Array.isArray(value) || value.length === 0) {
+    return null;
+  }
+
+  const packages = value.map((packagePayload) => {
+    if (!isRecord(packagePayload)) {
+      return null;
+    }
+
+    const typedPackage = packagePayload as CdekDeliveryPackagePayload;
+    const weightGrams = getPositiveInteger(typedPackage.weightGrams);
+    const lengthCm = getPositiveInteger(typedPackage.lengthCm);
+    const widthCm = getPositiveInteger(typedPackage.widthCm);
+    const heightCm = getPositiveInteger(typedPackage.heightCm);
+
+    if (!weightGrams || !lengthCm || !widthCm || !heightCm) {
+      return null;
+    }
+
+    return {
+      heightCm,
+      lengthCm,
+      weightGrams,
+      widthCm
+    };
+  });
+
+  return packages.some((packagePayload) => packagePayload === null)
+    ? null
+    : (packages as NormalizedCdekDeliverySelection["packages"]);
+}
+
+function normalizeSaveCdekDeliveryPayload(
+  value: unknown
+):
+  | { error: string; message: string; ok: false }
+  | { ok: true; value: NormalizedCdekDeliverySelection } {
+  if (!isRecord(value)) {
+    return {
+      error: "INVALID_CDEK_DELIVERY_PAYLOAD",
+      message: "Request body must be a JSON object.",
+      ok: false
+    };
+  }
+
+  const payload = value as SaveCdekDeliveryPayload;
+  const cityCode = getPositiveInteger(payload.cityCode);
+  const city = getOptionalString(payload.city);
+  const deliveryPointCode = getOptionalString(payload.deliveryPointCode);
+  const deliveryPointAddress = getOptionalString(payload.deliveryPointAddress);
+  const tariffCode = getPositiveInteger(payload.tariffCode);
+  const priceMinor = getMinorPrice(payload.priceMinor);
+  const currencyCode = getOptionalString(payload.currencyCode)?.toUpperCase() ?? "RUB";
+  const packages = normalizeCdekPackages(payload.packages);
+
+  if (!cityCode) {
+    return {
+      error: "INVALID_CDEK_CITY_CODE",
+      message: "cityCode must be a positive CDEK city code.",
+      ok: false
+    };
+  }
+
+  if (!city) {
+    return {
+      error: "INVALID_CDEK_CITY",
+      message: "city is required.",
+      ok: false
+    };
+  }
+
+  if (!deliveryPointCode) {
+    return {
+      error: "INVALID_CDEK_DELIVERY_POINT",
+      message: "deliveryPointCode is required.",
+      ok: false
+    };
+  }
+
+  if (!deliveryPointAddress) {
+    return {
+      error: "INVALID_CDEK_DELIVERY_POINT_ADDRESS",
+      message: "deliveryPointAddress is required.",
+      ok: false
+    };
+  }
+
+  if (!tariffCode) {
+    return {
+      error: "INVALID_CDEK_TARIFF_CODE",
+      message: "tariffCode must be a positive integer.",
+      ok: false
+    };
+  }
+
+  if (priceMinor === null || priceMinor <= 0) {
+    return {
+      error: "INVALID_CDEK_DELIVERY_PRICE",
+      message: "priceMinor must be a positive integer minor amount.",
+      ok: false
+    };
+  }
+
+  if (currencyCode !== "RUB") {
+    return {
+      error: "INVALID_CDEK_CURRENCY",
+      message: "Only RUB is supported for CDEK delivery.",
+      ok: false
+    };
+  }
+
+  if (!packages) {
+    return {
+      error: "INVALID_CDEK_PACKAGES",
+      message:
+        "packages must include positive integer weightGrams, lengthCm, widthCm, and heightCm.",
+      ok: false
+    };
+  }
+
+  return {
+    ok: true,
+    value: {
+      calculation: sanitizeCdekPayload(payload.calculation ?? null),
+      calendarMax: getOptionalDateString(payload.calendarMax),
+      calendarMin: getOptionalDateString(payload.calendarMin),
+      city,
+      cityCode,
+      cityUuid: getOptionalString(payload.cityUuid),
+      comment: getOptionalString(payload.comment),
+      countryCode: getOptionalString(payload.countryCode)?.toUpperCase() ?? "RU",
+      currencyCode,
+      deliveryPointAddress,
+      deliveryPointCode,
+      deliveryPointType: getOptionalString(payload.deliveryPointType),
+      deliveryPointUuid: getOptionalString(payload.deliveryPointUuid),
+      packages,
+      periodMax: getPositiveInteger(payload.periodMax),
+      periodMin: getPositiveInteger(payload.periodMin),
+      priceMinor,
+      recipientName: getOptionalString(payload.recipientName),
+      recipientPhone: getOptionalString(payload.recipientPhone),
+      region: getOptionalString(payload.region),
+      shipmentPointCode: getOptionalString(payload.shipmentPointCode),
+      tariffCode,
+      tariffName: getOptionalString(payload.tariffName)
+    }
+  };
+}
+
+function buildCdekDeliveryProviderPayload(
+  payload: NormalizedCdekDeliverySelection
+) {
+  return {
+    calculation: payload.calculation,
+    city: {
+      city: payload.city,
+      code: payload.cityCode,
+      countryCode: payload.countryCode,
+      region: payload.region,
+      uuid: payload.cityUuid
+    },
+    deliveryPoint: {
+      address: payload.deliveryPointAddress,
+      code: payload.deliveryPointCode,
+      type: payload.deliveryPointType,
+      uuid: payload.deliveryPointUuid
+    },
+    package: {
+      items: payload.packages
+    },
+    pricing: {
+      currencyCode: payload.currencyCode,
+      priceMinor: payload.priceMinor
+    },
+    provider: "cdek",
+    shipmentPointCode: payload.shipmentPointCode,
+    tariff: {
+      code: payload.tariffCode,
+      name: payload.tariffName
+    },
+    timing: {
+      calendarMax: payload.calendarMax,
+      calendarMin: payload.calendarMin,
+      periodMax: payload.periodMax,
+      periodMin: payload.periodMin
+    }
   };
 }
 
@@ -4705,6 +4966,408 @@ app.post<{
   } catch (error) {
     return sendCdekProxyError(reply, error);
   }
+});
+
+app.patch<{
+  Body: SaveCdekDeliveryPayload;
+  Params: { id: string };
+}>("/orders/:id/delivery/cdek", async (request, reply) => {
+  const authSession = await requireRole(request, reply, ["manager", "admin"]);
+
+  if (!authSession) {
+    return reply;
+  }
+
+  const orderId = Number(request.params.id);
+
+  if (!Number.isInteger(orderId) || orderId <= 0) {
+    return reply.code(400).send({
+      error: "INVALID_ORDER_ID"
+    });
+  }
+
+  const validation = normalizeSaveCdekDeliveryPayload(request.body);
+
+  if (!validation.ok) {
+    return reply.code(400).send({
+      error: validation.error,
+      message: validation.message
+    });
+  }
+
+  const result = await withDatabaseTransaction(async (client) => {
+    const existingOrder = await client.query<{
+      customerName: string | null;
+      customerPhone: string | null;
+      deliveryTotalMinor: number | string | null;
+      discountTotalMinor: number | string | null;
+      id: number;
+      itemsTotalMinor: number | string;
+      orderNumber: string;
+      totalPriceMinor: number | string;
+    }>(
+      `
+        select
+          o.id,
+          o.order_number as "orderNumber",
+          o.items_total_minor as "itemsTotalMinor",
+          o.delivery_total_minor as "deliveryTotalMinor",
+          o.discount_total_minor as "discountTotalMinor",
+          o.total_price_minor as "totalPriceMinor",
+          c.name as "customerName",
+          c.phone as "customerPhone"
+        from app.orders o
+        left join app.customers c on c.id = o.customer_id
+        where o.id = $1
+        for update
+      `,
+      [orderId]
+    );
+    const order = existingOrder.rows[0];
+
+    if (!order) {
+      return {
+        status: "not_found" as const
+      };
+    }
+
+    const existingItems = await client.query<OrderFinancialItemRow>(
+      `
+        select
+          service_type as "serviceType",
+          title,
+          quantity::text as quantity,
+          unit_price_minor::text as "unitPriceMinor",
+          total_price_minor::text as "totalPriceMinor",
+          params_json as "paramsJson",
+          calculation_snapshot_json as "calculationSnapshotJson",
+          sort_order as "sortOrder"
+        from app.order_items
+        where order_id = $1
+        order by sort_order, id
+      `,
+      [orderId]
+    );
+    const existingFinancialSignature = buildStoredOrderFinancialSignature({
+      deliveryTotalMinor: Number(order.deliveryTotalMinor ?? 0),
+      items: existingItems.rows,
+      totalPriceMinor: Number(order.totalPriceMinor)
+    });
+    const itemsTotalMinor = Number(order.itemsTotalMinor);
+    const discountTotalMinor = Number(order.discountTotalMinor ?? 0);
+    const nextDeliveryTotalMinor = validation.value.priceMinor;
+    const nextTotalPriceMinor = Math.max(
+      0,
+      itemsTotalMinor + nextDeliveryTotalMinor - discountTotalMinor
+    );
+    const nextFinancialSignature = buildStoredOrderFinancialSignature({
+      deliveryTotalMinor: nextDeliveryTotalMinor,
+      items: existingItems.rows,
+      totalPriceMinor: nextTotalPriceMinor
+    });
+    const hasFinancialChanges =
+      existingFinancialSignature !== nextFinancialSignature;
+    const ozonPayments = await client.query<ApiOrderPaymentRow>(
+      `
+        ${getOrderPaymentSelectSql()}
+        where order_id = $1
+          and provider = 'ozon_pay_checkout'
+        order by created_at desc, id desc
+        for update
+      `,
+      [orderId]
+    );
+    const hasFinalOzonPayment = ozonPayments.rows.some((payment) =>
+      finalOzonPaymentStatuses.has(payment.status)
+    );
+
+    if (hasFinancialChanges && hasFinalOzonPayment) {
+      return {
+        status: "has_final_ozon_payment" as const
+      };
+    }
+
+    const activeOzonPayments = ozonPayments.rows.filter((payment) =>
+      activeOzonPaymentStatuses.has(payment.status)
+    );
+    const canceledOzonPaymentIds: number[] = [];
+
+    if (hasFinancialChanges && activeOzonPayments.length > 0) {
+      const config = getOzonAcquiringConfig();
+
+      if (!config) {
+        return {
+          status: "ozon_not_configured" as const
+        };
+      }
+
+      for (const payment of activeOzonPayments) {
+        if (!payment.providerOrderId) {
+          return {
+            status: "ozon_provider_order_id_required" as const
+          };
+        }
+
+        const cancelResult = await requestOzonCancelOrder(
+          config,
+          payment.providerOrderId
+        );
+
+        if (!cancelResult.ok) {
+          request.log.warn(
+            {
+              endpoint: "/v1/cancelOrder",
+              ozonCode: cancelResult.diagnostic.ozonCode,
+              ozonDetails: cancelResult.diagnostic.ozonDetails,
+              ozonMessage: cancelResult.diagnostic.ozonMessage,
+              ozonStatus: cancelResult.diagnostic.ozonStatus,
+              paymentId: payment.id
+            },
+            "Ozon Pay Checkout cancelOrder failed before CDEK delivery update"
+          );
+
+          return {
+            diagnostic: cancelResult.diagnostic,
+            status: "ozon_cancel_failed" as const
+          };
+        }
+
+        await client.query(
+          `
+            update app.order_payments
+            set
+              status = 'canceled',
+              ozon_status = 'STATUS_CANCELED',
+              canceled_at = now(),
+              last_error_code = null,
+              last_error_message = null,
+              status_response_json = $3::jsonb,
+              updated_at = now()
+            where id = $1
+              and order_id = $2
+              and provider = 'ozon_pay_checkout'
+          `,
+          [
+            payment.id,
+            orderId,
+            JSON.stringify(sanitizeOzonPayload(cancelResult.responseBody))
+          ]
+        );
+        await client.query(
+          `
+            insert into app.order_events (
+              order_id,
+              event_type,
+              actor_type,
+              actor_user_id,
+              actor_name,
+              payload_json
+            )
+            values ($1, 'payment_canceled', 'manager', $2, $3, $4::jsonb)
+          `,
+          [
+            orderId,
+            authSession.user.id,
+            authSession.user.displayName ?? authSession.user.login,
+            JSON.stringify({
+              newStatus: "canceled",
+              oldStatus: payment.status,
+              paymentId: Number(payment.id),
+              provider: "ozon_pay_checkout",
+              providerExtId: payment.providerExtId,
+              providerOrderId: payment.providerOrderId,
+              reason: "cdek_delivery_financial_change"
+            })
+          ]
+        );
+        canceledOzonPaymentIds.push(Number(payment.id));
+      }
+    }
+
+    const providerPayload = buildCdekDeliveryProviderPayload(validation.value);
+    const recipientName =
+      validation.value.recipientName ?? order.customerName ?? null;
+    const recipientPhone =
+      validation.value.recipientPhone ?? order.customerPhone ?? null;
+    const existingDelivery = await client.query<{ id: number }>(
+      `
+        select id
+        from app.order_delivery
+        where order_id = $1
+        limit 1
+      `,
+      [orderId]
+    );
+
+    if (existingDelivery.rows[0]) {
+      await client.query(
+        `
+          update app.order_delivery
+          set
+            delivery_mode = 'cdek',
+            delivery_status = 'pending',
+            recipient_name = $2,
+            recipient_phone = $3,
+            address_text = $4,
+            comment = $5,
+            price_minor = $6,
+            currency_code = 'RUB',
+            provider_payload_json = $7::jsonb
+          where order_id = $1
+        `,
+        [
+          orderId,
+          recipientName,
+          recipientPhone,
+          validation.value.deliveryPointAddress,
+          validation.value.comment,
+          validation.value.priceMinor,
+          JSON.stringify(providerPayload)
+        ]
+      );
+    } else {
+      await client.query(
+        `
+          insert into app.order_delivery (
+            order_id,
+            delivery_mode,
+            delivery_status,
+            recipient_name,
+            recipient_phone,
+            address_text,
+            comment,
+            price_minor,
+            currency_code,
+            provider_payload_json
+          )
+          values (
+            $1,
+            'cdek',
+            'pending',
+            $2,
+            $3,
+            $4,
+            $5,
+            $6,
+            'RUB',
+            $7::jsonb
+          )
+        `,
+        [
+          orderId,
+          recipientName,
+          recipientPhone,
+          validation.value.deliveryPointAddress,
+          validation.value.comment,
+          validation.value.priceMinor,
+          JSON.stringify(providerPayload)
+        ]
+      );
+    }
+
+    await client.query(
+      `
+        update app.orders
+        set
+          delivery_total_minor = $2,
+          total_price_minor = $3,
+          updated_at = now()
+        where id = $1
+      `,
+      [orderId, nextDeliveryTotalMinor, nextTotalPriceMinor]
+    );
+
+    await client.query(
+      `
+        insert into app.order_events (
+          order_id,
+          event_type,
+          actor_type,
+          actor_user_id,
+          actor_name,
+          payload_json
+        )
+        values ($1, 'order_updated', 'manager', $2, $3, $4::jsonb)
+      `,
+      [
+        orderId,
+        authSession.user.id,
+        authSession.user.displayName ?? authSession.user.login,
+        JSON.stringify({
+          deliveryMode: "cdek",
+          deliveryPointCode: validation.value.deliveryPointCode,
+          hasFinancialChanges,
+          payment: {
+            activePaymentsCanceled: canceledOzonPaymentIds.length > 0,
+            canceledPaymentIds: canceledOzonPaymentIds,
+            financialChanged: hasFinancialChanges
+          },
+          priceMinor: validation.value.priceMinor,
+          source: "cdek_delivery_patch",
+          tariffCode: validation.value.tariffCode
+        })
+      ]
+    );
+
+    return {
+      delivery: {
+        addressText: validation.value.deliveryPointAddress,
+        currencyCode: validation.value.currencyCode,
+        deliveryMode: "cdek",
+        deliveryStatus: "pending",
+        priceMinor: validation.value.priceMinor,
+        providerPayload,
+        recipientName,
+        recipientPhone
+      },
+      id: order.id,
+      orderNumber: order.orderNumber,
+      payment: {
+        activePaymentsCanceled: canceledOzonPaymentIds.length > 0,
+        canceledPaymentIds: canceledOzonPaymentIds,
+        financialChanged: hasFinancialChanges
+      },
+      status: "updated" as const,
+      totalPriceMinor: nextTotalPriceMinor,
+      updated: true
+    };
+  });
+
+  if (result.status === "not_found") {
+    return reply.code(404).send({
+      error: "ORDER_NOT_FOUND"
+    });
+  }
+
+  if (result.status === "has_final_ozon_payment") {
+    return reply.code(409).send({
+      error: "ORDER_HAS_FINAL_OZON_PAYMENT",
+      message: "Order has a final Ozon payment. CDEK delivery cannot change order total."
+    });
+  }
+
+  if (result.status === "ozon_not_configured") {
+    return sendOzonAcquiringNotConfigured(reply);
+  }
+
+  if (result.status === "ozon_provider_order_id_required") {
+    return reply.code(409).send({
+      error: "OZON_PAYMENT_PROVIDER_ORDER_ID_REQUIRED",
+      message: "Ozon provider order id is required before payment cancellation."
+    });
+  }
+
+  if (result.status === "ozon_cancel_failed") {
+    return reply.code(502).send({
+      error: "OZON_CANCEL_ORDER_FAILED",
+      ozonCode: result.diagnostic.ozonCode,
+      ozonDetails: result.diagnostic.ozonDetails,
+      ozonMessage: result.diagnostic.ozonMessage,
+      ozonStatus: result.diagnostic.ozonStatus
+    });
+  }
+
+  return result;
 });
 
 app.get<{ Params: { id: string } }>("/orders/:id", async (request, reply) => {

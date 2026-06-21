@@ -183,6 +183,8 @@ Desktop API client имеет wrappers для этих backend CDEK endpoints: s
 
 Desktop delivery panel теперь имеет компактный CDEK calculation UI-блок: статус backend CDEK, поиск города, ПВЗ, tariffCode, вес/габариты, кнопка расчёта и результат. Блок использует только backend API wrappers, не ходит напрямую в CDEK, не хранит CDEK credentials/OAuth token, не сохраняет расчёт в заказ и не меняет суммы заказа, shipment-таблицы, Ozon-flow или payments.
 
+Backend API имеет endpoint `PATCH /orders/:id/delivery/cdek` для сохранения выбранной СДЭК-доставки как delivery summary заказа. Он пишет только существующие `app.order_delivery` и `app.orders` delivery/total fields, не создаёт отправление, не использует `app.order_shipments` / `app.order_shipment_packages`, не вызывает CDEK API и не получает OAuth token. Если изменение доставки влияет на сумму заказа, active Ozon payments автоматически отменяются через существующий cancellation flow, final/financial payments блокируют изменение, а response возвращает `payment.financialChanged`, `payment.activePaymentsCanceled` и `payment.canceledPaymentIds`.
+
 ## Правило работы с Data Base 02
 
 По вопросам базы данных работает отдельный чат `Data Base 02`.
