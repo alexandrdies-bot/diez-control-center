@@ -469,6 +469,7 @@ type OzonOrderPaymentOrderRow = {
   customerEmail: string | null;
   customerPhone: string | null;
   id: number;
+  isDtf: boolean;
   orderNumber: string;
   source: string;
   totalPriceMinor: number;
@@ -1223,6 +1224,8 @@ function sanitizeOzonPayload(value: unknown): unknown {
     "request_sign",
     "secretKey",
     "secret_key",
+    "notificationSecretKey",
+    "notification_secret_key",
     "token"
   ]);
 
@@ -1235,6 +1238,97 @@ function sanitizeOzonPayload(value: unknown): unknown {
   }
 
   return sanitized;
+}
+
+function sanitizeOzonText(value: string) {
+  return value
+    .replace(
+      /("(?:accessKey|access_key|requestSign|request_sign|secretKey|secret_key|notificationSecretKey|notification_secret_key|token)"\s*:\s*")[^"]*(")/gi,
+      "$1[redacted]$2"
+    )
+    .replace(
+      /((?:accessKey|access_key|requestSign|request_sign|secretKey|secret_key|notificationSecretKey|notification_secret_key|token)=)[^&\s]+/gi,
+      "$1[redacted]"
+    )
+    .slice(0, 500);
+}
+
+function stringifyOzonDiagnosticValue(value: unknown) {
+  if (typeof value === "string" && value.trim()) {
+    return sanitizeOzonText(value.trim());
+  }
+
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(value);
+  }
+
+  if (typeof value === "boolean") {
+    return String(value);
+  }
+
+  if (value !== null && value !== undefined) {
+    try {
+      return sanitizeOzonText(JSON.stringify(sanitizeOzonPayload(value)));
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
+
+function getOzonDiagnosticString(
+  value: unknown,
+  paths: readonly (readonly string[])[]
+) {
+  for (const path of paths) {
+    const nestedValue = getNestedValue(value, [path]);
+    const diagnosticValue = stringifyOzonDiagnosticValue(nestedValue);
+
+    if (diagnosticValue) {
+      return diagnosticValue;
+    }
+  }
+
+  return null;
+}
+
+function buildOzonErrorDiagnostic(
+  statusCode: number,
+  responseBody: unknown,
+  responseText: string
+) {
+  const ozonCode = getOzonDiagnosticString(responseBody, [
+    ["code"],
+    ["errorCode"],
+    ["error_code"],
+    ["error", "code"],
+    ["error", "errorCode"],
+    ["error", "error_code"]
+  ]);
+  const ozonMessage = getOzonDiagnosticString(responseBody, [
+    ["message"],
+    ["errorMessage"],
+    ["error_message"],
+    ["description"],
+    ["error", "message"],
+    ["error", "description"]
+  ]);
+  const ozonDetails =
+    getOzonDiagnosticString(responseBody, [
+      ["details"],
+      ["detail"],
+      ["error", "details"],
+      ["error", "detail"],
+      ["raw"]
+    ]) ?? (responseText ? sanitizeOzonText(responseText.trim()) : null);
+
+  return {
+    ozonCode,
+    ozonDetails,
+    ozonMessage,
+    ozonStatus: statusCode
+  };
 }
 
 function getNestedValue(value: unknown, paths: readonly (readonly string[])[]) {
@@ -3818,7 +3912,13 @@ app.post<{ Params: { id: string } }>(
           o.total_price_minor as "totalPriceMinor",
           o.currency_code as "currencyCode",
           c.email as "customerEmail",
-          c.phone as "customerPhone"
+          c.phone as "customerPhone",
+          exists (
+            select 1
+            from app.order_items oi
+            where oi.order_id = o.id
+              and oi.service_type in ('dtf_print', 'dtf-print')
+          ) as "isDtf"
         from app.orders o
         left join app.customers c on c.id = o.customer_id
         where o.id = $1
@@ -3864,17 +3964,35 @@ app.post<{ Params: { id: string } }>(
     }
 
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const amountMinor = String(order.totalPriceMinor);
+    const itemName = order.isDtf
+      ? `DTF-печать по заявке ${order.orderNumber}`
+      : `Оплата заказа ${order.orderNumber}`;
     const createOrderRequest = {
       amount: {
         currencyCode: "643",
-        value: String(order.totalPriceMinor)
+        value: amountMinor
       },
       expiresAt,
       extId: order.orderNumber,
       failUrl: config.failUrl,
       fiscalizationPhone: order.customerPhone ?? undefined,
       fiscalizationType: "FISCAL_TYPE_SINGLE",
-      mode: config.mode,
+      items: [
+        {
+          extId: order.orderNumber,
+          name: itemName,
+          needMark: false,
+          price: {
+            currencyCode: "643",
+            value: amountMinor
+          },
+          quantity: 1,
+          type: "TYPE_PRODUCT",
+          vat: "VAT_0"
+        }
+      ],
+      mode: "MODE_FULL",
       notificationUrl: config.notificationUrl,
       paymentAlgorithm: "PAY_ALGO_SMS",
       receiptEmail: order.customerEmail ?? undefined,
@@ -3906,14 +4024,29 @@ app.post<{ Params: { id: string } }>(
     }
 
     if (!response.ok) {
+      const ozonError = buildOzonErrorDiagnostic(
+        response.status,
+        responseBody,
+        responseText
+      );
+
       request.log.warn(
         {
-          statusCode: response.status
+          endpoint: "/v1/createOrder",
+          orderNumber: order.orderNumber,
+          ozonCode: ozonError.ozonCode,
+          ozonDetails: ozonError.ozonDetails,
+          ozonMessage: ozonError.ozonMessage,
+          ozonStatus: ozonError.ozonStatus
         },
         "Ozon Pay Checkout createOrder failed"
       );
       return reply.code(502).send({
-        error: "OZON_CREATE_ORDER_FAILED"
+        error: "OZON_CREATE_ORDER_FAILED",
+        ozonCode: ozonError.ozonCode,
+        ozonDetails: ozonError.ozonDetails,
+        ozonMessage: ozonError.ozonMessage,
+        ozonStatus: ozonError.ozonStatus
       });
     }
 
