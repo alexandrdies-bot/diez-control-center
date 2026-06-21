@@ -268,6 +268,40 @@ export function createJsonBearerHeaders(token: string): Record<string, string> {
   };
 }
 
+function getOrderMutationErrorMessage(responseBody: string) {
+  try {
+    const parsedResponse = JSON.parse(responseBody) as {
+      error?: unknown;
+      message?: unknown;
+    };
+
+    if (parsedResponse.error === "ORDER_HAS_OZON_PAYMENT") {
+      return "У заказа есть Ozon-оплата. Удаление запрещено. Сначала нужно разобраться с оплатой.";
+    }
+
+    if (parsedResponse.error === "ORDER_HAS_ACTIVE_OZON_PAYMENT") {
+      return "У заказа есть активная Ozon-оплата. Сначала отмените оплату, затем измените заказ.";
+    }
+
+    if (parsedResponse.error === "ORDER_HAS_FINAL_OZON_PAYMENT") {
+      return "У заказа есть финансовая Ozon-оплата. Изменение заказа запрещено.";
+    }
+
+    if (
+      parsedResponse.error === "OZON_PAYMENT_NOT_CANCELABLE" ||
+      parsedResponse.error === "OZON_PAYMENT_PROVIDER_ORDER_ID_REQUIRED"
+    ) {
+      return typeof parsedResponse.message === "string"
+        ? parsedResponse.message
+        : "Не удалось отменить Ozon-оплату.";
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -801,21 +835,10 @@ export async function updateOrderFromDraft(
 
   if (!response.ok) {
     const responseBody = await response.text();
-    try {
-      const parsedResponse = JSON.parse(responseBody) as {
-        error?: unknown;
-        message?: unknown;
-      };
+    const message = getOrderMutationErrorMessage(responseBody);
 
-      if (parsedResponse.error === "ORDER_HAS_OZON_PAYMENT") {
-        throw new Error(
-          "У заказа есть Ozon-оплата. Удаление запрещено. Сначала нужно разобраться с оплатой."
-        );
-      }
-    } catch (error) {
-      if (error instanceof Error && error.message.includes("Ozon-оплата")) {
-        throw error;
-      }
+    if (message) {
+      throw new Error(message);
     }
 
     throw new Error(
@@ -946,6 +969,38 @@ export async function syncOrderPayment(
   return response.json() as Promise<OrderPaymentResult>;
 }
 
+export async function cancelOrderPayment(
+  orderId: number,
+  paymentId: number,
+  token: string
+): Promise<OrderPaymentResult> {
+  const response = await fetch(
+    `${apiBaseUrl}/orders/${orderId}/payments/${paymentId}/cancel`,
+    {
+      body: "{}",
+      headers: createJsonBearerHeaders(token),
+      method: "POST"
+    }
+  );
+
+  if (!response.ok) {
+    const responseBody = await response.text();
+    const message = getOrderMutationErrorMessage(responseBody);
+
+    if (message) {
+      throw new Error(message);
+    }
+
+    throw new Error(
+      `/orders/${orderId}/payments/${paymentId}/cancel ${response.status}${
+        responseBody ? ` ${responseBody}` : ""
+      }`
+    );
+  }
+
+  return response.json() as Promise<OrderPaymentResult>;
+}
+
 export async function deleteOrder(
   orderId: number,
   token?: string
@@ -965,6 +1020,12 @@ export async function deleteOrder(
 
   if (!response.ok) {
     const responseBody = await response.text();
+    const message = getOrderMutationErrorMessage(responseBody);
+
+    if (message) {
+      throw new Error(message);
+    }
+
     throw new Error(
       `/orders/${orderId} ${response.status}${responseBody ? ` ${responseBody}` : ""}`
     );

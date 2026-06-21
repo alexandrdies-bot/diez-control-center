@@ -12,6 +12,7 @@ import truckIconUrl from "./assets/svg/truck.svg";
 import truckOffIconUrl from "./assets/svg/truck-off.svg";
 import userIconUrl from "./assets/svg/user.svg";
 import {
+  cancelOrderPayment,
   createOzonOrderPayment,
   createOrderFromDraft,
   deleteOrder,
@@ -777,6 +778,22 @@ function getLatestOzonPayment(payments: OrderPayment[]) {
   return payments.find((payment) => payment.provider === "ozon_pay_checkout") ?? null;
 }
 
+function isActiveOzonPayment(payment: OrderPayment | null) {
+  return (
+    payment?.status === "created" ||
+    payment?.status === "pending" ||
+    payment?.status === "authorized"
+  );
+}
+
+function isTerminalOzonPayment(payment: OrderPayment | null) {
+  return (
+    payment?.status === "failed" ||
+    payment?.status === "canceled" ||
+    payment?.status === "expired"
+  );
+}
+
 function getOzonPaymentErrorMessage(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
 
@@ -1513,7 +1530,7 @@ function App() {
   const [orderPaymentsStatusByOrderId, setOrderPaymentsStatusByOrderId] =
     useState<Record<number, string>>({});
   const [orderPaymentActionByOrderId, setOrderPaymentActionByOrderId] = useState<
-    Record<number, "create" | "sync" | undefined>
+    Record<number, "cancel" | "create" | "sync" | undefined>
   >({});
   const [orderAttachmentsByOrderId, setOrderAttachmentsByOrderId] = useState<
     Record<number, OrderAttachment[]>
@@ -2392,10 +2409,12 @@ function App() {
         [draftOrder.id]: "Изменения сохранены"
       }));
       await loadServerOrders(authToken);
-    } catch {
+    } catch (error) {
       setDraftOrderSaveStatusById((current) => ({
         ...current,
-        [draftOrder.id]: "Не удалось сохранить изменения"
+        [draftOrder.id]: `Не удалось сохранить изменения: ${
+          error instanceof Error ? error.message : "неизвестная ошибка"
+        }`
       }));
     }
   }
@@ -3213,6 +3232,8 @@ function App() {
     const payment = getLatestOzonPayment(payments);
     const status = orderPaymentsStatusByOrderId[orderId];
     const action = orderPaymentActionByOrderId[orderId];
+    const canCreatePayment = !payment || isTerminalOzonPayment(payment);
+    const canCancelPayment = isActiveOzonPayment(payment);
 
     return (
       <section className="payment-preparation-ozon-panel">
@@ -3224,7 +3245,7 @@ function App() {
               или Ozon картой.
             </p>
           </div>
-          {!payment ? (
+          {canCreatePayment ? (
             <button
               className="secondary-action-button"
               disabled={action === "create" || draftOrder.totalPriceMinor <= 0}
@@ -3291,7 +3312,22 @@ function App() {
               >
                 {action === "sync" ? "Обновляем..." : "Обновить статус"}
               </button>
+              {canCancelPayment ? (
+                <button
+                  className="secondary-action-button"
+                  disabled={action === "cancel"}
+                  onClick={() => void handleCancelOzonPayment(draftOrder, payment)}
+                  type="button"
+                >
+                  {action === "cancel" ? "Отменяем..." : "Отменить Ozon-оплату"}
+                </button>
+              ) : null}
             </div>
+            {canCancelPayment ? (
+              <p className="draft-summary-muted">
+                После отмены можно изменить заказ и создать новую оплату.
+              </p>
+            ) : null}
           </div>
         ) : draftOrder.totalPriceMinor <= 0 ? (
           <p className="draft-summary-muted">
@@ -3771,6 +3807,62 @@ function App() {
       setOrderPaymentsStatusByOrderId((current) => ({
         ...current,
         [orderId]: "Не удалось обновить статус оплаты"
+      }));
+    } finally {
+      setOrderPaymentActionByOrderId((current) => ({
+        ...current,
+        [orderId]: undefined
+      }));
+    }
+  }
+
+  async function handleCancelOzonPayment(
+    draftOrder: DraftOrder,
+    payment: OrderPayment
+  ) {
+    const orderId = draftOrder.serverOrderId;
+
+    if (!orderId || !authToken) {
+      return;
+    }
+
+    setOrderPaymentActionByOrderId((current) => ({
+      ...current,
+      [orderId]: "cancel"
+    }));
+    setOrderPaymentsStatusByOrderId((current) => ({
+      ...current,
+      [orderId]: "Отменяем Ozon-оплату..."
+    }));
+
+    try {
+      const result = await cancelOrderPayment(orderId, payment.id, authToken);
+
+      setOrderPaymentsByOrderId((current) => {
+        const existingPayments = current[orderId] ?? [];
+        const nextPayments = [
+          result.payment,
+          ...existingPayments.filter((item) => item.id !== result.payment.id)
+        ];
+
+        return {
+          ...current,
+          [orderId]: nextPayments
+        };
+      });
+      setOrderPaymentsStatusByOrderId((current) => ({
+        ...current,
+        [orderId]: "Ozon-оплата отменена. Можно изменить заказ и создать новую оплату."
+      }));
+      void refreshOpenedServerOrder(orderId, draftOrder.id);
+      void loadServerOrders(authToken);
+    } catch (error) {
+      setOrderPaymentsStatusByOrderId((current) => ({
+        ...current,
+        [orderId]:
+          error instanceof Error
+            ? error.message
+            : "Не удалось отменить Ozon-оплату"
       }));
     } finally {
       setOrderPaymentActionByOrderId((current) => ({

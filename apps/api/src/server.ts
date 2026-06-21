@@ -484,6 +484,26 @@ const editableOrderStatuses = new Set([
   "canceled"
 ]);
 
+const activeOzonPaymentStatuses = new Set<DiezPaymentStatus>([
+  "created",
+  "pending",
+  "authorized"
+]);
+
+const finalOzonPaymentStatuses = new Set<DiezPaymentStatus>([
+  "paid",
+  "partial_refund",
+  "refunded",
+  "disputed",
+  "unknown"
+]);
+
+const terminalOzonPaymentStatuses = new Set<DiezPaymentStatus>([
+  "failed",
+  "canceled",
+  "expired"
+]);
+
 type ApiOrderAttachmentRow = {
   attachmentType: OrderAttachmentType;
   comment: string | null;
@@ -1172,6 +1192,15 @@ function signOzonGetOrderStatusRequest(
   return sha256Hex(
     [request.id, request.extId, config.accessKey, config.secretKey].join("")
   );
+}
+
+function signOzonCancelOrderRequest(
+  config: OzonAcquiringConfig,
+  request: {
+    id: string;
+  }
+) {
+  return sha256Hex([request.id, config.accessKey, config.secretKey].join(""));
 }
 
 function signOzonWebhookPayload(
@@ -3949,17 +3978,43 @@ app.post<{ Params: { id: string } }>(
     const existingPayments = await queryDatabase<ApiOrderPaymentRow>(
       `
         ${getOrderPaymentSelectSql()}
+        where order_id = $1
+          and provider = 'ozon_pay_checkout'
+        order by created_at desc, id desc
+      `,
+      [orderId]
+    );
+    const existingBlockingPayment = existingPayments.find(
+      (payment) =>
+        activeOzonPaymentStatuses.has(payment.status) ||
+        finalOzonPaymentStatuses.has(payment.status)
+    );
+
+    if (existingBlockingPayment) {
+      return {
+        payment: buildOrderPaymentResponse(existingBlockingPayment)
+      };
+    }
+
+    const paymentSequence = existingPayments.length + 1;
+    const providerExtId =
+      existingPayments.length === 0
+        ? order.orderNumber
+        : `${order.orderNumber}-PAY-${paymentSequence}`;
+    const existingExtIdPayments = await queryDatabase<ApiOrderPaymentRow>(
+      `
+        ${getOrderPaymentSelectSql()}
         where provider = 'ozon_pay_checkout'
           and provider_ext_id = $1
         limit 1
       `,
-      [order.orderNumber]
+      [providerExtId]
     );
-    const existingPayment = existingPayments[0];
+    const existingExtIdPayment = existingExtIdPayments[0];
 
-    if (existingPayment) {
+    if (existingExtIdPayment) {
       return {
-        payment: buildOrderPaymentResponse(existingPayment)
+        payment: buildOrderPaymentResponse(existingExtIdPayment)
       };
     }
 
@@ -3974,13 +4029,13 @@ app.post<{ Params: { id: string } }>(
         value: amountMinor
       },
       expiresAt,
-      extId: order.orderNumber,
+      extId: providerExtId,
       failUrl: config.failUrl,
       fiscalizationPhone: order.customerPhone ?? undefined,
       fiscalizationType: "FISCAL_TYPE_SINGLE",
       items: [
         {
-          extId: order.orderNumber,
+          extId: providerExtId,
           name: itemName,
           needMark: false,
           price: {
@@ -4131,7 +4186,7 @@ app.post<{ Params: { id: string } }>(
         `,
         [
           orderId,
-          order.orderNumber,
+          providerExtId,
           providerOrderId,
           order.totalPriceMinor,
           mappedStatus === "unknown" ? "created" : mappedStatus,
@@ -4166,7 +4221,7 @@ app.post<{ Params: { id: string } }>(
             amountMinor: order.totalPriceMinor,
             paymentId: Number(payment.id),
             provider: "ozon_pay_checkout",
-            providerExtId: order.orderNumber,
+            providerExtId,
             providerOrderId,
             status: payment.status
           })
@@ -4356,6 +4411,208 @@ app.post<{ Params: { id: string; paymentId: string } }>(
             payload_json
           )
           values ($1, 'payment_status_updated', 'manager', $2, $3, $4::jsonb)
+        `,
+        [
+          orderId,
+          authSession.user.id,
+          authSession.user.displayName ?? authSession.user.login,
+          JSON.stringify({
+            newStatus: updated.status,
+            oldStatus: payment.status,
+            paymentId,
+            provider: "ozon_pay_checkout",
+            providerExtId: payment.providerExtId,
+            providerOrderId: payment.providerOrderId
+          })
+        ]
+      );
+
+      return updated;
+    });
+
+    return {
+      payment: buildOrderPaymentResponse(updatedPayment)
+    };
+  }
+);
+
+app.post<{ Params: { id: string; paymentId: string } }>(
+  "/orders/:id/payments/:paymentId/cancel",
+  async (request, reply) => {
+    const authSession = await requireRole(request, reply, ["manager", "admin"]);
+
+    if (!authSession) {
+      return reply;
+    }
+
+    const config = getOzonAcquiringConfig();
+
+    if (!config) {
+      return sendOzonAcquiringNotConfigured(reply);
+    }
+
+    const orderId = Number(request.params.id);
+    const paymentId = Number(request.params.paymentId);
+
+    if (!Number.isInteger(orderId) || orderId <= 0) {
+      return reply.code(400).send({
+        error: "INVALID_ORDER_ID"
+      });
+    }
+
+    if (!Number.isInteger(paymentId) || paymentId <= 0) {
+      return reply.code(400).send({
+        error: "INVALID_PAYMENT_ID"
+      });
+    }
+
+    const payments = await queryDatabase<ApiOrderPaymentRow>(
+      `
+        ${getOrderPaymentSelectSql()}
+        where id = $1
+          and order_id = $2
+          and provider = 'ozon_pay_checkout'
+        limit 1
+      `,
+      [paymentId, orderId]
+    );
+    const payment = payments[0];
+
+    if (!payment) {
+      return reply.code(404).send({
+        error: "PAYMENT_NOT_FOUND"
+      });
+    }
+
+    if (terminalOzonPaymentStatuses.has(payment.status)) {
+      return {
+        payment: buildOrderPaymentResponse(payment)
+      };
+    }
+
+    if (!activeOzonPaymentStatuses.has(payment.status)) {
+      return reply.code(409).send({
+        error: "OZON_PAYMENT_NOT_CANCELABLE",
+        message: "Эту Ozon-оплату нельзя отменить."
+      });
+    }
+
+    if (!payment.providerOrderId) {
+      return reply.code(409).send({
+        error: "OZON_PAYMENT_PROVIDER_ORDER_ID_REQUIRED",
+        message: "Не найден идентификатор заказа Ozon для отмены оплаты."
+      });
+    }
+
+    const cancelRequest = {
+      id: payment.providerOrderId
+    };
+    const requestSign = signOzonCancelOrderRequest(config, cancelRequest);
+    const requestBody = {
+      ...cancelRequest,
+      accessKey: config.accessKey,
+      requestSign
+    };
+    const response = await fetch(`${config.baseUrl}/v1/cancelOrder`, {
+      body: JSON.stringify(requestBody),
+      headers: {
+        "Content-Type": "application/json"
+      },
+      method: "POST"
+    });
+    const responseText = await response.text();
+    let responseBody: unknown = {};
+
+    try {
+      responseBody = responseText ? JSON.parse(responseText) : {};
+    } catch {
+      responseBody = {
+        raw: responseText
+      };
+    }
+
+    if (!response.ok) {
+      const ozonError = buildOzonErrorDiagnostic(
+        response.status,
+        responseBody,
+        responseText
+      );
+
+      request.log.warn(
+        {
+          endpoint: "/v1/cancelOrder",
+          ozonCode: ozonError.ozonCode,
+          ozonDetails: ozonError.ozonDetails,
+          ozonMessage: ozonError.ozonMessage,
+          ozonStatus: ozonError.ozonStatus,
+          paymentId
+        },
+        "Ozon Pay Checkout cancelOrder failed"
+      );
+      return reply.code(502).send({
+        error: "OZON_CANCEL_ORDER_FAILED",
+        ozonCode: ozonError.ozonCode,
+        ozonDetails: ozonError.ozonDetails,
+        ozonMessage: ozonError.ozonMessage,
+        ozonStatus: ozonError.ozonStatus
+      });
+    }
+
+    const updatedPayment = await withDatabaseTransaction(async (client) => {
+      const paymentResult = await client.query<ApiOrderPaymentRow>(
+        `
+          update app.order_payments
+          set
+            status = 'canceled',
+            ozon_status = 'STATUS_CANCELED',
+            canceled_at = now(),
+            last_error_code = null,
+            last_error_message = null,
+            status_response_json = $3::jsonb,
+            updated_at = now()
+          where id = $1
+            and order_id = $2
+            and provider = 'ozon_pay_checkout'
+          returning
+            id::text as id,
+            provider,
+            provider_order_id as "providerOrderId",
+            provider_ext_id as "providerExtId",
+            amount_minor::text as "amountMinor",
+            currency_code as "currencyCode",
+            status,
+            ozon_status as "ozonStatus",
+            pay_link as "payLink",
+            payment_method as "paymentMethod",
+            test_mode as "testMode",
+            paid_at::text as "paidAt",
+            canceled_at::text as "canceledAt",
+            refunded_at::text as "refundedAt",
+            expires_at::text as "expiresAt",
+            last_error_code as "lastErrorCode",
+            last_error_message as "lastErrorMessage",
+            created_at::text as "createdAt",
+            updated_at::text as "updatedAt"
+        `,
+        [
+          paymentId,
+          orderId,
+          JSON.stringify(sanitizeOzonPayload(responseBody))
+        ]
+      );
+      const updated = paymentResult.rows[0];
+
+      await client.query(
+        `
+          insert into app.order_events (
+            order_id,
+            event_type,
+            actor_type,
+            actor_user_id,
+            actor_name,
+            payload_json
+          )
+          values ($1, 'payment_canceled', 'manager', $2, $3, $4::jsonb)
         `,
         [
           orderId,
@@ -5128,7 +5385,38 @@ app.patch<{ Body: DesktopDraftOrderPayload; Params: { id: string } }>(
       const order = existingOrder.rows[0];
 
       if (!order) {
-        return null;
+        return {
+          status: "not_found" as const
+        };
+      }
+
+      const ozonPayments = await client.query<{ status: DiezPaymentStatus }>(
+        `
+          select status
+          from app.order_payments
+          where order_id = $1
+            and provider = 'ozon_pay_checkout'
+        `,
+        [orderId]
+      );
+      const hasActiveOzonPayment = ozonPayments.rows.some((payment) =>
+        activeOzonPaymentStatuses.has(payment.status)
+      );
+
+      if (hasActiveOzonPayment) {
+        return {
+          status: "has_active_ozon_payment" as const
+        };
+      }
+
+      const hasFinalOzonPayment = ozonPayments.rows.some((payment) =>
+        finalOzonPaymentStatuses.has(payment.status)
+      );
+
+      if (hasFinalOzonPayment) {
+        return {
+          status: "has_final_ozon_payment" as const
+        };
       }
 
       let customerId = order.customer_id;
@@ -5225,13 +5513,29 @@ app.patch<{ Body: DesktopDraftOrderPayload; Params: { id: string } }>(
       return {
         id: order.id,
         orderNumber: order.order_number,
+        status: "updated" as const,
         updated: true
       };
     });
 
-    if (!result) {
+    if (result.status === "not_found") {
       return reply.code(404).send({
         error: "ORDER_NOT_FOUND"
+      });
+    }
+
+    if (result.status === "has_active_ozon_payment") {
+      return reply.code(409).send({
+        error: "ORDER_HAS_ACTIVE_OZON_PAYMENT",
+        message:
+          "У заказа есть активная Ozon-оплата. Сначала отмените оплату, затем измените заказ."
+      });
+    }
+
+    if (result.status === "has_final_ozon_payment") {
+      return reply.code(409).send({
+        error: "ORDER_HAS_FINAL_OZON_PAYMENT",
+        message: "У заказа есть финансовая Ozon-оплата. Изменение заказа запрещено."
       });
     }
 
