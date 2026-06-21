@@ -192,7 +192,9 @@ export type DeleteOrderResult = {
 };
 
 export type UpdateOrderResult = {
+  canceledOzonPaymentIds?: number[];
   id: number;
+  ozonPaymentAutoCanceled?: boolean;
   orderNumber: string;
   updated: boolean;
 };

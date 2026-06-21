@@ -781,8 +781,7 @@ function getLatestOzonPayment(payments: OrderPayment[]) {
 function isActiveOzonPayment(payment: OrderPayment | null) {
   return (
     payment?.status === "created" ||
-    payment?.status === "pending" ||
-    payment?.status === "authorized"
+    payment?.status === "pending"
   );
 }
 
@@ -2406,8 +2405,13 @@ function App() {
       );
       setDraftOrderSaveStatusById((current) => ({
         ...current,
-        [draftOrder.id]: "Изменения сохранены"
+        [draftOrder.id]: result.ozonPaymentAutoCanceled
+          ? "Изменения сохранены. Старая Ozon-оплата отменена, потому что сумма заказа изменилась. После проверки создайте новую оплату."
+          : "Изменения сохранены"
       }));
+      if (result.ozonPaymentAutoCanceled) {
+        void loadOrderPayments(draftOrder.serverOrderId);
+      }
       await loadServerOrders(authToken);
     } catch (error) {
       setDraftOrderSaveStatusById((current) => ({

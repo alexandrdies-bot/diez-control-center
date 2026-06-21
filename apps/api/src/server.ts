@@ -475,6 +475,17 @@ type OzonOrderPaymentOrderRow = {
   totalPriceMinor: number;
 };
 
+type OrderFinancialItemRow = {
+  calculationSnapshotJson: unknown;
+  paramsJson: unknown;
+  quantity: number | string;
+  serviceType: string;
+  sortOrder: number;
+  title: string;
+  totalPriceMinor: number | string;
+  unitPriceMinor: number | string;
+};
+
 const editableOrderStatuses = new Set([
   "new",
   "confirmed",
@@ -486,11 +497,11 @@ const editableOrderStatuses = new Set([
 
 const activeOzonPaymentStatuses = new Set<DiezPaymentStatus>([
   "created",
-  "pending",
-  "authorized"
+  "pending"
 ]);
 
 const finalOzonPaymentStatuses = new Set<DiezPaymentStatus>([
+  "authorized",
   "paid",
   "partial_refund",
   "refunded",
@@ -1433,6 +1444,69 @@ function getOzonTimestamp(value: unknown, paths: readonly (readonly string[])[])
   return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : null;
 }
 
+async function requestOzonCancelOrder(
+  config: OzonAcquiringConfig,
+  providerOrderId: string
+) {
+  const cancelRequest = {
+    id: providerOrderId
+  };
+  const requestSign = signOzonCancelOrderRequest(config, cancelRequest);
+  const requestBody = {
+    ...cancelRequest,
+    accessKey: config.accessKey,
+    requestSign
+  };
+  let response: Response;
+
+  try {
+    response = await fetch(`${config.baseUrl}/v1/cancelOrder`, {
+      body: JSON.stringify(requestBody),
+      headers: {
+        "Content-Type": "application/json"
+      },
+      method: "POST"
+    });
+  } catch (error) {
+    return {
+      diagnostic: {
+        ozonCode: "FETCH_FAILED",
+        ozonDetails: error instanceof Error ? sanitizeOzonText(error.message) : null,
+        ozonMessage: "Не удалось вызвать Ozon cancelOrder",
+        ozonStatus: 0
+      },
+      ok: false as const
+    };
+  }
+
+  const responseText = await response.text();
+  let responseBody: unknown = {};
+
+  try {
+    responseBody = responseText ? JSON.parse(responseText) : {};
+  } catch {
+    responseBody = {
+      raw: responseText
+    };
+  }
+
+  if (!response.ok) {
+    return {
+      diagnostic: buildOzonErrorDiagnostic(
+        response.status,
+        responseBody,
+        responseText
+      ),
+      ok: false as const
+    };
+  }
+
+  return {
+    ok: true as const,
+    responseBody
+  };
+}
+
 function mapOzonOrderStatus(status: string | null): DiezPaymentStatus {
   switch (status) {
     case "STATUS_NEW":
@@ -2177,6 +2251,102 @@ function validateCheckoutOrderPayload(
       totalPriceMinor
     }
   };
+}
+
+function normalizeFinancialJson(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(normalizeFinancialJson);
+  }
+
+  if (isRecord(value)) {
+    return Object.fromEntries(
+      Object.keys(value)
+        .sort()
+        .map((key) => [key, normalizeFinancialJson(value[key])])
+    );
+  }
+
+  return value ?? null;
+}
+
+function buildOrderFinancialSignature(input: {
+  deliveryTotalMinor: number;
+  items: Array<{
+    calculationSnapshotJson: unknown;
+    paramsJson: unknown;
+    quantity: number;
+    serviceType: string;
+    sortOrder: number;
+    title: string;
+    totalPriceMinor: number;
+    unitPriceMinor: number;
+  }>;
+  totalPriceMinor: number;
+}) {
+  return JSON.stringify({
+    deliveryTotalMinor: input.deliveryTotalMinor,
+    items: input.items
+      .map((item) => ({
+        calculationSnapshotJson: normalizeFinancialJson(
+          item.calculationSnapshotJson
+        ),
+        paramsJson: normalizeFinancialJson(item.paramsJson),
+        quantity: item.quantity,
+        serviceType: item.serviceType,
+        sortOrder: item.sortOrder,
+        title: item.title,
+        totalPriceMinor: item.totalPriceMinor,
+        unitPriceMinor: item.unitPriceMinor
+      }))
+      .sort((left, right) => left.sortOrder - right.sortOrder),
+    totalPriceMinor: input.totalPriceMinor
+  });
+}
+
+function buildStoredOrderFinancialSignature(input: {
+  deliveryTotalMinor: number;
+  items: OrderFinancialItemRow[];
+  totalPriceMinor: number;
+}) {
+  return buildOrderFinancialSignature({
+    deliveryTotalMinor: input.deliveryTotalMinor,
+    items: input.items.map((item) => ({
+      calculationSnapshotJson: item.calculationSnapshotJson,
+      paramsJson: item.paramsJson,
+      quantity: Number(item.quantity),
+      serviceType: item.serviceType,
+      sortOrder: item.sortOrder,
+      title: item.title,
+      totalPriceMinor: Number(item.totalPriceMinor),
+      unitPriceMinor: Number(item.unitPriceMinor)
+    })),
+    totalPriceMinor: input.totalPriceMinor
+  });
+}
+
+function buildDraftOrderFinancialSignature(
+  normalizedItems: DesktopDraftOrderItem[],
+  totalPriceMinor: number
+) {
+  return buildOrderFinancialSignature({
+    deliveryTotalMinor: 0,
+    items: normalizedItems.map((item, index) => {
+      const itemTotalPriceMinor = getOrderItemPriceMinor(item) ?? 0;
+      const quantity = getPositiveQuantity(item.quantity);
+
+      return {
+        calculationSnapshotJson: getOrderItemCalculationSnapshot(item),
+        paramsJson: getOrderItemParams(item),
+        quantity,
+        serviceType: mapServiceType(getRequiredString(item.serviceType)),
+        sortOrder: index + 1,
+        title: getRequiredString(item.title),
+        totalPriceMinor: itemTotalPriceMinor,
+        unitPriceMinor: Math.round(itemTotalPriceMinor / quantity)
+      };
+    }),
+    totalPriceMinor
+  });
 }
 
 async function insertOrderItems(
@@ -5371,11 +5541,18 @@ app.patch<{ Body: DesktopDraftOrderPayload; Params: { id: string } }>(
     const result = await withDatabaseTransaction(async (client) => {
       const existingOrder = await client.query<{
         customer_id: number | null;
+        delivery_total_minor: number | string | null;
         id: number;
         order_number: string;
+        total_price_minor: number | string;
       }>(
         `
-          select id, order_number, customer_id
+          select
+            id,
+            order_number,
+            customer_id,
+            total_price_minor,
+            delivery_total_minor
           from app.orders
           where id = $1
           for update
@@ -5390,25 +5567,44 @@ app.patch<{ Body: DesktopDraftOrderPayload; Params: { id: string } }>(
         };
       }
 
-      const ozonPayments = await client.query<{ status: DiezPaymentStatus }>(
+      const existingItems = await client.query<OrderFinancialItemRow>(
         `
-          select status
-          from app.order_payments
+          select
+            service_type as "serviceType",
+            title,
+            quantity::text as quantity,
+            unit_price_minor::text as "unitPriceMinor",
+            total_price_minor::text as "totalPriceMinor",
+            params_json as "paramsJson",
+            calculation_snapshot_json as "calculationSnapshotJson",
+            sort_order as "sortOrder"
+          from app.order_items
           where order_id = $1
-            and provider = 'ozon_pay_checkout'
+          order by sort_order, id
         `,
         [orderId]
       );
-      const hasActiveOzonPayment = ozonPayments.rows.some((payment) =>
-        activeOzonPaymentStatuses.has(payment.status)
+      const existingFinancialSignature = buildStoredOrderFinancialSignature({
+        deliveryTotalMinor: Number(order.delivery_total_minor ?? 0),
+        items: existingItems.rows,
+        totalPriceMinor: Number(order.total_price_minor)
+      });
+      const nextFinancialSignature = buildDraftOrderFinancialSignature(
+        normalizedItems,
+        totalPriceMinor
       );
-
-      if (hasActiveOzonPayment) {
-        return {
-          status: "has_active_ozon_payment" as const
-        };
-      }
-
+      const hasFinancialChanges =
+        existingFinancialSignature !== nextFinancialSignature;
+      const ozonPayments = await client.query<ApiOrderPaymentRow>(
+        `
+          ${getOrderPaymentSelectSql()}
+          where order_id = $1
+            and provider = 'ozon_pay_checkout'
+          order by created_at desc, id desc
+          for update
+        `,
+        [orderId]
+      );
       const hasFinalOzonPayment = ozonPayments.rows.some((payment) =>
         finalOzonPaymentStatuses.has(payment.status)
       );
@@ -5417,6 +5613,103 @@ app.patch<{ Body: DesktopDraftOrderPayload; Params: { id: string } }>(
         return {
           status: "has_final_ozon_payment" as const
         };
+      }
+
+      const activeOzonPayments = ozonPayments.rows.filter((payment) =>
+        activeOzonPaymentStatuses.has(payment.status)
+      );
+      const canceledOzonPaymentIds: number[] = [];
+
+      if (hasFinancialChanges && activeOzonPayments.length > 0) {
+        const config = getOzonAcquiringConfig();
+
+        if (!config) {
+          return {
+            status: "ozon_not_configured" as const
+          };
+        }
+
+        for (const payment of activeOzonPayments) {
+          if (!payment.providerOrderId) {
+            return {
+              status: "ozon_provider_order_id_required" as const
+            };
+          }
+
+          const cancelResult = await requestOzonCancelOrder(
+            config,
+            payment.providerOrderId
+          );
+
+          if (!cancelResult.ok) {
+            request.log.warn(
+              {
+                endpoint: "/v1/cancelOrder",
+                ozonCode: cancelResult.diagnostic.ozonCode,
+                ozonDetails: cancelResult.diagnostic.ozonDetails,
+                ozonMessage: cancelResult.diagnostic.ozonMessage,
+                ozonStatus: cancelResult.diagnostic.ozonStatus,
+                paymentId: payment.id
+              },
+              "Ozon Pay Checkout cancelOrder failed before order update"
+            );
+
+            return {
+              diagnostic: cancelResult.diagnostic,
+              status: "ozon_cancel_failed" as const
+            };
+          }
+
+          await client.query(
+            `
+              update app.order_payments
+              set
+                status = 'canceled',
+                ozon_status = 'STATUS_CANCELED',
+                canceled_at = now(),
+                last_error_code = null,
+                last_error_message = null,
+                status_response_json = $3::jsonb,
+                updated_at = now()
+              where id = $1
+                and order_id = $2
+                and provider = 'ozon_pay_checkout'
+            `,
+            [
+              payment.id,
+              orderId,
+              JSON.stringify(sanitizeOzonPayload(cancelResult.responseBody))
+            ]
+          );
+          await client.query(
+            `
+              insert into app.order_events (
+                order_id,
+                event_type,
+                actor_type,
+                actor_user_id,
+                actor_name,
+                payload_json
+              )
+              values ($1, 'payment_canceled', 'manager', $2, $3, $4::jsonb)
+            `,
+            [
+              orderId,
+              authSession.user.id,
+              authSession.user.displayName ?? authSession.user.login,
+              JSON.stringify({
+                newStatus: "canceled",
+                oldStatus: payment.status,
+                paymentId: Number(payment.id),
+                provider: "ozon_pay_checkout",
+                providerExtId: payment.providerExtId,
+                providerOrderId: payment.providerOrderId,
+                reason: "order_financial_change"
+              })
+            ]
+          );
+          canceledOzonPaymentIds.push(Number(payment.id));
+        }
       }
 
       let customerId = order.customer_id;
@@ -5511,8 +5804,10 @@ app.patch<{ Body: DesktopDraftOrderPayload; Params: { id: string } }>(
       );
 
       return {
+        canceledOzonPaymentIds,
         id: order.id,
         orderNumber: order.order_number,
+        ozonPaymentAutoCanceled: canceledOzonPaymentIds.length > 0,
         status: "updated" as const,
         updated: true
       };
@@ -5524,20 +5819,35 @@ app.patch<{ Body: DesktopDraftOrderPayload; Params: { id: string } }>(
       });
     }
 
-    if (result.status === "has_active_ozon_payment") {
-      return reply.code(409).send({
-        error: "ORDER_HAS_ACTIVE_OZON_PAYMENT",
-        message:
-          "У заказа есть активная Ozon-оплата. Сначала отмените оплату, затем измените заказ."
-      });
-    }
-
     if (result.status === "has_final_ozon_payment") {
       return reply.code(409).send({
         error: "ORDER_HAS_FINAL_OZON_PAYMENT",
         message: "У заказа есть финансовая Ozon-оплата. Изменение заказа запрещено."
       });
     }
+
+    if (result.status === "ozon_not_configured") {
+      return sendOzonAcquiringNotConfigured(reply);
+    }
+
+    if (result.status === "ozon_provider_order_id_required") {
+      return reply.code(409).send({
+        error: "OZON_PAYMENT_PROVIDER_ORDER_ID_REQUIRED",
+        message: "Не найден идентификатор заказа Ozon для отмены оплаты."
+      });
+    }
+
+    if (result.status === "ozon_cancel_failed") {
+      return reply.code(502).send({
+        error: "OZON_CANCEL_ORDER_FAILED",
+        ozonCode: result.diagnostic.ozonCode,
+        ozonDetails: result.diagnostic.ozonDetails,
+        ozonMessage: result.diagnostic.ozonMessage,
+        ozonStatus: result.diagnostic.ozonStatus
+      });
+    }
+
+
 
     return result;
   }
