@@ -2211,6 +2211,165 @@ tbody tr {
   color: rgba(255, 255, 255, 0.74);
 }
 
+.delivery-cdek-panel {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(159, 183, 255, 0.18);
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.delivery-cdek-header {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.delivery-cdek-header > div {
+  display: grid;
+  gap: 3px;
+}
+
+.delivery-cdek-header strong {
+  color: #ffffff;
+  font-size: 14px;
+}
+
+.delivery-cdek-header span,
+.delivery-cdek-actions span,
+.delivery-cdek-inline-note {
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 12px;
+}
+
+.delivery-cdek-save-note {
+  justify-self: start;
+  margin: 0;
+  padding: 5px 8px;
+  border-radius: 999px;
+  color: rgba(255, 220, 146, 0.94);
+  background: rgba(255, 190, 90, 0.12);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.delivery-cdek-message {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  color: rgba(255, 225, 225, 0.94);
+  background: rgba(255, 85, 85, 0.12);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.delivery-cdek-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.delivery-cdek-grid .form-field-wide {
+  grid-column: 1 / -1;
+}
+
+.delivery-cdek-inline {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.delivery-cdek-inline input {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.delivery-cdek-inline .secondary-action-button {
+  flex: 0 0 auto;
+}
+
+.delivery-cdek-inline-note {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.delivery-cdek-list {
+  display: grid;
+  gap: 6px;
+}
+
+.delivery-cdek-list-item {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  color: rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.05);
+  cursor: pointer;
+  text-align: left;
+}
+
+.delivery-cdek-list-item:hover,
+.delivery-cdek-list-item-active {
+  border-color: rgba(159, 183, 255, 0.5);
+  color: #ffffff;
+  background: rgba(90, 139, 255, 0.18);
+}
+
+.delivery-cdek-list-item strong {
+  min-width: 0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.delivery-cdek-list-item span {
+  min-width: 0;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.delivery-cdek-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.delivery-cdek-result {
+  display: grid;
+  grid-template-columns: minmax(120px, auto) repeat(2, minmax(0, 1fr));
+  gap: 7px 12px;
+  align-items: center;
+  padding: 9px 10px;
+  border-radius: 10px;
+  background: rgba(80, 255, 140, 0.1);
+}
+
+.delivery-cdek-result strong {
+  color: #ffffff;
+  font-size: 15px;
+}
+
+.delivery-cdek-result span {
+  min-width: 0;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.delivery-cdek-result em {
+  grid-column: 1 / -1;
+  color: rgba(255, 220, 146, 0.95);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 800;
+}
+
 .draft-summary-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

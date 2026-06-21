@@ -46,7 +46,9 @@ CDEK справочники подключены как backend-only proxy endpo
 
 CDEK расчёт доставки добавлен как backend-only endpoint `POST /orders/:id/delivery/cdek/calculate` для manager/admin. Endpoint проверяет существование заказа, вызывает CDEK `/v2/calculator/tariff` только при включённом и настроенном config, возвращает нормализованную стоимость/сроки с `notSaved: true` и `priceMinor = totalSumMinor ?? deliverySumMinor` и не сохраняет результат в заказ. `app.orders.delivery_total_minor`, `app.orders.total_price_minor`, shipment tables, migrations, Desktop UI и Ozon-flow не менялись.
 
-Desktop API client получил wrappers для backend CDEK endpoints: `getCdekStatus`, `searchCdekCities`, `getCdekDeliveryPoints` и `calculateCdekDelivery`. Эти функции используют только общий backend API и manager/admin bearer token; Desktop UI не менялся, wrappers пока не вызываются из `main.tsx`, CDEK secrets и OAuth token остаются только на backend.
+Desktop API client получил wrappers для backend CDEK endpoints: `getCdekStatus`, `searchCdekCities`, `getCdekDeliveryPoints` и `calculateCdekDelivery`. Эти функции используют только общий backend API и manager/admin bearer token; CDEK secrets и OAuth token остаются только на backend.
+
+Desktop delivery panel получил компактный CDEK calculation UI-блок: статус backend config, поиск города, выбор ПВЗ, tariffCode, вес/габариты, расчёт и результат. Вся CDEK UI-информация остаётся локальным state; результат явно показывается как не сохранённый в заказ. UI вызывает только backend wrappers, не ходит напрямую в CDEK, не сохраняет selected delivery/calculation, не меняет `delivery_total_minor`, `total_price_minor`, shipment tables, Ozon-flow и payments.
 
 Добавлен первый API auth/session layer: `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`. Сессии хранятся в `app.user_sessions` только как hash токена, Basic Auth на nginx пока не снят, а order write/delete endpoints ещё не переведены на bearer auth и остаются на текущем production guard.
 

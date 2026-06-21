@@ -179,7 +179,9 @@ CDEK справочники подключаются только через bac
 
 CDEK расчёт доставки подключается только через backend API: `POST /orders/:id/delivery/cdek/calculate`. Route доступен только manager/admin, сначала проверяет существование заказа, затем при включённом/настроенном CDEK config вызывает `/v2/calculator/tariff` и возвращает нормализованную стоимость/сроки с `notSaved: true` и `priceMinor = totalSumMinor ?? deliverySumMinor`. Результат расчёта не сохраняется в заказ, не меняет `app.orders.delivery_total_minor` / `app.orders.total_price_minor`, не создаёт shipment и не использует shipment-таблицы.
 
-Desktop API client имеет wrappers для этих backend CDEK endpoints: status, cities, delivery points и calculation. UI ещё не реализован, wrappers пока не вызываются из `main.tsx`, Desktop не ходит напрямую в СДЭК и не хранит CDEK credentials или OAuth token.
+Desktop API client имеет wrappers для этих backend CDEK endpoints: status, cities, delivery points и calculation. Desktop не ходит напрямую в СДЭК и не хранит CDEK credentials или OAuth token.
+
+Desktop delivery panel теперь имеет компактный CDEK calculation UI-блок: статус backend CDEK, поиск города, ПВЗ, tariffCode, вес/габариты, кнопка расчёта и результат. Блок использует только backend API wrappers, не ходит напрямую в CDEK, не хранит CDEK credentials/OAuth token, не сохраняет расчёт в заказ и не меняет суммы заказа, shipment-таблицы, Ozon-flow или payments.
 
 ## Правило работы с Data Base 02
 
