@@ -177,6 +177,8 @@ Backend API имеет безопасный skeleton endpoint `GET /cdek/status`
 
 CDEK справочники подключаются только через backend API: `GET /cdek/cities?name=...` и `GET /cdek/delivery-points?cityCode=...`. Эти routes доступны только manager/admin, получают CDEK OAuth token на сервере только при вызове справочника, кешируют token в памяти и возвращают Desktop только нормализованные поля. Расчёт доставки, создание отправлений, shipment-таблицы и Desktop UI остаются отдельными будущими этапами.
 
+CDEK расчёт доставки подключается только через backend API: `POST /orders/:id/delivery/cdek/calculate`. Route доступен только manager/admin, сначала проверяет существование заказа, затем при включённом/настроенном CDEK config вызывает `/v2/calculator/tariff` и возвращает нормализованную стоимость/сроки с `notSaved: true` и `priceMinor = totalSumMinor ?? deliverySumMinor`. Результат расчёта не сохраняется в заказ, не меняет `app.orders.delivery_total_minor` / `app.orders.total_price_minor`, не создаёт shipment и не использует shipment-таблицы.
+
 ## Правило работы с Data Base 02
 
 По вопросам базы данных работает отдельный чат `Data Base 02`.

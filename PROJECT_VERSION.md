@@ -44,6 +44,8 @@ CDEK backend skeleton добавлен как безопасный `GET /cdek/st
 
 CDEK справочники подключены как backend-only proxy endpoints `GET /cdek/cities?name=...` и `GET /cdek/delivery-points?cityCode=...` для manager/admin. API получает OAuth token только при вызове этих справочников, держит его в памяти с TTL/skew и возвращает клиенту только нормализованные поля без секретов. Shipment lifecycle, расчёт доставки, Desktop UI и DB migrations не менялись.
 
+CDEK расчёт доставки добавлен как backend-only endpoint `POST /orders/:id/delivery/cdek/calculate` для manager/admin. Endpoint проверяет существование заказа, вызывает CDEK `/v2/calculator/tariff` только при включённом и настроенном config, возвращает нормализованную стоимость/сроки с `notSaved: true` и `priceMinor = totalSumMinor ?? deliverySumMinor` и не сохраняет результат в заказ. `app.orders.delivery_total_minor`, `app.orders.total_price_minor`, shipment tables, migrations, Desktop UI и Ozon-flow не менялись.
+
 Добавлен первый API auth/session layer: `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`. Сессии хранятся в `app.user_sessions` только как hash токена, Basic Auth на nginx пока не снят, а order write/delete endpoints ещё не переведены на bearer auth и остаются на текущем production guard.
 
 Добавлен production-safe CLI bootstrap для первого `admin`/`manager` пользователя: `pnpm --filter @diez/api bootstrap:admin`. Пользователь автоматически не создавался; пароль передаётся только временными env-переменными shell и не хранится в repo, `.env` или seed.
