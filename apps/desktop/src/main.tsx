@@ -31,6 +31,7 @@ import {
   getOrders,
   login as loginToApi,
   openDownloadedFileLocation,
+  saveCdekDelivery,
   searchCdekCities,
   syncOrderPayment,
   updateMaterialPurchasePrice,
@@ -41,6 +42,7 @@ import {
   type CdekCity,
   type CdekDeliveryCalculationResult,
   type CdekDeliveryPoint,
+  type CdekSaveDeliveryResult,
   type CdekStatus,
   type Material,
   type MaterialPricingInput,
@@ -426,8 +428,10 @@ type CdekPanelState = {
   isLoadingCities: boolean;
   isLoadingDeliveryPoints: boolean;
   isLoadingStatus: boolean;
+  isSaving: boolean;
   lengthCm: string;
   message: string | null;
+  saveResult: CdekSaveDeliveryResult | null;
   selectedCity: CdekCity | null;
   selectedDeliveryPoint: CdekDeliveryPoint | null;
   shipmentPointCode: string;
@@ -475,8 +479,10 @@ function createDefaultCdekPanelState(): CdekPanelState {
     isLoadingCities: false,
     isLoadingDeliveryPoints: false,
     isLoadingStatus: false,
+    isSaving: false,
     lengthCm: "30",
     message: null,
+    saveResult: null,
     selectedCity: null,
     selectedDeliveryPoint: null,
     shipmentPointCode: "",
@@ -528,6 +534,18 @@ function getCdekUiErrorMessage(error: unknown) {
         return "Заказ не найден на сервере.";
       }
 
+      if (parsed.error === "ORDER_HAS_FINAL_OZON_PAYMENT") {
+        return "Заказ уже оплачен. Изменение стоимости доставки заблокировано.";
+      }
+
+      if (parsed.error === "OZON_CANCEL_ORDER_FAILED") {
+        return "Не удалось отменить активную Ozon-оплату. Доставка не сохранена.";
+      }
+
+      if (parsed.error === "OZON_PAYMENT_PROVIDER_ORDER_ID_REQUIRED") {
+        return "Не удалось подготовить отмену активной Ozon-оплаты. Доставка не сохранена.";
+      }
+
       if (typeof parsed.error === "string" && parsed.error.startsWith("INVALID_")) {
         return "Проверьте город, ПВЗ, тариф и габариты.";
       }
@@ -543,6 +561,23 @@ function getPositiveIntegerInput(value: string) {
   const numberValue = Number(value);
 
   return Number.isInteger(numberValue) && numberValue > 0 ? numberValue : null;
+}
+
+function getCdekCalculationPriceMinor(
+  calculationResult: CdekDeliveryCalculationResult | null
+) {
+  if (!calculationResult) {
+    return null;
+  }
+
+  const { calculation } = calculationResult;
+
+  return (
+    calculation.priceMinor ??
+    calculation.totalSumMinor ??
+    calculation.deliverySumMinor ??
+    null
+  );
 }
 
 function formatCdekDeliveryPointLabel(point: CdekDeliveryPoint) {
@@ -3192,7 +3227,8 @@ function App() {
       selectedCity: null,
       selectedDeliveryPoint: null,
       deliveryPointResults: [],
-      calculationResult: null
+      calculationResult: null,
+      saveResult: null
     }));
 
     try {
@@ -3244,7 +3280,8 @@ function App() {
       isLoadingDeliveryPoints: true,
       message: null,
       selectedDeliveryPoint: null,
-      calculationResult: null
+      calculationResult: null,
+      saveResult: null
     }));
 
     try {
@@ -3332,7 +3369,8 @@ function App() {
       ...current,
       calculationResult: null,
       isCalculating: true,
-      message: null
+      message: null,
+      saveResult: null
     }));
 
     try {
@@ -3366,12 +3404,170 @@ function App() {
         ...current,
         calculationResult: result,
         isCalculating: false,
-        message: null
+        message: null,
+        saveResult: null
       }));
     } catch (unknownError) {
       setCdekPanelState((current) => ({
         ...current,
         isCalculating: false,
+        message: getCdekUiErrorMessage(unknownError)
+      }));
+    }
+  }
+
+  async function handleSaveCdekDelivery(draftOrder: DraftOrder) {
+    if (!authToken) {
+      setCdekPanelState((current) => ({
+        ...current,
+        message: "Войдите, чтобы сохранить СДЭК-доставку."
+      }));
+      return;
+    }
+
+    if (!draftOrder.serverOrderId) {
+      setCdekPanelState((current) => ({
+        ...current,
+        message: "Сначала завершите приём заказа, затем сохраните СДЭК-доставку."
+      }));
+      return;
+    }
+
+    const calculationResult = cdekPanelState.calculationResult;
+    const selectedCity = cdekPanelState.selectedCity;
+    const selectedDeliveryPoint = cdekPanelState.selectedDeliveryPoint;
+    const tariffCode = getPositiveIntegerInput(cdekPanelState.tariffCode);
+    const weightGrams = getPositiveIntegerInput(cdekPanelState.weightGrams);
+    const lengthCm = getPositiveIntegerInput(cdekPanelState.lengthCm);
+    const widthCm = getPositiveIntegerInput(cdekPanelState.widthCm);
+    const heightCm = getPositiveIntegerInput(cdekPanelState.heightCm);
+    const priceMinor = getCdekCalculationPriceMinor(calculationResult);
+
+    if (!calculationResult || !priceMinor) {
+      setCdekPanelState((current) => ({
+        ...current,
+        message: "Сначала рассчитайте СДЭК и получите стоимость доставки."
+      }));
+      return;
+    }
+
+    if (!selectedCity?.code) {
+      setCdekPanelState((current) => ({
+        ...current,
+        message: "Выберите город получателя."
+      }));
+      return;
+    }
+
+    if (!selectedDeliveryPoint?.code) {
+      setCdekPanelState((current) => ({
+        ...current,
+        message: "Выберите ПВЗ."
+      }));
+      return;
+    }
+
+    if (!tariffCode || !weightGrams || !lengthCm || !widthCm || !heightCm) {
+      setCdekPanelState((current) => ({
+        ...current,
+        message: "Проверьте тариф, вес и габариты."
+      }));
+      return;
+    }
+
+    const deliveryPointAddress =
+      selectedDeliveryPoint.address ??
+      selectedDeliveryPoint.addressFull ??
+      formatCdekDeliveryPointLabel(selectedDeliveryPoint);
+    const recipientName =
+      draftOrder.delivery.contactName?.trim() ||
+      draftOrder.customer?.name?.trim() ||
+      undefined;
+    const recipientPhone =
+      draftOrder.delivery.phone?.trim() ||
+      draftOrder.customer?.phone?.trim() ||
+      undefined;
+    const shipmentPointCode = cdekPanelState.shipmentPointCode.trim();
+
+    setCdekPanelState((current) => ({
+      ...current,
+      isSaving: true,
+      message: null
+    }));
+
+    try {
+      const result = await saveCdekDelivery(
+        draftOrder.serverOrderId,
+        {
+          calculation: calculationResult.calculation,
+          city: selectedCity.city ?? selectedCity.fullName ?? cdekPanelState.cityQuery,
+          cityCode: selectedCity.code,
+          cityUuid: selectedCity.cityUuid ?? undefined,
+          comment: draftOrder.delivery.comment?.trim() || undefined,
+          countryCode: selectedCity.countryCode ?? "RU",
+          currencyCode: "RUB",
+          deliveryPointAddress,
+          deliveryPointCode: selectedDeliveryPoint.code,
+          deliveryPointType: selectedDeliveryPoint.type ?? undefined,
+          deliveryPointUuid: selectedDeliveryPoint.uuid ?? undefined,
+          packages: [
+            {
+              heightCm,
+              lengthCm,
+              weightGrams,
+              widthCm
+            }
+          ],
+          periodMax: calculationResult.calculation.periodMax ?? undefined,
+          periodMin: calculationResult.calculation.periodMin ?? undefined,
+          priceMinor,
+          recipientName,
+          recipientPhone,
+          region: selectedCity.region ?? undefined,
+          shipmentPointCode: shipmentPointCode || undefined,
+          tariffCode: calculationResult.calculation.tariffCode || tariffCode
+        },
+        authToken
+      );
+      const savedAt = new Date().toISOString();
+
+      setDraftOrders((orders) =>
+        orders.map((currentDraftOrder) =>
+          currentDraftOrder.id === draftOrder.id
+            ? {
+                ...currentDraftOrder,
+                delivery: {
+                  ...currentDraftOrder.delivery,
+                  address: result.delivery.addressText ?? deliveryPointAddress,
+                  comment: currentDraftOrder.delivery.comment,
+                  contactName: result.delivery.recipientName ?? recipientName,
+                  mode: "cdek",
+                  phone: result.delivery.recipientPhone ?? recipientPhone
+                },
+                serverOrderNumber: result.order.orderNumber,
+                serverOrderSavedAt: savedAt,
+                totalPriceMinor: result.totals.totalPriceMinor,
+                updatedAt: savedAt
+              }
+            : currentDraftOrder
+        )
+      );
+      setCdekPanelState((current) => ({
+        ...current,
+        isSaving: false,
+        message: null,
+        saveResult: result
+      }));
+
+      if (result.payment.activePaymentsCanceled) {
+        void loadOrderPayments(draftOrder.serverOrderId);
+      }
+
+      await loadServerOrders(authToken);
+    } catch (unknownError) {
+      setCdekPanelState((current) => ({
+        ...current,
+        isSaving: false,
         message: getCdekUiErrorMessage(unknownError)
       }));
     }
@@ -5497,8 +5693,9 @@ function App() {
                           </div>
 
                           <p className="delivery-cdek-save-note">
-                            Расчёт не сохранён в заказ. Кнопка «Сохранить»
-                            пока не сохраняет данные СДЭК.
+                            {cdekPanelState.saveResult
+                              ? "СДЭК-доставка сохранена в заказ. Отправление СДЭК ещё не создано."
+                              : "Расчёт не сохранён в заказ. Используйте кнопку «Сохранить СДЭК-доставку»."}
                           </p>
 
                           {cdekPanelState.message ? (
@@ -5517,7 +5714,8 @@ function App() {
                                     setCdekPanelState((current) => ({
                                       ...current,
                                       cityQuery: event.target.value,
-                                      calculationResult: null
+                                      calculationResult: null,
+                                      saveResult: null
                                     }))
                                   }
                                   onKeyDown={(event) => {
@@ -5556,6 +5754,7 @@ function App() {
                                         calculationResult: null,
                                         deliveryPointResults: [],
                                         message: null,
+                                        saveResult: null,
                                         selectedCity: city,
                                         selectedDeliveryPoint: null
                                       }))
@@ -5614,6 +5813,7 @@ function App() {
                                           ...current,
                                           calculationResult: null,
                                           message: null,
+                                          saveResult: null,
                                           selectedDeliveryPoint: point
                                         }))
                                       }
@@ -5639,6 +5839,7 @@ function App() {
                                   setCdekPanelState((current) => ({
                                     ...current,
                                     calculationResult: null,
+                                    saveResult: null,
                                     tariffCode: event.target.value
                                   }))
                                 }
@@ -5653,6 +5854,7 @@ function App() {
                                   setCdekPanelState((current) => ({
                                     ...current,
                                     calculationResult: null,
+                                    saveResult: null,
                                     shipmentPointCode: event.target.value
                                   }))
                                 }
@@ -5668,6 +5870,7 @@ function App() {
                                   setCdekPanelState((current) => ({
                                     ...current,
                                     calculationResult: null,
+                                    saveResult: null,
                                     weightGrams: event.target.value
                                   }))
                                 }
@@ -5683,6 +5886,7 @@ function App() {
                                   setCdekPanelState((current) => ({
                                     ...current,
                                     calculationResult: null,
+                                    saveResult: null,
                                     lengthCm: event.target.value
                                   }))
                                 }
@@ -5698,6 +5902,7 @@ function App() {
                                   setCdekPanelState((current) => ({
                                     ...current,
                                     calculationResult: null,
+                                    saveResult: null,
                                     widthCm: event.target.value
                                   }))
                                 }
@@ -5713,6 +5918,7 @@ function App() {
                                   setCdekPanelState((current) => ({
                                     ...current,
                                     calculationResult: null,
+                                    saveResult: null,
                                     heightCm: event.target.value
                                   }))
                                 }
@@ -5732,6 +5938,30 @@ function App() {
                               {cdekPanelState.isCalculating
                                 ? "Считаем..."
                                 : "Рассчитать СДЭК"}
+                            </button>
+                            <button
+                              className="secondary-action-button"
+                              disabled={
+                                cdekPanelState.isSaving ||
+                                !cdekPanelState.calculationResult ||
+                                !getCdekCalculationPriceMinor(
+                                  cdekPanelState.calculationResult
+                                ) ||
+                                !cdekPanelState.selectedCity?.code ||
+                                !cdekPanelState.selectedDeliveryPoint?.code ||
+                                !getPositiveIntegerInput(cdekPanelState.weightGrams) ||
+                                !getPositiveIntegerInput(cdekPanelState.lengthCm) ||
+                                !getPositiveIntegerInput(cdekPanelState.widthCm) ||
+                                !getPositiveIntegerInput(cdekPanelState.heightCm)
+                              }
+                              onClick={() =>
+                                void handleSaveCdekDelivery(detailDraftOrder)
+                              }
+                              type="button"
+                            >
+                              {cdekPanelState.isSaving
+                                ? "Сохраняем..."
+                                : "Сохранить СДЭК-доставку"}
                             </button>
                             <span>Отправление: город {DEFAULT_CDEK_FROM_CITY_CODE}</span>
                           </div>
@@ -5778,7 +6008,44 @@ function App() {
                                   }
                                 </span>
                               ) : null}
-                              <em>Расчёт не сохранён в заказ</em>
+                              <em>
+                                {cdekPanelState.saveResult
+                                  ? "Расчёт сохранён как СДЭК-доставка заказа"
+                                  : "Расчёт не сохранён в заказ"}
+                              </em>
+                            </div>
+                          ) : null}
+
+                          {cdekPanelState.saveResult ? (
+                            <div className="delivery-cdek-saved-result">
+                              <strong>СДЭК-доставка сохранена в заказ</strong>
+                              <span>
+                                Доставка:{" "}
+                                {formatMinorPrice(
+                                  cdekPanelState.saveResult.totals
+                                    .deliveryTotalMinor,
+                                  "RUB"
+                                )}
+                              </span>
+                              <span>
+                                Новый итог:{" "}
+                                {formatMinorPrice(
+                                  cdekPanelState.saveResult.totals.totalPriceMinor,
+                                  "RUB"
+                                )}
+                              </span>
+                              {cdekPanelState.saveResult.payment
+                                .activePaymentsCanceled ? (
+                                <em>
+                                  Старая Ozon-оплата отменена из-за изменения суммы.
+                                  Создайте новую ссылку на оплату.
+                                </em>
+                              ) : cdekPanelState.saveResult.payment
+                                  .financialChanged ? (
+                                <em>Сумма заказа обновлена.</em>
+                              ) : (
+                                <em>Сумма заказа не изменилась.</em>
+                              )}
                             </div>
                           ) : null}
                         </div>

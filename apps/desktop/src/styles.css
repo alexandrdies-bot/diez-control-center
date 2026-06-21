@@ -2370,6 +2370,38 @@ tbody tr {
   font-weight: 800;
 }
 
+.delivery-cdek-saved-result {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px 12px;
+  align-items: center;
+  padding: 9px 10px;
+  border: 1px solid rgba(80, 255, 140, 0.18);
+  border-radius: 10px;
+  background: rgba(80, 255, 140, 0.08);
+}
+
+.delivery-cdek-saved-result strong {
+  grid-column: 1 / -1;
+  color: #ffffff;
+  font-size: 13px;
+}
+
+.delivery-cdek-saved-result span {
+  min-width: 0;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.delivery-cdek-saved-result em {
+  grid-column: 1 / -1;
+  color: rgba(255, 220, 146, 0.95);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 800;
+}
+
 .draft-summary-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

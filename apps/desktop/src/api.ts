@@ -357,6 +357,66 @@ export type CdekDeliveryCalculationResult = {
   };
 };
 
+export type CdekSaveDeliveryPackage = {
+  heightCm: number;
+  lengthCm: number;
+  weightGrams: number;
+  widthCm: number;
+};
+
+export type CdekSaveDeliveryRequest = {
+  calculation?: CdekDeliveryCalculation;
+  calendarMax?: string;
+  calendarMin?: string;
+  city: string;
+  cityCode: number;
+  cityUuid?: string;
+  comment?: string;
+  countryCode?: string;
+  currencyCode?: "RUB";
+  deliveryPointAddress: string;
+  deliveryPointCode: string;
+  deliveryPointType?: string;
+  deliveryPointUuid?: string;
+  packages: CdekSaveDeliveryPackage[];
+  periodMax?: number;
+  periodMin?: number;
+  priceMinor: number;
+  recipientName?: string;
+  recipientPhone?: string;
+  region?: string;
+  shipmentPointCode?: string;
+  tariffCode: number;
+  tariffName?: string;
+};
+
+export type CdekSaveDeliveryResult = {
+  delivery: {
+    addressText: string | null;
+    currencyCode: string;
+    deliveryMode: "cdek";
+    deliveryStatus: string;
+    priceMinor: number;
+    providerPayload: unknown;
+    recipientName: string | null;
+    recipientPhone: string | null;
+  };
+  order: {
+    id: number;
+    orderNumber: string;
+  };
+  payment: {
+    activePaymentsCanceled: boolean;
+    canceledPaymentIds: number[];
+    financialChanged: boolean;
+  };
+  saved: boolean;
+  totals: {
+    deliveryTotalMinor: number;
+    totalPriceMinor: number;
+  };
+};
+
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "https://api.diezimg.ru";
 const apiWriteKey = import.meta.env.VITE_API_WRITE_KEY?.trim();
 const adminApiKey = import.meta.env.VITE_ADMIN_API_KEY?.trim();
@@ -1123,6 +1183,55 @@ export async function calculateCdekDelivery(
   }
 
   return response.json() as Promise<CdekDeliveryCalculationResult>;
+}
+
+export async function saveCdekDelivery(
+  orderId: number,
+  payload: CdekSaveDeliveryRequest,
+  token: string
+): Promise<CdekSaveDeliveryResult> {
+  const response = await fetch(`${apiBaseUrl}/orders/${orderId}/delivery/cdek`, {
+    body: JSON.stringify(payload),
+    headers: createJsonBearerHeaders(token),
+    method: "PATCH"
+  });
+
+  if (!response.ok) {
+    const responseBody = await response.text();
+    throw new Error(
+      `/orders/${orderId}/delivery/cdek ${response.status}${
+        responseBody ? ` ${responseBody}` : ""
+      }`
+    );
+  }
+
+  const result = (await response.json()) as {
+    delivery: CdekSaveDeliveryResult["delivery"];
+    id: number;
+    orderNumber: string;
+    payment?: CdekSaveDeliveryResult["payment"];
+    totalPriceMinor: number;
+    updated: boolean;
+  };
+  const payment = result.payment ?? {
+    activePaymentsCanceled: false,
+    canceledPaymentIds: [],
+    financialChanged: false
+  };
+
+  return {
+    delivery: result.delivery,
+    order: {
+      id: result.id,
+      orderNumber: result.orderNumber
+    },
+    payment,
+    saved: result.updated,
+    totals: {
+      deliveryTotalMinor: result.delivery.priceMinor,
+      totalPriceMinor: result.totalPriceMinor
+    }
+  };
 }
 
 export async function getOrderPayments(
