@@ -236,6 +236,127 @@ export type OrderPaymentResult = {
   payment: OrderPayment;
 };
 
+export type CdekStatus = {
+  baseUrl: string;
+  configured: boolean;
+  enabled: boolean;
+  env: "test" | "prod";
+  features: {
+    calculation: boolean;
+    cities: boolean;
+    deliveryPoints: boolean;
+    printForms: boolean;
+    shipments: boolean;
+    webhooks: boolean;
+  };
+  missing: string[];
+  tokenStatus: "cached" | "not_requested";
+};
+
+export type CdekCity = {
+  city: string | null;
+  cityUuid: string | null;
+  code: number | null;
+  countryCode: string | null;
+  fiasGuid: string | null;
+  fullName: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  region: string | null;
+  regionCode: number | null;
+};
+
+export type CdekCitySearchResult = {
+  items: CdekCity[];
+};
+
+export type CdekDeliveryPoint = {
+  address: string | null;
+  addressFull?: string | null;
+  allowedCod: boolean | null;
+  city?: string | null;
+  cityCode?: number | null;
+  code: string | null;
+  countryCode?: string | null;
+  dimensions?: {
+    heightMax: number | null;
+    lengthMax: number | null;
+    widthMax: number | null;
+  } | null;
+  haveCash: boolean | null;
+  haveCashless: boolean | null;
+  heightMax?: number | null;
+  isDressingRoom?: boolean | null;
+  latitude: number | null;
+  lengthMax?: number | null;
+  longitude: number | null;
+  name?: string | null;
+  nearestStation?: string | null;
+  phones: string[];
+  type: string | null;
+  uuid?: string | null;
+  weightMax: number | null;
+  weightMin: number | null;
+  widthMax?: number | null;
+  workTime: string | null;
+};
+
+export type CdekDeliveryPointSearchParams = {
+  cityCode: number;
+  type?: "ALL" | "PVZ" | "POSTAMAT";
+};
+
+export type CdekDeliveryPointSearchResult = {
+  items: CdekDeliveryPoint[];
+};
+
+export type CdekDeliveryCalculationRequest = {
+  currencyCode?: "RUB";
+  deliveryPointCode?: string;
+  fromLocation: {
+    code: number;
+  };
+  packages: Array<{
+    heightCm: number;
+    lengthCm: number;
+    weightGrams: number;
+    widthCm: number;
+  }>;
+  shipmentPointCode?: string;
+  tariffCode: number;
+  toLocation: {
+    code: number;
+  };
+};
+
+export type CdekDeliveryCalculation = {
+  calendarMax: number | null;
+  calendarMin: number | null;
+  currencyCode: string;
+  deliverySum?: number | null;
+  deliverySumMinor: number | null;
+  errors: unknown[];
+  notSaved: true;
+  periodMax: number | null;
+  periodMin: number | null;
+  priceMinor: number | null;
+  provider: "cdek";
+  services: unknown[];
+  tariffCode: number;
+  totalSum?: number | null;
+  totalSumMinor: number | null;
+  warnings: unknown[];
+  weightCalc: number | null;
+};
+
+export type CdekDeliveryCalculationResult = {
+  calculation: CdekDeliveryCalculation;
+  order: {
+    id: number;
+    orderNumber: string;
+  };
+};
+
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "https://api.diezimg.ru";
 const apiWriteKey = import.meta.env.VITE_API_WRITE_KEY?.trim();
 const adminApiKey = import.meta.env.VITE_ADMIN_API_KEY?.trim();
@@ -901,6 +1022,107 @@ export async function addOrderManagerComment(
   }
 
   return response.json() as Promise<AddOrderManagerCommentResult>;
+}
+
+export async function getCdekStatus(token: string): Promise<CdekStatus> {
+  const response = await fetch(`${apiBaseUrl}/cdek/status`, {
+    headers: createBearerHeaders(token)
+  });
+
+  if (!response.ok) {
+    const responseBody = await response.text();
+    throw new Error(
+      `/cdek/status ${response.status}${responseBody ? ` ${responseBody}` : ""}`
+    );
+  }
+
+  return response.json() as Promise<CdekStatus>;
+}
+
+export async function searchCdekCities(
+  params: {
+    countryCode?: string;
+    name: string;
+  },
+  token: string
+): Promise<CdekCitySearchResult> {
+  const query = new URLSearchParams({
+    name: params.name
+  });
+
+  if (params.countryCode) {
+    query.set("countryCode", params.countryCode);
+  }
+
+  const response = await fetch(`${apiBaseUrl}/cdek/cities?${query.toString()}`, {
+    headers: createBearerHeaders(token)
+  });
+
+  if (!response.ok) {
+    const responseBody = await response.text();
+    throw new Error(
+      `/cdek/cities ${response.status}${responseBody ? ` ${responseBody}` : ""}`
+    );
+  }
+
+  return response.json() as Promise<CdekCitySearchResult>;
+}
+
+export async function getCdekDeliveryPoints(
+  params: CdekDeliveryPointSearchParams,
+  token: string
+): Promise<CdekDeliveryPointSearchResult> {
+  const query = new URLSearchParams({
+    cityCode: String(params.cityCode)
+  });
+
+  if (params.type) {
+    query.set("type", params.type);
+  }
+
+  const response = await fetch(
+    `${apiBaseUrl}/cdek/delivery-points?${query.toString()}`,
+    {
+      headers: createBearerHeaders(token)
+    }
+  );
+
+  if (!response.ok) {
+    const responseBody = await response.text();
+    throw new Error(
+      `/cdek/delivery-points ${response.status}${
+        responseBody ? ` ${responseBody}` : ""
+      }`
+    );
+  }
+
+  return response.json() as Promise<CdekDeliveryPointSearchResult>;
+}
+
+export async function calculateCdekDelivery(
+  orderId: number,
+  payload: CdekDeliveryCalculationRequest,
+  token: string
+): Promise<CdekDeliveryCalculationResult> {
+  const response = await fetch(
+    `${apiBaseUrl}/orders/${orderId}/delivery/cdek/calculate`,
+    {
+      body: JSON.stringify(payload),
+      headers: createJsonBearerHeaders(token),
+      method: "POST"
+    }
+  );
+
+  if (!response.ok) {
+    const responseBody = await response.text();
+    throw new Error(
+      `/orders/${orderId}/delivery/cdek/calculate ${response.status}${
+        responseBody ? ` ${responseBody}` : ""
+      }`
+    );
+  }
+
+  return response.json() as Promise<CdekDeliveryCalculationResult>;
 }
 
 export async function getOrderPayments(
