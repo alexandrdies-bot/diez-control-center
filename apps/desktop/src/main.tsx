@@ -481,6 +481,24 @@ function normalizeOrderWorkflowStatus(status: string): OrderWorkflowStatus {
     : "new";
 }
 
+function mapApiDeliveryModeToDraftDeliveryMode(mode: unknown): DeliveryMode {
+  if (typeof mode !== "string") {
+    return "manual";
+  }
+
+  const normalizedMode = mode.trim().toLowerCase().replace(/_/g, "-");
+
+  if (normalizedMode === "not-required") {
+    return "not-required";
+  }
+
+  if (normalizedMode === "cdek") {
+    return "cdek";
+  }
+
+  return "manual";
+}
+
 function mapOrderDetailsToDraftOrder(
   orderDetails: OrderDetail,
   existingDraftOrderId?: string
@@ -523,11 +541,9 @@ function mapOrderDetailsToDraftOrder(
           address: orderDetails.delivery.addressText ?? "",
           comment: orderDetails.delivery.comment ?? "",
           contactName: orderDetails.delivery.recipientName ?? "",
-          mode:
-            orderDetails.delivery.deliveryMode === "not_required" ||
-            orderDetails.delivery.deliveryMode === "not-required"
-              ? "not-required"
-              : "manual",
+          mode: mapApiDeliveryModeToDraftDeliveryMode(
+            orderDetails.delivery.deliveryMode
+          ),
           phone: orderDetails.delivery.recipientPhone ?? ""
         }
       : {

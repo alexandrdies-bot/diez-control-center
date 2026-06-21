@@ -38,6 +38,8 @@ MVP-1 API read-only endpoints готовы.
 
 Добавлен MVP-режим `Запомнить это устройство`: desktop может сохранить session token, безопасные public user fields, срок действия и телефон в `localStorage`, проверить сессию через `GET /auth/me` при запуске и открыть приложение без повторного ввода кода. 4-значный код, Basic Auth пароль, `DATABASE_URL` и PostgreSQL секреты не сохраняются; позже это хранение нужно заменить на Windows Credential Manager / Tauri secure storage.
 
+CDEK Phase 0 pre-fixes подготовлены без подключения СДЭК API: desktop mapping сохраняет `delivery_mode='cdek'`, обычный `PATCH /orders/:id` больше не обнуляет существующую delivery-сумму/provider-summary поля, а финансовая Ozon-защита продолжает учитывать доставку в сигнатуре заказа. CDEK credentials, env и миграции не добавлялись.
+
 Добавлен первый API auth/session layer: `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`. Сессии хранятся в `app.user_sessions` только как hash токена, Basic Auth на nginx пока не снят, а order write/delete endpoints ещё не переведены на bearer auth и остаются на текущем production guard.
 
 Добавлен production-safe CLI bootstrap для первого `admin`/`manager` пользователя: `pnpm --filter @diez/api bootstrap:admin`. Пользователь автоматически не создавался; пароль передаётся только временными env-переменными shell и не хранится в repo, `.env` или seed.

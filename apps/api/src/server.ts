@@ -2326,10 +2326,11 @@ function buildStoredOrderFinancialSignature(input: {
 
 function buildDraftOrderFinancialSignature(
   normalizedItems: DesktopDraftOrderItem[],
+  deliveryTotalMinor: number,
   totalPriceMinor: number
 ) {
   return buildOrderFinancialSignature({
-    deliveryTotalMinor: 0,
+    deliveryTotalMinor,
     items: normalizedItems.map((item, index) => {
       const itemTotalPriceMinor = getOrderItemPriceMinor(item) ?? 0;
       const quantity = getPositiveQuantity(item.quantity);
@@ -2347,6 +2348,13 @@ function buildDraftOrderFinancialSignature(
     }),
     totalPriceMinor
   });
+}
+
+function getOrderItemsTotalMinor(normalizedItems: DesktopDraftOrderItem[]) {
+  return normalizedItems.reduce(
+    (total, item) => total + (getOrderItemPriceMinor(item) ?? 0),
+    0
+  );
 }
 
 async function insertOrderItems(
@@ -2433,12 +2441,14 @@ async function upsertOrderDelivery(
         update app.order_delivery
         set
           delivery_mode = $2,
-          delivery_status = $3,
+          delivery_status = case
+            when delivery_mode = $2 then delivery_status
+            else $3
+          end,
           recipient_name = $4,
           recipient_phone = $5,
           address_text = $6,
           comment = $7,
-          price_minor = 0,
           currency_code = 'RUB'
         where order_id = $1
       `,
@@ -5589,9 +5599,16 @@ app.patch<{ Body: DesktopDraftOrderPayload; Params: { id: string } }>(
         items: existingItems.rows,
         totalPriceMinor: Number(order.total_price_minor)
       });
+      const preservedDeliveryTotalMinor = Number(order.delivery_total_minor ?? 0);
+      const nextItemsTotalMinor = getOrderItemsTotalMinor(normalizedItems);
+      const nextOrderTotalPriceMinor =
+        totalPriceMinor === nextItemsTotalMinor + preservedDeliveryTotalMinor
+          ? totalPriceMinor
+          : nextItemsTotalMinor + preservedDeliveryTotalMinor;
       const nextFinancialSignature = buildDraftOrderFinancialSignature(
         normalizedItems,
-        totalPriceMinor
+        preservedDeliveryTotalMinor,
+        nextOrderTotalPriceMinor
       );
       const hasFinancialChanges =
         existingFinancialSignature !== nextFinancialSignature;
@@ -5754,10 +5771,10 @@ app.patch<{ Body: DesktopDraftOrderPayload; Params: { id: string } }>(
             customer_id = $2,
             customer_snapshot_json = $3::jsonb,
             items_total_minor = $4,
-            delivery_total_minor = 0,
+            delivery_total_minor = $5,
             discount_total_minor = 0,
-            total_price_minor = $5,
-            customer_comment = $6,
+            total_price_minor = $6,
+            customer_comment = $7,
             updated_at = now()
           where id = $1
         `,
@@ -5765,8 +5782,9 @@ app.patch<{ Body: DesktopDraftOrderPayload; Params: { id: string } }>(
           orderId,
           customerId,
           JSON.stringify(customerSnapshot),
-          totalPriceMinor,
-          totalPriceMinor,
+          nextItemsTotalMinor,
+          preservedDeliveryTotalMinor,
+          nextOrderTotalPriceMinor,
           customerComment
         ]
       );
