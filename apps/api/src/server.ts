@@ -422,6 +422,27 @@ type OzonAcquiringConfig = {
   successUrl: string;
 };
 
+type CdekEnvironment = "test" | "prod";
+
+type CdekTokenStatus = "not_requested";
+
+type CdekStatusResponse = {
+  baseUrl: string;
+  configured: boolean;
+  enabled: boolean;
+  env: CdekEnvironment;
+  features: {
+    calculation: boolean;
+    cities: boolean;
+    deliveryPoints: boolean;
+    printForms: boolean;
+    shipments: boolean;
+    webhooks: boolean;
+  };
+  missing: string[];
+  tokenStatus: CdekTokenStatus;
+};
+
 type ApiOrderPaymentRow = {
   amountMinor: number | string;
   canceledAt: string | null;
@@ -1115,6 +1136,51 @@ function getRequiredEnvString(name: string) {
   const value = process.env[name]?.trim();
 
   return value ? value : null;
+}
+
+function getOptionalEnvString(name: string) {
+  return process.env[name]?.trim() || null;
+}
+
+function getBooleanEnvFlag(name: string) {
+  const value = getOptionalEnvString(name)?.toLowerCase();
+
+  return value === "true" || value === "1" || value === "yes" || value === "on";
+}
+
+function getCdekEnvironment(): CdekEnvironment {
+  return getOptionalEnvString("CDEK_ENV") === "prod" ? "prod" : "test";
+}
+
+function getDefaultCdekBaseUrl(env: CdekEnvironment) {
+  return env === "prod" ? "https://api.cdek.ru" : "https://api.edu.cdek.ru";
+}
+
+function getCdekStatus(): CdekStatusResponse {
+  const env = getCdekEnvironment();
+  const baseUrl =
+    getOptionalEnvString("CDEK_API_BASE_URL")?.replace(/\/+$/, "") ||
+    getDefaultCdekBaseUrl(env);
+  const requiredEnvNames = ["CDEK_CLIENT_ID", "CDEK_CLIENT_SECRET"];
+  const missing = requiredEnvNames.filter((name) => !getRequiredEnvString(name));
+  const enabled = getBooleanEnvFlag("CDEK_ENABLED");
+
+  return {
+    baseUrl,
+    configured: missing.length === 0,
+    enabled,
+    env,
+    features: {
+      calculation: false,
+      cities: false,
+      deliveryPoints: false,
+      printForms: false,
+      shipments: false,
+      webhooks: false
+    },
+    missing,
+    tokenStatus: "not_requested"
+  };
 }
 
 function getOzonAcquiringConfig(): OzonAcquiringConfig | null {
@@ -2498,6 +2564,16 @@ app.get("/health", async () => {
 
 app.get("/health/calculation-core", async () => {
   return checkCalculationCoreImport();
+});
+
+app.get("/cdek/status", async (request, reply) => {
+  const authSession = await requireRole(request, reply, ["manager", "admin"]);
+
+  if (!authSession) {
+    return reply;
+  }
+
+  return getCdekStatus();
 });
 
 if (debugEndpointsEnabled) {

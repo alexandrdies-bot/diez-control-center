@@ -173,6 +173,8 @@ Webhook route `POST /payments/ozon/webhook` нужно будет открыть
 
 Для будущей CDEK-доставки обычное редактирование заказа не должно стирать уже сохранённые provider-поля доставки и сумму доставки. Desktop должен сохранять известный `delivery_mode='cdek'` при загрузке заказа, даже если полноценный CDEK UI ещё не включён. Все будущие обращения к CDEK должны идти только через backend API; Desktop и сайт не должны хранить CDEK credentials или ходить в CDEK напрямую.
 
+Backend API имеет безопасный skeleton endpoint `GET /cdek/status` для manager/admin. Он показывает, включён ли CDEK, хватает ли обязательных server env names, какой выбран test/prod base URL и что token ещё не запрашивался. Endpoint не делает HTTP-запросов в CDEK, не получает OAuth token, не создаёт отправления, не считает доставку и не раскрывает секреты.
+
 ## Правило работы с Data Base 02
 
 По вопросам базы данных работает отдельный чат `Data Base 02`.
