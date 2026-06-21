@@ -424,7 +424,19 @@ type OzonAcquiringConfig = {
 
 type CdekEnvironment = "test" | "prod";
 
-type CdekTokenStatus = "not_requested";
+type CdekTokenStatus = "cached" | "not_requested";
+
+type CdekConfig = {
+  baseUrl: string;
+  clientId: string | null;
+  clientSecret: string | null;
+  configured: boolean;
+  enabled: boolean;
+  env: CdekEnvironment;
+  missing: string[];
+  requestTimeoutMs: number;
+  tokenCacheTtlSkewSeconds: number;
+};
 
 type CdekStatusResponse = {
   baseUrl: string;
@@ -441,6 +453,39 @@ type CdekStatusResponse = {
   };
   missing: string[];
   tokenStatus: CdekTokenStatus;
+};
+
+type CdekCityResponseItem = {
+  city: string | null;
+  cityUuid: string | null;
+  code: number | null;
+  countryCode: string | null;
+  fiasGuid: string | null;
+  fullName: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  region: string | null;
+  regionCode: number | null;
+};
+
+type CdekDeliveryPointResponseItem = {
+  address: string | null;
+  addressFull: string | null;
+  allowedCod: boolean | null;
+  code: string | null;
+  haveCash: boolean | null;
+  haveCashless: boolean | null;
+  heightMax: number | null;
+  latitude: number | null;
+  lengthMax: number | null;
+  longitude: number | null;
+  phones: string[];
+  type: string | null;
+  uuid: string | null;
+  weightMax: number | null;
+  weightMin: number | null;
+  widthMax: number | null;
+  workTime: string | null;
 };
 
 type ApiOrderPaymentRow = {
@@ -1156,30 +1201,77 @@ function getDefaultCdekBaseUrl(env: CdekEnvironment) {
   return env === "prod" ? "https://api.cdek.ru" : "https://api.edu.cdek.ru";
 }
 
-function getCdekStatus(): CdekStatusResponse {
+function getPositiveIntegerEnv(name: string, defaultValue: number) {
+  const value = Number(getOptionalEnvString(name));
+
+  return Number.isInteger(value) && value > 0 ? value : defaultValue;
+}
+
+function getCdekConfig(): CdekConfig {
   const env = getCdekEnvironment();
   const baseUrl =
     getOptionalEnvString("CDEK_API_BASE_URL")?.replace(/\/+$/, "") ||
     getDefaultCdekBaseUrl(env);
   const requiredEnvNames = ["CDEK_CLIENT_ID", "CDEK_CLIENT_SECRET"];
+  const clientId = getRequiredEnvString("CDEK_CLIENT_ID");
+  const clientSecret = getRequiredEnvString("CDEK_CLIENT_SECRET");
   const missing = requiredEnvNames.filter((name) => !getRequiredEnvString(name));
   const enabled = getBooleanEnvFlag("CDEK_ENABLED");
 
   return {
     baseUrl,
+    clientId,
+    clientSecret,
     configured: missing.length === 0,
     enabled,
     env,
+    missing,
+    requestTimeoutMs: getPositiveIntegerEnv("CDEK_REQUEST_TIMEOUT_MS", 10000),
+    tokenCacheTtlSkewSeconds: getPositiveIntegerEnv(
+      "CDEK_TOKEN_CACHE_TTL_SKEW_SECONDS",
+      60
+    )
+  };
+}
+
+let cdekTokenCache: {
+  accessToken: string;
+  baseUrl: string;
+  env: CdekEnvironment;
+  expiresAtMs: number;
+} | null = null;
+
+function isCdekTokenCacheValid(config: CdekConfig) {
+  return Boolean(
+    cdekTokenCache &&
+      cdekTokenCache.baseUrl === config.baseUrl &&
+      cdekTokenCache.env === config.env &&
+      cdekTokenCache.expiresAtMs > Date.now() + 5000
+  );
+}
+
+function getCdekTokenStatus(config: CdekConfig): CdekTokenStatus {
+  return isCdekTokenCacheValid(config) ? "cached" : "not_requested";
+}
+
+function getCdekStatus(config = getCdekConfig()): CdekStatusResponse {
+  const featuresEnabled = config.enabled && config.configured;
+
+  return {
+    baseUrl: config.baseUrl,
+    configured: config.configured,
+    enabled: config.enabled,
+    env: config.env,
     features: {
       calculation: false,
-      cities: false,
-      deliveryPoints: false,
+      cities: featuresEnabled,
+      deliveryPoints: featuresEnabled,
       printForms: false,
       shipments: false,
       webhooks: false
     },
-    missing,
-    tokenStatus: "not_requested"
+    missing: config.missing,
+    tokenStatus: getCdekTokenStatus(config)
   };
 }
 
@@ -1437,6 +1529,327 @@ function buildOzonErrorDiagnostic(
   };
 }
 
+class CdekProxyError extends Error {
+  cdekCode: string | null;
+  cdekMessage: string | null;
+  cdekStatus: number | null;
+  publicError: string;
+  statusCode: number;
+
+  constructor(input: {
+    cdekCode?: string | null;
+    cdekMessage?: string | null;
+    cdekStatus?: number | null;
+    message: string;
+    publicError: string;
+    statusCode: number;
+  }) {
+    super(input.message);
+    this.cdekCode = input.cdekCode ?? null;
+    this.cdekMessage = input.cdekMessage ?? null;
+    this.cdekStatus = input.cdekStatus ?? null;
+    this.publicError = input.publicError;
+    this.statusCode = input.statusCode;
+  }
+}
+
+function sanitizeCdekPayload(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeCdekPayload(item));
+  }
+
+  if (!isRecord(value)) {
+    return value;
+  }
+
+  const secretKeys = new Set([
+    "access_token",
+    "accessToken",
+    "authorization",
+    "Authorization",
+    "bearer",
+    "client_id",
+    "clientId",
+    "client_secret",
+    "clientSecret",
+    "password",
+    "secret",
+    "token"
+  ]);
+  const sanitized: Record<string, unknown> = {};
+
+  for (const [key, nestedValue] of Object.entries(value)) {
+    if (secretKeys.has(key)) {
+      continue;
+    }
+
+    sanitized[key] = sanitizeCdekPayload(nestedValue);
+  }
+
+  return sanitized;
+}
+
+function sanitizeCdekText(value: string) {
+  return value
+    .replace(
+      /("(?:access_token|accessToken|authorization|bearer|client_id|clientId|client_secret|clientSecret|password|secret|token)"\s*:\s*")[^"]*(")/gi,
+      "$1[redacted]$2"
+    )
+    .replace(
+      /((?:access_token|accessToken|authorization|bearer|client_id|clientId|client_secret|clientSecret|password|secret|token)=)[^&\s]+/gi,
+      "$1[redacted]"
+    )
+    .slice(0, 500);
+}
+
+function getCdekDiagnosticString(
+  value: unknown,
+  paths: readonly (readonly string[])[],
+  fallbackText: string
+) {
+  const diagnosticValue = getOzonDiagnosticString(value, paths);
+
+  if (diagnosticValue) {
+    return diagnosticValue;
+  }
+
+  return fallbackText ? sanitizeCdekText(fallbackText) : null;
+}
+
+function buildCdekError(
+  publicError: string,
+  statusCode: number,
+  cdekStatus: number | null,
+  responseBody: unknown,
+  responseText: string,
+  fallbackMessage: string
+) {
+  return new CdekProxyError({
+    cdekCode: getCdekDiagnosticString(
+      responseBody,
+      [
+        ["code"],
+        ["error"],
+        ["error_code"],
+        ["errors", "0", "code"],
+        ["requests", "0", "errors", "0", "code"]
+      ],
+      ""
+    ),
+    cdekMessage:
+      getCdekDiagnosticString(
+        responseBody,
+        [
+          ["message"],
+          ["error_description"],
+          ["error_message"],
+          ["errors", "0", "message"],
+          ["requests", "0", "errors", "0", "message"]
+        ],
+        responseText
+      ) ?? fallbackMessage,
+    cdekStatus,
+    message: fallbackMessage,
+    publicError,
+    statusCode
+  });
+}
+
+async function fetchCdekWithTimeout(
+  config: CdekConfig,
+  url: URL,
+  init: RequestInit
+) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), config.requestTimeoutMs);
+
+  try {
+    return await fetch(url, {
+      ...init,
+      signal: controller.signal
+    });
+  } catch (error) {
+    throw new CdekProxyError({
+      cdekMessage:
+        error instanceof Error ? sanitizeCdekText(error.message) : "fetch failed",
+      message: "CDEK request failed",
+      publicError: "CDEK_REQUEST_FAILED",
+      statusCode: 502
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function readCdekResponseBody(
+  response: Response,
+  options: { sanitize?: boolean } = {}
+) {
+  const responseText = await response.text();
+  const shouldSanitize = options.sanitize !== false;
+
+  if (!responseText.trim()) {
+    return {
+      responseBody: null,
+      responseText
+    };
+  }
+
+  try {
+    const responseBody = JSON.parse(responseText);
+
+    return {
+      responseBody: shouldSanitize ? sanitizeCdekPayload(responseBody) : responseBody,
+      responseText
+    };
+  } catch {
+    return {
+      responseBody: null,
+      responseText: sanitizeCdekText(responseText)
+    };
+  }
+}
+
+async function getCdekAccessToken(config: CdekConfig) {
+  if (isCdekTokenCacheValid(config) && cdekTokenCache) {
+    return cdekTokenCache.accessToken;
+  }
+
+  if (!config.clientId || !config.clientSecret) {
+    throw new CdekProxyError({
+      message: "CDEK is not configured",
+      publicError: "CDEK_NOT_CONFIGURED",
+      statusCode: 503
+    });
+  }
+
+  const url = new URL(`${config.baseUrl}/v2/oauth/token`);
+  const body = new URLSearchParams({
+    client_id: config.clientId,
+    client_secret: config.clientSecret,
+    grant_type: "client_credentials"
+  });
+  const response = await fetchCdekWithTimeout(config, url, {
+    body,
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    method: "POST"
+  });
+  const { responseBody, responseText } = await readCdekResponseBody(response, {
+    sanitize: false
+  });
+
+  if (!response.ok) {
+    throw buildCdekError(
+      "CDEK_AUTH_FAILED",
+      502,
+      response.status,
+      sanitizeCdekPayload(responseBody),
+      responseText,
+      "CDEK auth failed"
+    );
+  }
+
+  const accessToken = getNestedString(responseBody, [["access_token"]]);
+  const expiresIn = getNestedNumber(responseBody, [["expires_in"]]) ?? 3600;
+
+  if (!accessToken) {
+    throw buildCdekError(
+      "CDEK_AUTH_RESPONSE_INVALID",
+      502,
+      response.status,
+      sanitizeCdekPayload(responseBody),
+      responseText,
+      "CDEK auth response did not contain access token"
+    );
+  }
+
+  cdekTokenCache = {
+    accessToken,
+    baseUrl: config.baseUrl,
+    env: config.env,
+    expiresAtMs:
+      Date.now() +
+      Math.max(0, expiresIn - config.tokenCacheTtlSkewSeconds) * 1000
+  };
+
+  return accessToken;
+}
+
+async function requestCdekJson(
+  config: CdekConfig,
+  pathName: string,
+  query: Record<string, string>
+) {
+  const accessToken = await getCdekAccessToken(config);
+  const url = new URL(`${config.baseUrl}${pathName}`);
+
+  for (const [key, value] of Object.entries(query)) {
+    if (value) {
+      url.searchParams.set(key, value);
+    }
+  }
+
+  const response = await fetchCdekWithTimeout(config, url, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    },
+    method: "GET"
+  });
+  const { responseBody, responseText } = await readCdekResponseBody(response);
+
+  if (!response.ok) {
+    throw buildCdekError(
+      "CDEK_REQUEST_FAILED",
+      502,
+      response.status,
+      responseBody,
+      responseText,
+      "CDEK request failed"
+    );
+  }
+
+  return responseBody;
+}
+
+function sendCdekProxyError(reply: FastifyReply, error: unknown) {
+  if (error instanceof CdekProxyError) {
+    return reply.code(error.statusCode).send({
+      cdekCode: error.cdekCode,
+      cdekMessage: error.cdekMessage,
+      cdekStatus: error.cdekStatus,
+      error: error.publicError
+    });
+  }
+
+  return reply.code(502).send({
+    error: "CDEK_REQUEST_FAILED"
+  });
+}
+
+function requireCdekProxyConfig(reply: FastifyReply) {
+  const config = getCdekConfig();
+
+  if (!config.enabled) {
+    reply.code(503).send({
+      error: "CDEK_DISABLED",
+      status: getCdekStatus(config)
+    });
+    return null;
+  }
+
+  if (!config.configured) {
+    reply.code(503).send({
+      error: "CDEK_NOT_CONFIGURED",
+      status: getCdekStatus(config)
+    });
+    return null;
+  }
+
+  return config;
+}
+
 function getNestedValue(value: unknown, paths: readonly (readonly string[])[]) {
   for (const pathParts of paths) {
     let current = value;
@@ -1482,6 +1895,105 @@ function getNestedBoolean(
   const nestedValue = getNestedValue(value, paths);
 
   return typeof nestedValue === "boolean" ? nestedValue : null;
+}
+
+function getNestedNumber(value: unknown, paths: readonly (readonly string[])[]) {
+  const nestedValue = getNestedValue(value, paths);
+
+  if (typeof nestedValue === "number" && Number.isFinite(nestedValue)) {
+    return nestedValue;
+  }
+
+  if (typeof nestedValue === "string" && nestedValue.trim()) {
+    const numberValue = Number(nestedValue);
+
+    return Number.isFinite(numberValue) ? numberValue : null;
+  }
+
+  return null;
+}
+
+function getCdekResponseItems(value: unknown) {
+  if (Array.isArray(value)) {
+    return value.filter(isRecord);
+  }
+
+  if (isRecord(value) && Array.isArray(value.items)) {
+    return value.items.filter(isRecord);
+  }
+
+  return [];
+}
+
+function getCityNameFromFullName(fullName: string | null) {
+  return fullName?.split(",")[0]?.trim() || null;
+}
+
+function normalizeCdekCity(value: Record<string, unknown>): CdekCityResponseItem {
+  const fullName = getNestedString(value, [["full_name"], ["fullName"]]);
+
+  return {
+    city:
+      getNestedString(value, [["city"], ["name"]]) ??
+      getCityNameFromFullName(fullName),
+    cityUuid: getNestedString(value, [["city_uuid"], ["cityUuid"]]),
+    code: getNestedNumber(value, [["code"]]),
+    countryCode: getNestedString(value, [["country_code"], ["countryCode"]]),
+    fiasGuid: getNestedString(value, [["fias_guid"], ["fiasGuid"]]),
+    fullName,
+    latitude: getNestedNumber(value, [["latitude"], ["location", "latitude"]]),
+    longitude: getNestedNumber(value, [["longitude"], ["location", "longitude"]]),
+    region: getNestedString(value, [["region"], ["region_name"], ["regionName"]]),
+    regionCode: getNestedNumber(value, [["region_code"], ["regionCode"]])
+  };
+}
+
+function normalizeCdekDeliveryPoint(
+  value: Record<string, unknown>
+): CdekDeliveryPointResponseItem {
+  const phones = Array.isArray(value.phones)
+    ? value.phones
+        .map((phone) =>
+          typeof phone === "string"
+            ? phone.trim()
+            : getNestedString(phone, [["number"], ["phone"]])
+        )
+        .filter((phone): phone is string => Boolean(phone))
+    : [];
+
+  return {
+    address: getNestedString(value, [["location", "address"], ["address"]]),
+    addressFull: getNestedString(value, [
+      ["location", "address_full"],
+      ["location", "addressFull"],
+      ["address_full"],
+      ["addressFull"]
+    ]),
+    allowedCod: getNestedBoolean(value, [["allowed_cod"], ["allowedCod"]]),
+    code: getNestedString(value, [["code"]]),
+    haveCash: getNestedBoolean(value, [["have_cash"], ["haveCash"]]),
+    haveCashless: getNestedBoolean(value, [
+      ["have_cashless"],
+      ["haveCashless"]
+    ]),
+    heightMax: getNestedNumber(value, [["height_max"], ["heightMax"]]),
+    latitude: getNestedNumber(value, [
+      ["location", "latitude"],
+      ["latitude"]
+    ]),
+    lengthMax: getNestedNumber(value, [["length_max"], ["lengthMax"]]),
+    longitude: getNestedNumber(value, [
+      ["location", "longitude"],
+      ["longitude"]
+    ]),
+    phones,
+    type: getNestedString(value, [["type"]]),
+    uuid: getNestedString(value, [["uuid"]]),
+    weightMax: getNestedNumber(value, [["weight_max"], ["weightMax"]]),
+    weightMin: getNestedNumber(value, [["weight_min"], ["weightMin"]]),
+    widthMax: getNestedNumber(value, [["width_max"], ["widthMax"]]),
+    workTime: getNestedString(value, [["work_time"], ["workTime"]])
+  };
 }
 
 function parseOzonAmountMinor(value: unknown) {
@@ -2574,6 +3086,110 @@ app.get("/cdek/status", async (request, reply) => {
   }
 
   return getCdekStatus();
+});
+
+app.get<{
+  Querystring: {
+    countryCode?: string;
+    name?: string;
+  };
+}>("/cdek/cities", async (request, reply) => {
+  const authSession = await requireRole(request, reply, ["manager", "admin"]);
+
+  if (!authSession) {
+    return reply;
+  }
+
+  const name = request.query.name?.trim();
+
+  if (!name || name.length < 2) {
+    return reply.code(400).send({
+      error: "INVALID_CDEK_CITY_NAME",
+      message: "City search name must contain at least 2 characters."
+    });
+  }
+
+  const countryCode = request.query.countryCode?.trim().toUpperCase() || "RU";
+
+  if (!/^[A-Z]{2}$/.test(countryCode)) {
+    return reply.code(400).send({
+      error: "INVALID_CDEK_COUNTRY_CODE",
+      message: "Country code must be a 2-letter ISO code."
+    });
+  }
+
+  const config = requireCdekProxyConfig(reply);
+
+  if (!config) {
+    return reply;
+  }
+
+  try {
+    const responseBody = await requestCdekJson(
+      config,
+      "/v2/location/suggest/cities",
+      {
+        country_code: countryCode,
+        name
+      }
+    );
+
+    return {
+      items: getCdekResponseItems(responseBody).map(normalizeCdekCity)
+    };
+  } catch (error) {
+    return sendCdekProxyError(reply, error);
+  }
+});
+
+app.get<{
+  Querystring: {
+    cityCode?: string;
+    type?: string;
+  };
+}>("/cdek/delivery-points", async (request, reply) => {
+  const authSession = await requireRole(request, reply, ["manager", "admin"]);
+
+  if (!authSession) {
+    return reply;
+  }
+
+  const cityCode = Number(request.query.cityCode);
+
+  if (!Number.isInteger(cityCode) || cityCode <= 0) {
+    return reply.code(400).send({
+      error: "INVALID_CDEK_CITY_CODE",
+      message: "cityCode must be a positive CDEK city code."
+    });
+  }
+
+  const requestedType = request.query.type?.trim().toUpperCase() || "ALL";
+
+  if (!["ALL", "POSTAMAT", "PVZ"].includes(requestedType)) {
+    return reply.code(400).send({
+      error: "INVALID_CDEK_DELIVERY_POINT_TYPE",
+      message: "type must be ALL, PVZ, or POSTAMAT."
+    });
+  }
+
+  const config = requireCdekProxyConfig(reply);
+
+  if (!config) {
+    return reply;
+  }
+
+  try {
+    const responseBody = await requestCdekJson(config, "/v2/deliverypoints", {
+      city_code: String(cityCode),
+      type: requestedType
+    });
+
+    return {
+      items: getCdekResponseItems(responseBody).map(normalizeCdekDeliveryPoint)
+    };
+  } catch (error) {
+    return sendCdekProxyError(reply, error);
+  }
 });
 
 if (debugEndpointsEnabled) {

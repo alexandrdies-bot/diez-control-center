@@ -42,6 +42,8 @@ CDEK Phase 0 pre-fixes подготовлены без подключения С
 
 CDEK backend skeleton добавлен как безопасный `GET /cdek/status` для manager/admin. Endpoint читает только `process.env`, возвращает configured/missing/baseUrl/test-prod/tokenStatus без секретов и не делает HTTP-запросов в CDEK, не получает OAuth token, не считает доставку и не использует shipment-таблицы.
 
+CDEK справочники подключены как backend-only proxy endpoints `GET /cdek/cities?name=...` и `GET /cdek/delivery-points?cityCode=...` для manager/admin. API получает OAuth token только при вызове этих справочников, держит его в памяти с TTL/skew и возвращает клиенту только нормализованные поля без секретов. Shipment lifecycle, расчёт доставки, Desktop UI и DB migrations не менялись.
+
 Добавлен первый API auth/session layer: `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`. Сессии хранятся в `app.user_sessions` только как hash токена, Basic Auth на nginx пока не снят, а order write/delete endpoints ещё не переведены на bearer auth и остаются на текущем production guard.
 
 Добавлен production-safe CLI bootstrap для первого `admin`/`manager` пользователя: `pnpm --filter @diez/api bootstrap:admin`. Пользователь автоматически не создавался; пароль передаётся только временными env-переменными shell и не хранится в repo, `.env` или seed.

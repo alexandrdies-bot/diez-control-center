@@ -175,6 +175,8 @@ Webhook route `POST /payments/ozon/webhook` нужно будет открыть
 
 Backend API имеет безопасный skeleton endpoint `GET /cdek/status` для manager/admin. Он показывает, включён ли CDEK, хватает ли обязательных server env names, какой выбран test/prod base URL и что token ещё не запрашивался. Endpoint не делает HTTP-запросов в CDEK, не получает OAuth token, не создаёт отправления, не считает доставку и не раскрывает секреты.
 
+CDEK справочники подключаются только через backend API: `GET /cdek/cities?name=...` и `GET /cdek/delivery-points?cityCode=...`. Эти routes доступны только manager/admin, получают CDEK OAuth token на сервере только при вызове справочника, кешируют token в памяти и возвращают Desktop только нормализованные поля. Расчёт доставки, создание отправлений, shipment-таблицы и Desktop UI остаются отдельными будущими этапами.
+
 ## Правило работы с Data Base 02
 
 По вопросам базы данных работает отдельный чат `Data Base 02`.
