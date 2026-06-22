@@ -767,6 +767,7 @@ type ApiOrderDeliveryRow = {
   deliveryStatus: string;
   id: number;
   priceMinor: number;
+  providerPayload: unknown;
   recipientName: string | null;
   recipientPhone: string | null;
   trackingNumber: string | null;
@@ -5706,6 +5707,7 @@ app.get<{ Params: { id: string } }>("/orders/:id", async (request, reply) => {
           comment,
           price_minor as "priceMinor",
           currency_code as "currencyCode",
+          provider_payload_json as "providerPayload",
           tracking_number as "trackingNumber"
         from app.order_delivery
         where order_id = $1

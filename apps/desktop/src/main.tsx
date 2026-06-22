@@ -337,7 +337,13 @@ type DraftOrderDelivery = {
   address?: string;
   comment?: string;
   contactName?: string;
+  currencyCode?: string;
+  periodMax?: number;
+  periodMin?: number;
   phone?: string;
+  priceMinor?: number;
+  tariffCode?: number;
+  tariffName?: string;
 };
 
 type DraftOrder = {
@@ -851,6 +857,32 @@ function mapApiDeliveryModeToDraftDeliveryMode(mode: unknown): DeliveryMode {
   return "manual";
 }
 
+function getRecordValue(value: unknown, key: string): unknown {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)[key]
+    : undefined;
+}
+
+function getOptionalNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function getOptionalString(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function getCdekDeliveryProviderSummary(providerPayload: unknown) {
+  const tariff = getRecordValue(providerPayload, "tariff");
+  const timing = getRecordValue(providerPayload, "timing");
+
+  return {
+    periodMax: getOptionalNumber(getRecordValue(timing, "periodMax")),
+    periodMin: getOptionalNumber(getRecordValue(timing, "periodMin")),
+    tariffCode: getOptionalNumber(getRecordValue(tariff, "code")),
+    tariffName: getOptionalString(getRecordValue(tariff, "name"))
+  };
+}
+
 function mapOrderDetailsToDraftOrder(
   orderDetails: OrderDetail,
   existingDraftOrderId?: string
@@ -878,6 +910,9 @@ function mapOrderDetailsToDraftOrder(
       unitPriceMinor: Number(item.unitPriceMinor) || 0
     };
   });
+  const cdekProviderSummary = orderDetails.delivery
+    ? getCdekDeliveryProviderSummary(orderDetails.delivery.providerPayload)
+    : null;
 
   return {
     createdAt: orderDetails.createdAt,
@@ -893,10 +928,16 @@ function mapOrderDetailsToDraftOrder(
           address: orderDetails.delivery.addressText ?? "",
           comment: orderDetails.delivery.comment ?? "",
           contactName: orderDetails.delivery.recipientName ?? "",
+          currencyCode: orderDetails.delivery.currencyCode,
           mode: mapApiDeliveryModeToDraftDeliveryMode(
             orderDetails.delivery.deliveryMode
           ),
-          phone: orderDetails.delivery.recipientPhone ?? ""
+          periodMax: cdekProviderSummary?.periodMax,
+          periodMin: cdekProviderSummary?.periodMin,
+          phone: orderDetails.delivery.recipientPhone ?? "",
+          priceMinor: Number(orderDetails.delivery.priceMinor),
+          tariffCode: cdekProviderSummary?.tariffCode,
+          tariffName: cdekProviderSummary?.tariffName
         }
       : {
           mode: "not-required"
@@ -1473,7 +1514,7 @@ function getDraftOrderDeliveryState(delivery: DraftOrderDelivery) {
   }
 
   if (delivery.mode === "cdek") {
-    return "missing";
+    return delivery.address?.trim() || delivery.priceMinor ? "filled" : "missing";
   }
 
   return delivery.address?.trim() ? "filled" : "missing";
@@ -1555,8 +1596,14 @@ function normalizeDraftOrderDelivery(
     address: delivery?.address,
     comment: delivery?.comment,
     contactName: delivery?.contactName,
+    currencyCode: delivery?.currencyCode,
     mode,
-    phone: delivery?.phone ? formatRussianPhone(delivery.phone) : undefined
+    periodMax: delivery?.periodMax,
+    periodMin: delivery?.periodMin,
+    phone: delivery?.phone ? formatRussianPhone(delivery.phone) : undefined,
+    priceMinor: delivery?.priceMinor,
+    tariffCode: delivery?.tariffCode,
+    tariffName: delivery?.tariffName
   };
 }
 
@@ -4033,8 +4080,14 @@ function App() {
                   address: result.delivery.addressText ?? deliveryPointAddress,
                   comment: currentDraftOrder.delivery.comment,
                   contactName: result.delivery.recipientName ?? recipientName,
+                  currencyCode: result.delivery.currencyCode,
                   mode: "cdek",
-                  phone: result.delivery.recipientPhone ?? recipientPhone
+                  periodMax: calculationResult.calculation.periodMax ?? undefined,
+                  periodMin: calculationResult.calculation.periodMin ?? undefined,
+                  phone: result.delivery.recipientPhone ?? recipientPhone,
+                  priceMinor: result.delivery.priceMinor,
+                  tariffCode: calculationResult.calculation.tariffCode || tariffCode,
+                  tariffName: cdekPanelState.selectedTariff?.tariffName ?? undefined
                 },
                 serverOrderNumber: result.order.orderNumber,
                 serverOrderSavedAt: savedAt,
@@ -6888,6 +6941,11 @@ function App() {
                           >
                             {detailDraftOrder.delivery.mode === "not-required"
                               ? "Не требуется"
+                              : detailDraftOrder.delivery.mode === "cdek" &&
+                                  getDraftOrderDeliveryState(
+                                    detailDraftOrder.delivery
+                                  ) !== "missing"
+                                ? "СДЭК"
                               : getDraftOrderDeliveryState(detailDraftOrder.delivery) ===
                                   "missing"
                                 ? "Не заполнено"
@@ -6922,8 +6980,44 @@ function App() {
                           <p className="draft-summary-muted">Доставка не заполнена</p>
                         ) : (
                           <div className="draft-summary-lines">
+                            {detailDraftOrder.delivery.mode === "cdek" ? (
+                              <span>
+                                СДЭК
+                                {detailDraftOrder.delivery.priceMinor
+                                  ? `: ${formatMinorPrice(
+                                      detailDraftOrder.delivery.priceMinor,
+                                      detailDraftOrder.delivery.currencyCode ?? "RUB"
+                                    )}`
+                                  : ""}
+                              </span>
+                            ) : null}
                             {detailDraftOrder.delivery.address ? (
-                              <span>Адрес: {detailDraftOrder.delivery.address}</span>
+                              <span>
+                                {detailDraftOrder.delivery.mode === "cdek"
+                                  ? "ПВЗ"
+                                  : "Адрес"}
+                                : {detailDraftOrder.delivery.address}
+                              </span>
+                            ) : null}
+                            {detailDraftOrder.delivery.mode === "cdek" &&
+                            (detailDraftOrder.delivery.tariffName ||
+                              detailDraftOrder.delivery.tariffCode) ? (
+                              <span>
+                                Тариф:{" "}
+                                {detailDraftOrder.delivery.tariffName ??
+                                  "тариф СДЭК"}
+                                {detailDraftOrder.delivery.tariffCode
+                                  ? ` (#${detailDraftOrder.delivery.tariffCode})`
+                                  : ""}
+                              </span>
+                            ) : null}
+                            {detailDraftOrder.delivery.mode === "cdek" &&
+                            (detailDraftOrder.delivery.periodMin ||
+                              detailDraftOrder.delivery.periodMax) ? (
+                              <span>
+                                Срок: {detailDraftOrder.delivery.periodMin ?? "?"}-
+                                {detailDraftOrder.delivery.periodMax ?? "?"} дн.
+                              </span>
                             ) : null}
                             {detailDraftOrder.delivery.contactName ? (
                               <span>Контакт: {detailDraftOrder.delivery.contactName}</span>

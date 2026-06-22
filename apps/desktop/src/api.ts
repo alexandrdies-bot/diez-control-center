@@ -114,6 +114,7 @@ export type OrderDetail = OrderSummary & {
     deliveryStatus: string;
     id: number;
     priceMinor: number;
+    providerPayload?: unknown;
     recipientName: string | null;
     recipientPhone: string | null;
     trackingNumber: string | null;
