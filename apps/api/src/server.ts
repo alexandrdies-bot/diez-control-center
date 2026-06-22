@@ -2438,22 +2438,6 @@ function buildCdekCalculationProviderPayload(
   return providerPayload;
 }
 
-function getCdekTariffListDeliveryType(payload: NormalizedCdekTariffListRequest) {
-  if (payload.shipmentPointCode && payload.deliveryPointCode) {
-    return 4;
-  }
-
-  if (payload.shipmentPointCode) {
-    return 3;
-  }
-
-  if (payload.deliveryPointCode) {
-    return 2;
-  }
-
-  return 1;
-}
-
 function buildCdekTariffListProviderPayload(
   payload: NormalizedCdekTariffListRequest
 ) {
@@ -2470,8 +2454,7 @@ function buildCdekTariffListProviderPayload(
     })),
     to_location: {
       code: payload.toLocation.code
-    },
-    type: getCdekTariffListDeliveryType(payload)
+    }
   };
 
   if (payload.deliveryPointCode) {

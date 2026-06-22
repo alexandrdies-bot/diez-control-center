@@ -640,6 +640,23 @@ function getCdekCitySearchErrorMessage(error: unknown) {
   return "Не удалось найти город СДЭК. Повторите поиск.";
 }
 
+function getCdekTariffSelectionErrorMessage(error: unknown) {
+  if (
+    error instanceof ApiResponseError &&
+    (error.status === 401 || error.status === 403)
+  ) {
+    return "Нет доступа к подбору тарифов СДЭК. Войдите как менеджер/администратор.";
+  }
+
+  const detail = getShortCdekErrorDetail(error);
+
+  if (detail) {
+    return `Не удалось подобрать тарифы СДЭК: ${detail}`;
+  }
+
+  return "Не удалось подобрать тарифы СДЭК. Повторите подбор.";
+}
+
 function getCdekCalculationErrorMessage(error: unknown) {
   if (
     error instanceof ApiResponseError &&
@@ -3741,7 +3758,7 @@ function App() {
       setCdekPanelState((current) => ({
         ...current,
         isLoadingTariffs: false,
-        message: getCdekUiErrorMessage(unknownError)
+        message: getCdekTariffSelectionErrorMessage(unknownError)
       }));
     }
   }
