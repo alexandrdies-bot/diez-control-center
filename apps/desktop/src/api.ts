@@ -1085,9 +1085,19 @@ export async function addOrderManagerComment(
 }
 
 export async function getCdekStatus(token: string): Promise<CdekStatus> {
-  const response = await fetch(`${apiBaseUrl}/cdek/status`, {
-    headers: createBearerHeaders(token)
-  });
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 10000);
+
+  let response: Response;
+
+  try {
+    response = await fetch(`${apiBaseUrl}/cdek/status`, {
+      headers: createBearerHeaders(token),
+      signal: controller.signal
+    });
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
 
   if (!response.ok) {
     const responseBody = await response.text();

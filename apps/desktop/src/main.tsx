@@ -511,7 +511,18 @@ function getCdekStatusLabel(status: CdekStatus | null) {
 
 function getCdekUiErrorMessage(error: unknown) {
   if (!(error instanceof Error)) {
-    return "СДЭК временно недоступен.";
+    return "Не удалось проверить СДЭК. Повторите проверку.";
+  }
+
+  if (
+    error.message.includes("/cdek/status 401") ||
+    error.message.includes("/cdek/status 403")
+  ) {
+    return "Нет доступа к проверке СДЭК. Войдите как менеджер/администратор.";
+  }
+
+  if (error.name === "AbortError") {
+    return "Не удалось проверить СДЭК. Повторите проверку.";
   }
 
   const jsonStart = error.message.indexOf("{");
@@ -528,6 +539,10 @@ function getCdekUiErrorMessage(error: unknown) {
 
       if (parsed.error === "CDEK_NOT_CONFIGURED") {
         return "СДЭК не настроен на сервере.";
+      }
+
+      if (parsed.error === "UNAUTHORIZED" || parsed.error === "FORBIDDEN") {
+        return "Нет доступа к проверке СДЭК. Войдите как менеджер/администратор.";
       }
 
       if (parsed.error === "ORDER_NOT_FOUND") {
@@ -550,11 +565,29 @@ function getCdekUiErrorMessage(error: unknown) {
         return "Проверьте город, ПВЗ, тариф и габариты.";
       }
     } catch {
-      return "СДЭК временно недоступен.";
+      return "Не удалось проверить СДЭК. Повторите проверку.";
     }
   }
 
-  return "СДЭК временно недоступен.";
+  return "Не удалось проверить СДЭК. Повторите проверку.";
+}
+
+function getCdekStatusMessage(status: CdekStatus) {
+  if (status.enabled && status.configured) {
+    return null;
+  }
+
+  if (!status.enabled) {
+    return "СДЭК выключен на сервере.";
+  }
+
+  if (!status.configured) {
+    return status.missing.length > 0
+      ? `СДЭК не настроен на сервере. Не хватает: ${status.missing.join(", ")}.`
+      : "СДЭК не настроен на сервере.";
+  }
+
+  return "СДЭК пока недоступен для расчёта.";
 }
 
 function getPositiveIntegerInput(value: string) {
@@ -2048,8 +2081,7 @@ function App() {
       draftOrderPanelMode !== "delivery" ||
       draftOrderDeliveryForm.mode !== "cdek" ||
       !authToken ||
-      cdekPanelState.status ||
-      cdekPanelState.isLoadingStatus
+      cdekPanelState.status
     ) {
       return;
     }
@@ -2062,40 +2094,43 @@ function App() {
       message: null
     }));
 
-    getCdekStatus(authToken)
-      .then((status) => {
+    void (async () => {
+      try {
+        const status = await getCdekStatus(authToken);
+
         if (!isCurrent) {
           return;
         }
 
         setCdekPanelState((current) => ({
           ...current,
-          isLoadingStatus: false,
-          message:
-            status.enabled && status.configured
-              ? null
-              : "СДЭК пока недоступен для расчёта.",
+          message: getCdekStatusMessage(status),
           status
         }));
-      })
-      .catch((unknownError) => {
+      } catch (unknownError) {
         if (!isCurrent) {
           return;
         }
 
         setCdekPanelState((current) => ({
           ...current,
-          isLoadingStatus: false,
           message: getCdekUiErrorMessage(unknownError)
         }));
-      });
+      } finally {
+        if (isCurrent) {
+          setCdekPanelState((current) => ({
+            ...current,
+            isLoadingStatus: false
+          }));
+        }
+      }
+    })();
 
     return () => {
       isCurrent = false;
     };
   }, [
     authToken,
-    cdekPanelState.isLoadingStatus,
     cdekPanelState.status,
     draftOrderDeliveryForm.mode,
     draftOrderPanelMode
@@ -3168,18 +3203,18 @@ function App() {
 
       setCdekPanelState((current) => ({
         ...current,
-        isLoadingStatus: false,
-        message:
-          status.enabled && status.configured
-            ? null
-            : "СДЭК пока недоступен для расчёта.",
+        message: getCdekStatusMessage(status),
         status
       }));
     } catch (unknownError) {
       setCdekPanelState((current) => ({
         ...current,
-        isLoadingStatus: false,
         message: getCdekUiErrorMessage(unknownError)
+      }));
+    } finally {
+      setCdekPanelState((current) => ({
+        ...current,
+        isLoadingStatus: false
       }));
     }
   }
