@@ -428,6 +428,8 @@ type CdekPanelState = {
   isCalculating: boolean;
   isLoadingCities: boolean;
   isLoadingDeliveryPoints: boolean;
+  isLoadingSenderCities: boolean;
+  isLoadingSenderDeliveryPoints: boolean;
   isLoadingStatus: boolean;
   isSaving: boolean;
   lengthCm: string;
@@ -435,6 +437,11 @@ type CdekPanelState = {
   saveResult: CdekSaveDeliveryResult | null;
   selectedCity: CdekCity | null;
   selectedDeliveryPoint: CdekDeliveryPoint | null;
+  selectedSenderCity: CdekCity | null;
+  selectedSenderDeliveryPoint: CdekDeliveryPoint | null;
+  senderCityQuery: string;
+  senderCityResults: CdekCity[];
+  senderDeliveryPointResults: CdekDeliveryPoint[];
   shipmentPointCode: string;
   status: CdekStatus | null;
   tariffCode: string;
@@ -467,7 +474,6 @@ type DtfPrintCalculationResult = {
 };
 
 const DEFAULT_CDEK_TARIFF_CODE = "136";
-const DEFAULT_CDEK_FROM_CITY_CODE = 44;
 
 function createDefaultCdekPanelState(): CdekPanelState {
   return {
@@ -479,6 +485,8 @@ function createDefaultCdekPanelState(): CdekPanelState {
     isCalculating: false,
     isLoadingCities: false,
     isLoadingDeliveryPoints: false,
+    isLoadingSenderCities: false,
+    isLoadingSenderDeliveryPoints: false,
     isLoadingStatus: false,
     isSaving: false,
     lengthCm: "30",
@@ -486,6 +494,11 @@ function createDefaultCdekPanelState(): CdekPanelState {
     saveResult: null,
     selectedCity: null,
     selectedDeliveryPoint: null,
+    selectedSenderCity: null,
+    selectedSenderDeliveryPoint: null,
+    senderCityQuery: "Ливны",
+    senderCityResults: [],
+    senderDeliveryPointResults: [],
     shipmentPointCode: "",
     status: null,
     tariffCode: DEFAULT_CDEK_TARIFF_CODE,
@@ -621,6 +634,23 @@ function getCdekCitySearchErrorMessage(error: unknown) {
   return "Не удалось найти город СДЭК. Повторите поиск.";
 }
 
+function getCdekCalculationErrorMessage(error: unknown) {
+  if (
+    error instanceof ApiResponseError &&
+    (error.status === 401 || error.status === 403)
+  ) {
+    return "Нет доступа к расчёту СДЭК. Войдите как менеджер/администратор.";
+  }
+
+  const detail = getShortCdekErrorDetail(error);
+
+  if (detail) {
+    return `Не удалось рассчитать доставку СДЭК: ${detail}`;
+  }
+
+  return "Не удалось рассчитать доставку СДЭК. Повторите расчёт.";
+}
+
 function getCdekStatusMessage(status: CdekStatus) {
   if (status.enabled && status.configured) {
     return null;
@@ -664,6 +694,28 @@ function getCdekCalculationPriceMinor(
 
 function formatCdekDeliveryPointLabel(point: CdekDeliveryPoint) {
   return point.name || point.address || point.code || "ПВЗ СДЭК";
+}
+
+function formatCdekCityLabel(city: CdekCity | null) {
+  if (!city) {
+    return "";
+  }
+
+  return city.city ?? city.fullName ?? `город ${city.code ?? ""}`.trim();
+}
+
+function getCdekSenderSummary(state: CdekPanelState) {
+  if (!state.selectedSenderCity || !state.selectedSenderDeliveryPoint) {
+    return "Пункт отправки не выбран";
+  }
+
+  const cityLabel = formatCdekCityLabel(state.selectedSenderCity);
+  const pointLabel =
+    state.selectedSenderDeliveryPoint.address ??
+    state.selectedSenderDeliveryPoint.addressFull ??
+    formatCdekDeliveryPointLabel(state.selectedSenderDeliveryPoint);
+
+  return `Отправление: ${cityLabel}, ${pointLabel}`;
 }
 
 const DRAFT_ORDERS_STORAGE_KEY = "diez-control-center:draft-orders";
@@ -3339,6 +3391,136 @@ function App() {
     }
   }
 
+  async function handleSearchCdekSenderCities() {
+    if (!authToken) {
+      setCdekPanelState((current) => ({
+        ...current,
+        message: "Войдите, чтобы искать город отправителя СДЭК."
+      }));
+      return;
+    }
+
+    if (cdekPanelState.status && !cdekPanelState.status.enabled) {
+      setCdekPanelState((current) => ({
+        ...current,
+        message: "СДЭК выключен на сервере."
+      }));
+      return;
+    }
+
+    if (cdekPanelState.status && !cdekPanelState.status.configured) {
+      setCdekPanelState((current) => ({
+        ...current,
+        message: "СДЭК не настроен на сервере."
+      }));
+      return;
+    }
+
+    const cityName = cdekPanelState.senderCityQuery.trim();
+
+    if (cityName.length < 2) {
+      setCdekPanelState((current) => ({
+        ...current,
+        message: "Введите минимум 2 символа города отправителя."
+      }));
+      return;
+    }
+
+    setCdekPanelState((current) => ({
+      ...current,
+      calculationResult: null,
+      isLoadingSenderCities: true,
+      message: null,
+      saveResult: null,
+      selectedSenderCity: null,
+      selectedSenderDeliveryPoint: null,
+      senderCityResults: [],
+      senderDeliveryPointResults: [],
+      shipmentPointCode: ""
+    }));
+
+    try {
+      const result = await searchCdekCities(
+        {
+          countryCode: "RU",
+          name: cityName
+        },
+        authToken
+      );
+
+      setCdekPanelState((current) => ({
+        ...current,
+        isLoadingSenderCities: false,
+        message: result.items.length
+          ? null
+          : "Города отправителя не найдены.",
+        senderCityResults: result.items
+      }));
+    } catch (unknownError) {
+      setCdekPanelState((current) => ({
+        ...current,
+        isLoadingSenderCities: false,
+        message: getCdekCitySearchErrorMessage(unknownError)
+      }));
+    }
+  }
+
+  async function handleLoadCdekSenderDeliveryPoints() {
+    if (!authToken) {
+      setCdekPanelState((current) => ({
+        ...current,
+        message: "Войдите, чтобы загрузить пункты отправки СДЭК."
+      }));
+      return;
+    }
+
+    const cityCode = cdekPanelState.selectedSenderCity?.code;
+
+    if (!cityCode) {
+      setCdekPanelState((current) => ({
+        ...current,
+        message: "Сначала выберите город отправителя."
+      }));
+      return;
+    }
+
+    setCdekPanelState((current) => ({
+      ...current,
+      calculationResult: null,
+      isLoadingSenderDeliveryPoints: true,
+      message: null,
+      saveResult: null,
+      selectedSenderDeliveryPoint: null,
+      senderDeliveryPointResults: [],
+      shipmentPointCode: ""
+    }));
+
+    try {
+      const result = await getCdekDeliveryPoints(
+        {
+          cityCode,
+          type: "PVZ"
+        },
+        authToken
+      );
+
+      setCdekPanelState((current) => ({
+        ...current,
+        isLoadingSenderDeliveryPoints: false,
+        message: result.items.length
+          ? null
+          : "Пункты отправки СДЭК не найдены.",
+        senderDeliveryPointResults: result.items
+      }));
+    } catch (unknownError) {
+      setCdekPanelState((current) => ({
+        ...current,
+        isLoadingSenderDeliveryPoints: false,
+        message: getCdekUiErrorMessage(unknownError)
+      }));
+    }
+  }
+
   async function handleLoadCdekDeliveryPoints() {
     if (!authToken) {
       setCdekPanelState((current) => ({
@@ -3410,6 +3592,9 @@ function App() {
     }
 
     const tariffCode = getPositiveIntegerInput(cdekPanelState.tariffCode);
+    const fromCityCode = cdekPanelState.selectedSenderCity?.code ?? null;
+    const shipmentPointCode =
+      cdekPanelState.selectedSenderDeliveryPoint?.code ?? null;
     const toCityCode = cdekPanelState.selectedCity?.code ?? null;
     const deliveryPointCode = cdekPanelState.selectedDeliveryPoint?.code ?? null;
     const weightGrams = getPositiveIntegerInput(cdekPanelState.weightGrams);
@@ -3421,6 +3606,22 @@ function App() {
       setCdekPanelState((current) => ({
         ...current,
         message: "Укажите положительный tariffCode."
+      }));
+      return;
+    }
+
+    if (!fromCityCode) {
+      setCdekPanelState((current) => ({
+        ...current,
+        message: "Выберите город отправителя."
+      }));
+      return;
+    }
+
+    if (!shipmentPointCode) {
+      setCdekPanelState((current) => ({
+        ...current,
+        message: "Выберите пункт отправки СДЭК."
       }));
       return;
     }
@@ -3464,7 +3665,7 @@ function App() {
           currencyCode: "RUB",
           deliveryPointCode,
           fromLocation: {
-            code: DEFAULT_CDEK_FROM_CITY_CODE
+            code: fromCityCode
           },
           packages: [
             {
@@ -3474,8 +3675,7 @@ function App() {
               widthCm
             }
           ],
-          shipmentPointCode:
-            cdekPanelState.shipmentPointCode.trim() || undefined,
+          shipmentPointCode,
           tariffCode,
           toLocation: {
             code: toCityCode
@@ -3495,7 +3695,7 @@ function App() {
       setCdekPanelState((current) => ({
         ...current,
         isCalculating: false,
-        message: getCdekUiErrorMessage(unknownError)
+        message: getCdekCalculationErrorMessage(unknownError)
       }));
     }
   }
@@ -3518,6 +3718,8 @@ function App() {
     }
 
     const calculationResult = cdekPanelState.calculationResult;
+    const selectedSenderCity = cdekPanelState.selectedSenderCity;
+    const selectedSenderDeliveryPoint = cdekPanelState.selectedSenderDeliveryPoint;
     const selectedCity = cdekPanelState.selectedCity;
     const selectedDeliveryPoint = cdekPanelState.selectedDeliveryPoint;
     const tariffCode = getPositiveIntegerInput(cdekPanelState.tariffCode);
@@ -3531,6 +3733,22 @@ function App() {
       setCdekPanelState((current) => ({
         ...current,
         message: "Сначала рассчитайте СДЭК и получите стоимость доставки."
+      }));
+      return;
+    }
+
+    if (!selectedSenderCity?.code) {
+      setCdekPanelState((current) => ({
+        ...current,
+        message: "Выберите город отправителя."
+      }));
+      return;
+    }
+
+    if (!selectedSenderDeliveryPoint?.code) {
+      setCdekPanelState((current) => ({
+        ...current,
+        message: "Выберите пункт отправки СДЭК."
       }));
       return;
     }
@@ -3571,7 +3789,7 @@ function App() {
       draftOrder.delivery.phone?.trim() ||
       draftOrder.customer?.phone?.trim() ||
       undefined;
-    const shipmentPointCode = cdekPanelState.shipmentPointCode.trim();
+    const shipmentPointCode = selectedSenderDeliveryPoint.code;
 
     setCdekPanelState((current) => ({
       ...current,
@@ -3608,7 +3826,7 @@ function App() {
           recipientName,
           recipientPhone,
           region: selectedCity.region ?? undefined,
-          shipmentPointCode: shipmentPointCode || undefined,
+          shipmentPointCode,
           tariffCode: calculationResult.calculation.tariffCode || tariffCode
         },
         authToken
@@ -5790,6 +6008,144 @@ function App() {
 
                           <div className="delivery-cdek-grid">
                             <label className="form-field form-field-wide">
+                              <span>Город отправителя</span>
+                              <div className="delivery-cdek-inline">
+                                <input
+                                  value={cdekPanelState.senderCityQuery}
+                                  onChange={(event) =>
+                                    setCdekPanelState((current) => ({
+                                      ...current,
+                                      calculationResult: null,
+                                      saveResult: null,
+                                      selectedSenderCity: null,
+                                      selectedSenderDeliveryPoint: null,
+                                      senderCityQuery: event.target.value,
+                                      senderDeliveryPointResults: [],
+                                      shipmentPointCode: ""
+                                    }))
+                                  }
+                                  onKeyDown={(event) => {
+                                    if (event.key === "Enter") {
+                                      event.preventDefault();
+                                      void handleSearchCdekSenderCities();
+                                    }
+                                  }}
+                                />
+                                <button
+                                  className="secondary-action-button"
+                                  disabled={cdekPanelState.isLoadingSenderCities}
+                                  onClick={() => void handleSearchCdekSenderCities()}
+                                  type="button"
+                                >
+                                  {cdekPanelState.isLoadingSenderCities
+                                    ? "Ищем..."
+                                    : "Найти"}
+                                </button>
+                              </div>
+                            </label>
+
+                            {cdekPanelState.senderCityResults.length > 0 ? (
+                              <div className="delivery-cdek-list form-field-wide">
+                                {cdekPanelState.senderCityResults
+                                  .slice(0, 4)
+                                  .map((city) => (
+                                    <button
+                                      className={
+                                        cdekPanelState.selectedSenderCity?.code ===
+                                        city.code
+                                          ? "delivery-cdek-list-item delivery-cdek-list-item-active"
+                                          : "delivery-cdek-list-item"
+                                      }
+                                      key={`sender-${city.code ?? city.cityUuid ?? city.fullName}`}
+                                      onClick={() =>
+                                        setCdekPanelState((current) => ({
+                                          ...current,
+                                          calculationResult: null,
+                                          message: null,
+                                          saveResult: null,
+                                          selectedSenderCity: city,
+                                          selectedSenderDeliveryPoint: null,
+                                          senderDeliveryPointResults: [],
+                                          shipmentPointCode: ""
+                                        }))
+                                      }
+                                      type="button"
+                                    >
+                                      <strong>{city.city ?? city.fullName}</strong>
+                                      <span>
+                                        {[city.region, city.fullName]
+                                          .filter(Boolean)
+                                          .join(" / ")}
+                                      </span>
+                                    </button>
+                                  ))}
+                              </div>
+                            ) : null}
+
+                            <div className="form-field form-field-wide">
+                              <span>Пункт отправки</span>
+                              <div className="delivery-cdek-inline">
+                                <button
+                                  className="secondary-action-button"
+                                  disabled={
+                                    cdekPanelState.isLoadingSenderDeliveryPoints
+                                  }
+                                  onClick={() =>
+                                    void handleLoadCdekSenderDeliveryPoints()
+                                  }
+                                  type="button"
+                                >
+                                  {cdekPanelState.isLoadingSenderDeliveryPoints
+                                    ? "Загружаем..."
+                                    : "Показать пункты отправки"}
+                                </button>
+                                <span className="delivery-cdek-inline-note">
+                                  {cdekPanelState.selectedSenderDeliveryPoint
+                                    ? formatCdekDeliveryPointLabel(
+                                        cdekPanelState.selectedSenderDeliveryPoint
+                                      )
+                                    : "Пункт отправки не выбран"}
+                                </span>
+                              </div>
+                            </div>
+
+                            {cdekPanelState.senderDeliveryPointResults.length > 0 ? (
+                              <div className="delivery-cdek-list form-field-wide">
+                                {cdekPanelState.senderDeliveryPointResults
+                                  .slice(0, 4)
+                                  .map((point) => (
+                                    <button
+                                      className={
+                                        cdekPanelState.selectedSenderDeliveryPoint
+                                          ?.code === point.code
+                                          ? "delivery-cdek-list-item delivery-cdek-list-item-active"
+                                          : "delivery-cdek-list-item"
+                                      }
+                                      key={`sender-${point.code ?? point.uuid ?? point.address}`}
+                                      onClick={() =>
+                                        setCdekPanelState((current) => ({
+                                          ...current,
+                                          calculationResult: null,
+                                          message: null,
+                                          saveResult: null,
+                                          selectedSenderDeliveryPoint: point,
+                                          shipmentPointCode: point.code ?? ""
+                                        }))
+                                      }
+                                      type="button"
+                                    >
+                                      <strong>{formatCdekDeliveryPointLabel(point)}</strong>
+                                      <span>
+                                        {[point.address, point.workTime]
+                                          .filter(Boolean)
+                                          .join(" / ")}
+                                      </span>
+                                    </button>
+                                  ))}
+                              </div>
+                            ) : null}
+
+                            <label className="form-field form-field-wide">
                               <span>Город получателя</span>
                               <div className="delivery-cdek-inline">
                                 <input
@@ -5931,21 +6287,6 @@ function App() {
                             </label>
 
                             <label className="form-field">
-                              <span>Пункт отправки</span>
-                              <input
-                                value={cdekPanelState.shipmentPointCode}
-                                onChange={(event) =>
-                                  setCdekPanelState((current) => ({
-                                    ...current,
-                                    calculationResult: null,
-                                    saveResult: null,
-                                    shipmentPointCode: event.target.value
-                                  }))
-                                }
-                              />
-                            </label>
-
-                            <label className="form-field">
                               <span>Вес, г</span>
                               <input
                                 inputMode="numeric"
@@ -6031,6 +6372,8 @@ function App() {
                                 !getCdekCalculationPriceMinor(
                                   cdekPanelState.calculationResult
                                 ) ||
+                                !cdekPanelState.selectedSenderCity?.code ||
+                                !cdekPanelState.selectedSenderDeliveryPoint?.code ||
                                 !cdekPanelState.selectedCity?.code ||
                                 !cdekPanelState.selectedDeliveryPoint?.code ||
                                 !getPositiveIntegerInput(cdekPanelState.weightGrams) ||
@@ -6047,7 +6390,7 @@ function App() {
                                 ? "Сохраняем..."
                                 : "Сохранить СДЭК-доставку"}
                             </button>
-                            <span>Отправление: город {DEFAULT_CDEK_FROM_CITY_CODE}</span>
+                            <span>{getCdekSenderSummary(cdekPanelState)}</span>
                           </div>
 
                           {cdekPanelState.calculationResult ? (

@@ -2281,7 +2281,7 @@ function buildCdekCalculationProviderPayload(
   payload: NormalizedCdekCalculationRequest
 ) {
   const providerPayload: Record<string, unknown> = {
-    currency: payload.currencyCode,
+    currency: 1,
     from_location: {
       code: payload.fromLocation.code
     },

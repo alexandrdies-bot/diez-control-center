@@ -54,6 +54,10 @@ CDEK selected delivery save добавлен как backend endpoint `PATCH /ord
 
 Desktop delivery panel теперь может сохранить выбранную СДЭК-доставку через отдельную кнопку `Сохранить СДЭК-доставку`. UI собирает payload из выбранного города, ПВЗ, тарифа, габаритов и calculation response, показывает сохранённую стоимость доставки и новый итог заказа, предупреждает об отменённой active Ozon payment и коротко показывает final payment block / Ozon cancel failed errors. Desktop не ходит напрямую в CDEK, не создаёт shipment, не создаёт новую Ozon payment и не меняет order status автоматически.
 
+Desktop CDEK panel получил отдельный выбор отправления: менеджер ищет город отправителя, загружает пункты отправки через backend `getCdekDeliveryPoints`, выбирает CDEK point code, и только после этого расчёт передаёт `fromLocation.code` выбранного города и `shipmentPointCode` выбранного пункта. Ручной fallback на city code `44` убран из calculation payload. Shipment creation, shipment tables, migrations, Ozon-flow и прямые CDEK calls из Desktop не добавлялись.
+
+CDEK calculator provider payload исправлен для валюты: Desktop/API contract продолжает принимать и возвращать `currencyCode='RUB'`, но backend отправляет в СДЭК numeric currency code `1` в поле `currency`. Response shape расчёта, order totals, DB, Ozon-flow и shipment lifecycle не менялись.
+
 Добавлен первый API auth/session layer: `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`. Сессии хранятся в `app.user_sessions` только как hash токена, Basic Auth на nginx пока не снят, а order write/delete endpoints ещё не переведены на bearer auth и остаются на текущем production guard.
 
 Добавлен production-safe CLI bootstrap для первого `admin`/`manager` пользователя: `pnpm --filter @diez/api bootstrap:admin`. Пользователь автоматически не создавался; пароль передаётся только временными env-переменными shell и не хранится в repo, `.env` или seed.
