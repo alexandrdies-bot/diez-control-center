@@ -5258,7 +5258,7 @@ app.patch<{
         from app.orders o
         left join app.customers c on c.id = o.customer_id
         where o.id = $1
-        for update
+        for update of o
       `,
       [orderId]
     );
