@@ -509,6 +509,15 @@ type CdekCalculationRequestPayload = {
   toLocation?: CdekCalculationLocationPayload;
 };
 
+type CdekTariffListRequestPayload = {
+  currencyCode?: unknown;
+  deliveryPointCode?: unknown;
+  fromLocation?: CdekCalculationLocationPayload;
+  packages?: unknown;
+  shipmentPointCode?: unknown;
+  toLocation?: CdekCalculationLocationPayload;
+};
+
 type NormalizedCdekCalculationRequest = {
   currencyCode: "RUB";
   deliveryPointCode: string | null;
@@ -528,6 +537,11 @@ type NormalizedCdekCalculationRequest = {
   };
 };
 
+type NormalizedCdekTariffListRequest = Omit<
+  NormalizedCdekCalculationRequest,
+  "tariffCode"
+>;
+
 type CdekDeliveryCalculationResponse = {
   calendarMax: number | null;
   calendarMin: number | null;
@@ -546,6 +560,20 @@ type CdekDeliveryCalculationResponse = {
   totalSumMinor: number | null;
   warnings: unknown[];
   weightCalc: number | null;
+};
+
+type CdekTariffListResponseItem = {
+  deliveryMode: string | null;
+  deliverySum: number | null;
+  deliverySumMinor: number | null;
+  errors: unknown[];
+  periodMax: number | null;
+  periodMin: number | null;
+  tariffCode: number | null;
+  tariffName: string | null;
+  totalSum: number | null;
+  totalSumMinor: number | null;
+  warnings: unknown[];
 };
 
 type CdekDeliveryPackagePayload = {
@@ -2277,6 +2305,108 @@ function normalizeCdekCalculationRequestPayload(
   };
 }
 
+function normalizeCdekTariffListRequestPayload(
+  value: unknown
+):
+  | { error: string; message: string; ok: false }
+  | { ok: true; value: NormalizedCdekTariffListRequest } {
+  if (!isRecord(value)) {
+    return {
+      error: "INVALID_CDEK_TARIFFS_PAYLOAD",
+      message: "Request body must be a JSON object.",
+      ok: false
+    };
+  }
+
+  const payload = value as CdekTariffListRequestPayload;
+  const fromLocationCode = getPositiveInteger(payload.fromLocation?.code);
+  const toLocationCode = getPositiveInteger(payload.toLocation?.code);
+  const currencyCode =
+    typeof payload.currencyCode === "string" && payload.currencyCode.trim()
+      ? payload.currencyCode.trim().toUpperCase()
+      : "RUB";
+
+  if (!fromLocationCode) {
+    return {
+      error: "INVALID_CDEK_FROM_LOCATION",
+      message: "fromLocation.code must be a positive CDEK city code.",
+      ok: false
+    };
+  }
+
+  if (!toLocationCode) {
+    return {
+      error: "INVALID_CDEK_TO_LOCATION",
+      message: "toLocation.code must be a positive CDEK city code.",
+      ok: false
+    };
+  }
+
+  if (currencyCode !== "RUB") {
+    return {
+      error: "INVALID_CDEK_CURRENCY",
+      message: "Only RUB is supported for CDEK tariffs.",
+      ok: false
+    };
+  }
+
+  if (!Array.isArray(payload.packages) || payload.packages.length === 0) {
+    return {
+      error: "INVALID_CDEK_PACKAGES",
+      message: "packages must contain at least one package.",
+      ok: false
+    };
+  }
+
+  const packages = payload.packages.map((packagePayload) => {
+    if (!isRecord(packagePayload)) {
+      return null;
+    }
+
+    const typedPackage = packagePayload as CdekCalculationPackagePayload;
+    const weightGrams = getPositiveInteger(typedPackage.weightGrams);
+    const lengthCm = getPositiveInteger(typedPackage.lengthCm);
+    const widthCm = getPositiveInteger(typedPackage.widthCm);
+    const heightCm = getPositiveInteger(typedPackage.heightCm);
+
+    if (!weightGrams || !lengthCm || !widthCm || !heightCm) {
+      return null;
+    }
+
+    return {
+      heightCm,
+      lengthCm,
+      weightGrams,
+      widthCm
+    };
+  });
+
+  if (packages.some((packagePayload) => packagePayload === null)) {
+    return {
+      error: "INVALID_CDEK_PACKAGES",
+      message:
+        "Each package must include positive integer weightGrams, lengthCm, widthCm, and heightCm.",
+      ok: false
+    };
+  }
+
+  return {
+    ok: true,
+    value: {
+      currencyCode,
+      deliveryPointCode: getOptionalCdekPointCode(payload.deliveryPointCode),
+      fromLocation: {
+        code: fromLocationCode
+      },
+      packages: packages as NormalizedCdekTariffListRequest["packages"],
+      shipmentPointCode: getOptionalCdekPointCode(payload.shipmentPointCode),
+      toLocation: {
+        code: toLocationCode
+      }
+    }
+  };
+}
+
 function buildCdekCalculationProviderPayload(
   payload: NormalizedCdekCalculationRequest
 ) {
@@ -2308,6 +2438,53 @@ function buildCdekCalculationProviderPayload(
   return providerPayload;
 }
 
+function getCdekTariffListDeliveryType(payload: NormalizedCdekTariffListRequest) {
+  if (payload.shipmentPointCode && payload.deliveryPointCode) {
+    return 4;
+  }
+
+  if (payload.shipmentPointCode) {
+    return 3;
+  }
+
+  if (payload.deliveryPointCode) {
+    return 2;
+  }
+
+  return 1;
+}
+
+function buildCdekTariffListProviderPayload(
+  payload: NormalizedCdekTariffListRequest
+) {
+  const providerPayload: Record<string, unknown> = {
+    currency: 1,
+    from_location: {
+      code: payload.fromLocation.code
+    },
+    packages: payload.packages.map((packagePayload) => ({
+      height: packagePayload.heightCm,
+      length: packagePayload.lengthCm,
+      weight: packagePayload.weightGrams,
+      width: packagePayload.widthCm
+    })),
+    to_location: {
+      code: payload.toLocation.code
+    },
+    type: getCdekTariffListDeliveryType(payload)
+  };
+
+  if (payload.deliveryPointCode) {
+    providerPayload.delivery_point = payload.deliveryPointCode;
+  }
+
+  if (payload.shipmentPointCode) {
+    providerPayload.shipment_point = payload.shipmentPointCode;
+  }
+
+  return providerPayload;
+}
+
 function moneyToMinor(value: number | null) {
   return value === null ? null : Math.round(value * 100);
 }
@@ -2320,6 +2497,46 @@ function getCdekDiagnosticArray(value: unknown, paths: readonly (readonly string
   }
 
   return [];
+}
+
+function getCdekTariffItems(value: unknown) {
+  if (isRecord(value) && Array.isArray(value.tariff_codes)) {
+    return value.tariff_codes.filter(isRecord);
+  }
+
+  if (isRecord(value) && Array.isArray(value.tariffCodes)) {
+    return value.tariffCodes.filter(isRecord);
+  }
+
+  return getCdekResponseItems(value);
+}
+
+function normalizeCdekTariffItem(
+  value: Record<string, unknown>
+): CdekTariffListResponseItem {
+  const deliverySum = getNestedNumber(value, [
+    ["delivery_sum"],
+    ["deliverySum"]
+  ]);
+  const totalSum = getNestedNumber(value, [["total_sum"], ["totalSum"]]);
+
+  return {
+    deliveryMode: getNestedString(value, [["delivery_mode"], ["deliveryMode"]]),
+    deliverySum,
+    deliverySumMinor: moneyToMinor(deliverySum),
+    errors: getCdekDiagnosticArray(value, [["errors"]]),
+    periodMax: getNestedNumber(value, [["period_max"], ["periodMax"]]),
+    periodMin: getNestedNumber(value, [["period_min"], ["periodMin"]]),
+    tariffCode: getNestedNumber(value, [["tariff_code"], ["tariffCode"], ["code"]]),
+    tariffName: getNestedString(value, [
+      ["tariff_name"],
+      ["tariffName"],
+      ["name"]
+    ]),
+    totalSum,
+    totalSumMinor: moneyToMinor(totalSum),
+    warnings: getCdekDiagnosticArray(value, [["warnings"]])
+  };
 }
 
 function normalizeCdekCalculationResponse(
@@ -3694,6 +3911,45 @@ app.get<{
 
     return {
       items: getCdekResponseItems(responseBody).map(normalizeCdekCity)
+    };
+  } catch (error) {
+    return sendCdekProxyError(reply, error);
+  }
+});
+
+app.post<{
+  Body: CdekTariffListRequestPayload;
+}>("/cdek/tariffs", async (request, reply) => {
+  const authSession = await requireRole(request, reply, ["manager", "admin"]);
+
+  if (!authSession) {
+    return reply;
+  }
+
+  const normalizedPayload = normalizeCdekTariffListRequestPayload(request.body);
+
+  if (!normalizedPayload.ok) {
+    return reply.code(400).send({
+      error: normalizedPayload.error,
+      message: normalizedPayload.message
+    });
+  }
+
+  const config = requireCdekProxyConfig(reply);
+
+  if (!config) {
+    return reply;
+  }
+
+  try {
+    const responseBody = await postCdekJson(
+      config,
+      "/v2/calculator/tarifflist",
+      buildCdekTariffListProviderPayload(normalizedPayload.value)
+    );
+
+    return {
+      items: getCdekTariffItems(responseBody).map(normalizeCdekTariffItem)
     };
   } catch (error) {
     return sendCdekProxyError(reply, error);

@@ -21,6 +21,7 @@ import {
   fetchOrderAttachmentBlob,
   getCdekDeliveryPoints,
   getCdekStatus,
+  getCdekTariffs,
   getApiHealth,
   getCurrentUser,
   getMaterialPricingInputs,
@@ -45,6 +46,7 @@ import {
   type CdekDeliveryPoint,
   type CdekSaveDeliveryResult,
   type CdekStatus,
+  type CdekTariff,
   type Material,
   type MaterialPricingInput,
   type OrderAttachment,
@@ -431,6 +433,7 @@ type CdekPanelState = {
   isLoadingSenderCities: boolean;
   isLoadingSenderDeliveryPoints: boolean;
   isLoadingStatus: boolean;
+  isLoadingTariffs: boolean;
   isSaving: boolean;
   lengthCm: string;
   message: string | null;
@@ -439,12 +442,14 @@ type CdekPanelState = {
   selectedDeliveryPoint: CdekDeliveryPoint | null;
   selectedSenderCity: CdekCity | null;
   selectedSenderDeliveryPoint: CdekDeliveryPoint | null;
+  selectedTariff: CdekTariff | null;
   senderCityQuery: string;
   senderCityResults: CdekCity[];
   senderDeliveryPointResults: CdekDeliveryPoint[];
   shipmentPointCode: string;
   status: CdekStatus | null;
   tariffCode: string;
+  tariffResults: CdekTariff[];
   weightGrams: string;
   widthCm: string;
 };
@@ -473,8 +478,6 @@ type DtfPrintCalculationResult = {
   widthCm: number;
 };
 
-const DEFAULT_CDEK_TARIFF_CODE = "136";
-
 function createDefaultCdekPanelState(): CdekPanelState {
   return {
     calculationResult: null,
@@ -488,6 +491,7 @@ function createDefaultCdekPanelState(): CdekPanelState {
     isLoadingSenderCities: false,
     isLoadingSenderDeliveryPoints: false,
     isLoadingStatus: false,
+    isLoadingTariffs: false,
     isSaving: false,
     lengthCm: "30",
     message: null,
@@ -496,12 +500,14 @@ function createDefaultCdekPanelState(): CdekPanelState {
     selectedDeliveryPoint: null,
     selectedSenderCity: null,
     selectedSenderDeliveryPoint: null,
+    selectedTariff: null,
     senderCityQuery: "Ливны",
     senderCityResults: [],
     senderDeliveryPointResults: [],
     shipmentPointCode: "",
     status: null,
-    tariffCode: DEFAULT_CDEK_TARIFF_CODE,
+    tariffCode: "",
+    tariffResults: [],
     weightGrams: "1000",
     widthCm: "20"
   };
@@ -642,6 +648,14 @@ function getCdekCalculationErrorMessage(error: unknown) {
     return "Нет доступа к расчёту СДЭК. Войдите как менеджер/администратор.";
   }
 
+  if (
+    error instanceof ApiResponseError &&
+    (error.details.cdekCode === "v2_calc_contract_type" ||
+      error.details.cdekMessage?.includes("v2_calc_contract_type"))
+  ) {
+    return "Выбранный тариф недоступен по договору или для выбранного направления. Подберите другой тариф СДЭК.";
+  }
+
   const detail = getShortCdekErrorDetail(error);
 
   if (detail) {
@@ -694,6 +708,41 @@ function getCdekCalculationPriceMinor(
 
 function formatCdekDeliveryPointLabel(point: CdekDeliveryPoint) {
   return point.name || point.address || point.code || "ПВЗ СДЭК";
+}
+
+function formatCdekTariffLabel(tariff: CdekTariff) {
+  const code = tariff.tariffCode ? `#${tariff.tariffCode}` : "без кода";
+  const name = tariff.tariffName ?? "Тариф СДЭК";
+
+  return `${name} (${code})`;
+}
+
+function formatCdekTariffMeta(tariff: CdekTariff) {
+  const parts: string[] = [];
+  const priceMinor =
+    tariff.totalSumMinor ?? tariff.deliverySumMinor ?? null;
+
+  if (priceMinor !== null) {
+    parts.push(formatMinorPrice(priceMinor, "RUB"));
+  }
+
+  if (tariff.periodMin !== null || tariff.periodMax !== null) {
+    parts.push(`срок ${tariff.periodMin ?? "?"}-${tariff.periodMax ?? "?"} дн.`);
+  }
+
+  if (tariff.deliveryMode) {
+    parts.push(tariff.deliveryMode);
+  }
+
+  if (tariff.errors.length > 0) {
+    parts.push(`ошибки: ${tariff.errors.length}`);
+  }
+
+  if (tariff.warnings.length > 0) {
+    parts.push(`предупреждения: ${tariff.warnings.length}`);
+  }
+
+  return parts.join(" / ");
 }
 
 function formatCdekCityLabel(city: CdekCity | null) {
@@ -3434,9 +3483,12 @@ function App() {
       saveResult: null,
       selectedSenderCity: null,
       selectedSenderDeliveryPoint: null,
+      selectedTariff: null,
       senderCityResults: [],
       senderDeliveryPointResults: [],
-      shipmentPointCode: ""
+      shipmentPointCode: "",
+      tariffCode: "",
+      tariffResults: []
     }));
 
     try {
@@ -3491,8 +3543,11 @@ function App() {
       message: null,
       saveResult: null,
       selectedSenderDeliveryPoint: null,
+      selectedTariff: null,
       senderDeliveryPointResults: [],
-      shipmentPointCode: ""
+      shipmentPointCode: "",
+      tariffCode: "",
+      tariffResults: []
     }));
 
     try {
@@ -3547,7 +3602,10 @@ function App() {
       message: null,
       selectedDeliveryPoint: null,
       calculationResult: null,
-      saveResult: null
+      saveResult: null,
+      selectedTariff: null,
+      tariffCode: "",
+      tariffResults: []
     }));
 
     try {
@@ -3574,6 +3632,120 @@ function App() {
     }
   }
 
+  async function handleLoadCdekTariffs() {
+    if (!authToken) {
+      setCdekPanelState((current) => ({
+        ...current,
+        message: "Войдите, чтобы подобрать тарифы СДЭК."
+      }));
+      return;
+    }
+
+    const fromCityCode = cdekPanelState.selectedSenderCity?.code ?? null;
+    const shipmentPointCode =
+      cdekPanelState.selectedSenderDeliveryPoint?.code ?? null;
+    const toCityCode = cdekPanelState.selectedCity?.code ?? null;
+    const deliveryPointCode = cdekPanelState.selectedDeliveryPoint?.code ?? null;
+    const weightGrams = getPositiveIntegerInput(cdekPanelState.weightGrams);
+    const lengthCm = getPositiveIntegerInput(cdekPanelState.lengthCm);
+    const widthCm = getPositiveIntegerInput(cdekPanelState.widthCm);
+    const heightCm = getPositiveIntegerInput(cdekPanelState.heightCm);
+
+    if (!fromCityCode) {
+      setCdekPanelState((current) => ({
+        ...current,
+        message: "Выберите город отправителя."
+      }));
+      return;
+    }
+
+    if (!shipmentPointCode) {
+      setCdekPanelState((current) => ({
+        ...current,
+        message: "Выберите пункт отправки СДЭК."
+      }));
+      return;
+    }
+
+    if (!toCityCode) {
+      setCdekPanelState((current) => ({
+        ...current,
+        message: "Выберите город получателя."
+      }));
+      return;
+    }
+
+    if (!deliveryPointCode) {
+      setCdekPanelState((current) => ({
+        ...current,
+        message: "Выберите ПВЗ получателя."
+      }));
+      return;
+    }
+
+    if (!weightGrams || !lengthCm || !widthCm || !heightCm) {
+      setCdekPanelState((current) => ({
+        ...current,
+        message: "Проверьте вес и габариты: нужны положительные целые числа."
+      }));
+      return;
+    }
+
+    setCdekPanelState((current) => ({
+      ...current,
+      calculationResult: null,
+      isLoadingTariffs: true,
+      message: null,
+      saveResult: null,
+      selectedTariff: null,
+      tariffCode: "",
+      tariffResults: []
+    }));
+
+    try {
+      const result = await getCdekTariffs(
+        {
+          currencyCode: "RUB",
+          deliveryPointCode,
+          fromLocation: {
+            code: fromCityCode
+          },
+          packages: [
+            {
+              heightCm,
+              lengthCm,
+              weightGrams,
+              widthCm
+            }
+          ],
+          shipmentPointCode,
+          toLocation: {
+            code: toCityCode
+          }
+        },
+        authToken
+      );
+      const availableTariffs = result.items.filter(
+        (tariff) => tariff.tariffCode !== null && tariff.errors.length === 0
+      );
+
+      setCdekPanelState((current) => ({
+        ...current,
+        isLoadingTariffs: false,
+        message: availableTariffs.length
+          ? null
+          : "Доступные тарифы СДЭК не найдены.",
+        tariffResults: availableTariffs
+      }));
+    } catch (unknownError) {
+      setCdekPanelState((current) => ({
+        ...current,
+        isLoadingTariffs: false,
+        message: getCdekUiErrorMessage(unknownError)
+      }));
+    }
+  }
+
   async function handleCalculateCdekDelivery(draftOrder: DraftOrder) {
     if (!authToken) {
       setCdekPanelState((current) => ({
@@ -3591,7 +3763,7 @@ function App() {
       return;
     }
 
-    const tariffCode = getPositiveIntegerInput(cdekPanelState.tariffCode);
+    const tariffCode = cdekPanelState.selectedTariff?.tariffCode ?? null;
     const fromCityCode = cdekPanelState.selectedSenderCity?.code ?? null;
     const shipmentPointCode =
       cdekPanelState.selectedSenderDeliveryPoint?.code ?? null;
@@ -3605,7 +3777,7 @@ function App() {
     if (!tariffCode) {
       setCdekPanelState((current) => ({
         ...current,
-        message: "Укажите положительный tariffCode."
+        message: "Сначала выберите тариф СДЭК."
       }));
       return;
     }
@@ -3722,7 +3894,7 @@ function App() {
     const selectedSenderDeliveryPoint = cdekPanelState.selectedSenderDeliveryPoint;
     const selectedCity = cdekPanelState.selectedCity;
     const selectedDeliveryPoint = cdekPanelState.selectedDeliveryPoint;
-    const tariffCode = getPositiveIntegerInput(cdekPanelState.tariffCode);
+    const tariffCode = cdekPanelState.selectedTariff?.tariffCode ?? null;
     const weightGrams = getPositiveIntegerInput(cdekPanelState.weightGrams);
     const lengthCm = getPositiveIntegerInput(cdekPanelState.lengthCm);
     const widthCm = getPositiveIntegerInput(cdekPanelState.widthCm);
@@ -3827,7 +3999,8 @@ function App() {
           recipientPhone,
           region: selectedCity.region ?? undefined,
           shipmentPointCode,
-          tariffCode: calculationResult.calculation.tariffCode || tariffCode
+          tariffCode: calculationResult.calculation.tariffCode || tariffCode,
+          tariffName: cdekPanelState.selectedTariff?.tariffName ?? undefined
         },
         authToken
       );
@@ -6019,9 +6192,12 @@ function App() {
                                       saveResult: null,
                                       selectedSenderCity: null,
                                       selectedSenderDeliveryPoint: null,
+                                      selectedTariff: null,
                                       senderCityQuery: event.target.value,
                                       senderDeliveryPointResults: [],
-                                      shipmentPointCode: ""
+                                      shipmentPointCode: "",
+                                      tariffCode: "",
+                                      tariffResults: []
                                     }))
                                   }
                                   onKeyDown={(event) => {
@@ -6065,8 +6241,11 @@ function App() {
                                           saveResult: null,
                                           selectedSenderCity: city,
                                           selectedSenderDeliveryPoint: null,
+                                          selectedTariff: null,
                                           senderDeliveryPointResults: [],
-                                          shipmentPointCode: ""
+                                          shipmentPointCode: "",
+                                          tariffCode: "",
+                                          tariffResults: []
                                         }))
                                       }
                                       type="button"
@@ -6129,7 +6308,10 @@ function App() {
                                           message: null,
                                           saveResult: null,
                                           selectedSenderDeliveryPoint: point,
-                                          shipmentPointCode: point.code ?? ""
+                                          selectedTariff: null,
+                                          shipmentPointCode: point.code ?? "",
+                                          tariffCode: "",
+                                          tariffResults: []
                                         }))
                                       }
                                       type="button"
@@ -6155,7 +6337,10 @@ function App() {
                                       ...current,
                                       cityQuery: event.target.value,
                                       calculationResult: null,
-                                      saveResult: null
+                                      saveResult: null,
+                                      selectedTariff: null,
+                                      tariffCode: "",
+                                      tariffResults: []
                                     }))
                                   }
                                   onKeyDown={(event) => {
@@ -6196,7 +6381,10 @@ function App() {
                                         message: null,
                                         saveResult: null,
                                         selectedCity: city,
-                                        selectedDeliveryPoint: null
+                                        selectedDeliveryPoint: null,
+                                        selectedTariff: null,
+                                        tariffCode: "",
+                                        tariffResults: []
                                       }))
                                     }
                                     type="button"
@@ -6254,7 +6442,10 @@ function App() {
                                           calculationResult: null,
                                           message: null,
                                           saveResult: null,
-                                          selectedDeliveryPoint: point
+                                          selectedDeliveryPoint: point,
+                                          selectedTariff: null,
+                                          tariffCode: "",
+                                          tariffResults: []
                                         }))
                                       }
                                       type="button"
@@ -6270,21 +6461,61 @@ function App() {
                               </div>
                             ) : null}
 
-                            <label className="form-field">
-                              <span>tariffCode</span>
-                              <input
-                                inputMode="numeric"
-                                value={cdekPanelState.tariffCode}
-                                onChange={(event) =>
-                                  setCdekPanelState((current) => ({
-                                    ...current,
-                                    calculationResult: null,
-                                    saveResult: null,
-                                    tariffCode: event.target.value
-                                  }))
-                                }
-                              />
-                            </label>
+                            <div className="form-field form-field-wide">
+                              <span>Тариф СДЭК</span>
+                              <div className="delivery-cdek-inline">
+                                <button
+                                  className="secondary-action-button"
+                                  disabled={cdekPanelState.isLoadingTariffs}
+                                  onClick={() => void handleLoadCdekTariffs()}
+                                  type="button"
+                                >
+                                  {cdekPanelState.isLoadingTariffs
+                                    ? "Подбираем..."
+                                    : "Подобрать тарифы"}
+                                </button>
+                                <span className="delivery-cdek-inline-note">
+                                  {cdekPanelState.selectedTariff
+                                    ? formatCdekTariffLabel(
+                                        cdekPanelState.selectedTariff
+                                      )
+                                    : "Тариф не выбран"}
+                                </span>
+                              </div>
+                            </div>
+
+                            {cdekPanelState.tariffResults.length > 0 ? (
+                              <div className="delivery-cdek-list form-field-wide">
+                                {cdekPanelState.tariffResults.slice(0, 6).map((tariff) => (
+                                  <button
+                                    className={
+                                      cdekPanelState.selectedTariff?.tariffCode ===
+                                      tariff.tariffCode
+                                        ? "delivery-cdek-list-item delivery-cdek-list-item-active"
+                                        : "delivery-cdek-list-item"
+                                    }
+                                    key={`tariff-${tariff.tariffCode ?? tariff.tariffName}`}
+                                    onClick={() =>
+                                      setCdekPanelState((current) => ({
+                                        ...current,
+                                        calculationResult: null,
+                                        message: null,
+                                        saveResult: null,
+                                        selectedTariff: tariff,
+                                        tariffCode:
+                                          tariff.tariffCode === null
+                                            ? ""
+                                            : String(tariff.tariffCode)
+                                      }))
+                                    }
+                                    type="button"
+                                  >
+                                    <strong>{formatCdekTariffLabel(tariff)}</strong>
+                                    <span>{formatCdekTariffMeta(tariff)}</span>
+                                  </button>
+                                ))}
+                              </div>
+                            ) : null}
 
                             <label className="form-field">
                               <span>Вес, г</span>
@@ -6296,6 +6527,9 @@ function App() {
                                     ...current,
                                     calculationResult: null,
                                     saveResult: null,
+                                    selectedTariff: null,
+                                    tariffCode: "",
+                                    tariffResults: [],
                                     weightGrams: event.target.value
                                   }))
                                 }
@@ -6312,6 +6546,9 @@ function App() {
                                     ...current,
                                     calculationResult: null,
                                     saveResult: null,
+                                    selectedTariff: null,
+                                    tariffCode: "",
+                                    tariffResults: [],
                                     lengthCm: event.target.value
                                   }))
                                 }
@@ -6328,6 +6565,9 @@ function App() {
                                     ...current,
                                     calculationResult: null,
                                     saveResult: null,
+                                    selectedTariff: null,
+                                    tariffCode: "",
+                                    tariffResults: [],
                                     widthCm: event.target.value
                                   }))
                                 }
@@ -6344,6 +6584,9 @@ function App() {
                                     ...current,
                                     calculationResult: null,
                                     saveResult: null,
+                                    selectedTariff: null,
+                                    tariffCode: "",
+                                    tariffResults: [],
                                     heightCm: event.target.value
                                   }))
                                 }
@@ -6376,6 +6619,7 @@ function App() {
                                 !cdekPanelState.selectedSenderDeliveryPoint?.code ||
                                 !cdekPanelState.selectedCity?.code ||
                                 !cdekPanelState.selectedDeliveryPoint?.code ||
+                                !cdekPanelState.selectedTariff?.tariffCode ||
                                 !getPositiveIntegerInput(cdekPanelState.weightGrams) ||
                                 !getPositiveIntegerInput(cdekPanelState.lengthCm) ||
                                 !getPositiveIntegerInput(cdekPanelState.widthCm) ||

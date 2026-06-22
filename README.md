@@ -187,6 +187,8 @@ Desktop delivery panel теперь имеет компактный CDEK calcula
 
 CDEK calculator принимает валюту как provider numeric code: Desktop/API продолжает работать с `currencyCode='RUB'`, а backend при запросе `/v2/calculator/tariff` отправляет в СДЭК `currency=1`. Response остаётся в терминах `currencyCode='RUB'`, `priceMinor`, `deliverySumMinor` и `totalSumMinor`.
 
+Перед расчётом CDEK Desktop panel подбирает доступные тарифы через backend `POST /cdek/tariffs`, который проксирует CDEK `/v2/calculator/tarifflist` и возвращает только нормализованные поля тарифа. Менеджер выбирает тариф из списка, после чего `POST /orders/:id/delivery/cdek/calculate` использует выбранный `tariffCode`; код `136` больше не является обязательным hardcoded вариантом. Подбор тарифов не сохраняет доставку, не создаёт shipment и не меняет заказ.
+
 Backend API имеет endpoint `PATCH /orders/:id/delivery/cdek` для сохранения выбранной СДЭК-доставки как delivery summary заказа. Он пишет только существующие `app.order_delivery` и `app.orders` delivery/total fields, не создаёт отправление, не использует `app.order_shipments` / `app.order_shipment_packages`, не вызывает CDEK API и не получает OAuth token. Если изменение доставки влияет на сумму заказа, active Ozon payments автоматически отменяются через существующий cancellation flow, final/financial payments блокируют изменение, а response возвращает `payment.financialChanged`, `payment.activePaymentsCanceled` и `payment.canceledPaymentIds`.
 
 ## Правило работы с Data Base 02

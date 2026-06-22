@@ -329,6 +329,29 @@ export type CdekDeliveryCalculationRequest = {
   };
 };
 
+export type CdekTariffListRequest = Omit<
+  CdekDeliveryCalculationRequest,
+  "tariffCode"
+>;
+
+export type CdekTariff = {
+  deliveryMode: string | null;
+  deliverySum?: number | null;
+  deliverySumMinor: number | null;
+  errors: unknown[];
+  periodMax: number | null;
+  periodMin: number | null;
+  tariffCode: number | null;
+  tariffName: string | null;
+  totalSum?: number | null;
+  totalSumMinor: number | null;
+  warnings: unknown[];
+};
+
+export type CdekTariffListResult = {
+  items: CdekTariff[];
+};
+
 export type CdekDeliveryCalculation = {
   calendarMax: number | null;
   calendarMin: number | null;
@@ -1236,6 +1259,23 @@ export async function getCdekDeliveryPoints(
   }
 
   return response.json() as Promise<CdekDeliveryPointSearchResult>;
+}
+
+export async function getCdekTariffs(
+  payload: CdekTariffListRequest,
+  token: string
+): Promise<CdekTariffListResult> {
+  const response = await fetch(`${apiBaseUrl}/cdek/tariffs`, {
+    body: JSON.stringify(payload),
+    headers: createJsonBearerHeaders(token),
+    method: "POST"
+  });
+
+  if (!response.ok) {
+    await throwApiResponseError(response, "/cdek/tariffs");
+  }
+
+  return response.json() as Promise<CdekTariffListResult>;
 }
 
 export async function calculateCdekDelivery(
