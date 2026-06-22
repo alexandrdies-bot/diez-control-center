@@ -489,6 +489,86 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+export type ApiErrorDetails = {
+  cdekCode?: string;
+  cdekMessage?: string;
+  cdekStatus?: number | string;
+  code?: string;
+  error?: string;
+  message?: string;
+};
+
+export class ApiResponseError extends Error {
+  details: ApiErrorDetails;
+  path: string;
+  status: number;
+
+  constructor(input: {
+    details?: ApiErrorDetails;
+    path: string;
+    responseBody: string;
+    status: number;
+  }) {
+    super(
+      `${input.path} ${input.status}${
+        input.responseBody ? ` ${input.responseBody}` : ""
+      }`
+    );
+    this.name = "ApiResponseError";
+    this.details = input.details ?? {};
+    this.path = input.path;
+    this.status = input.status;
+  }
+}
+
+function getApiErrorString(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function getApiErrorNumberOrString(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  return getApiErrorString(value);
+}
+
+function parseApiErrorDetails(responseBody: string): ApiErrorDetails {
+  if (!responseBody.trim()) {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(responseBody) as unknown;
+
+    if (!isRecord(parsed)) {
+      return {};
+    }
+
+    return {
+      cdekCode: getApiErrorString(parsed.cdekCode),
+      cdekMessage: getApiErrorString(parsed.cdekMessage),
+      cdekStatus: getApiErrorNumberOrString(parsed.cdekStatus),
+      code: getApiErrorString(parsed.code),
+      error: getApiErrorString(parsed.error),
+      message: getApiErrorString(parsed.message)
+    };
+  } catch {
+    return {};
+  }
+}
+
+async function throwApiResponseError(response: Response, path: string): Promise<never> {
+  const responseBody = await response.text();
+
+  throw new ApiResponseError({
+    details: parseApiErrorDetails(responseBody),
+    path,
+    responseBody,
+    status: response.status
+  });
+}
+
 function getValidMinorPrice(value: unknown) {
   const numberValue = Number(value);
   return Number.isFinite(numberValue) && Number.isInteger(numberValue)
@@ -1100,10 +1180,7 @@ export async function getCdekStatus(token: string): Promise<CdekStatus> {
   }
 
   if (!response.ok) {
-    const responseBody = await response.text();
-    throw new Error(
-      `/cdek/status ${response.status}${responseBody ? ` ${responseBody}` : ""}`
-    );
+    await throwApiResponseError(response, "/cdek/status");
   }
 
   return response.json() as Promise<CdekStatus>;
@@ -1129,10 +1206,7 @@ export async function searchCdekCities(
   });
 
   if (!response.ok) {
-    const responseBody = await response.text();
-    throw new Error(
-      `/cdek/cities ${response.status}${responseBody ? ` ${responseBody}` : ""}`
-    );
+    await throwApiResponseError(response, "/cdek/cities");
   }
 
   return response.json() as Promise<CdekCitySearchResult>;
@@ -1158,12 +1232,7 @@ export async function getCdekDeliveryPoints(
   );
 
   if (!response.ok) {
-    const responseBody = await response.text();
-    throw new Error(
-      `/cdek/delivery-points ${response.status}${
-        responseBody ? ` ${responseBody}` : ""
-      }`
-    );
+    await throwApiResponseError(response, "/cdek/delivery-points");
   }
 
   return response.json() as Promise<CdekDeliveryPointSearchResult>;
@@ -1184,11 +1253,9 @@ export async function calculateCdekDelivery(
   );
 
   if (!response.ok) {
-    const responseBody = await response.text();
-    throw new Error(
-      `/orders/${orderId}/delivery/cdek/calculate ${response.status}${
-        responseBody ? ` ${responseBody}` : ""
-      }`
+    await throwApiResponseError(
+      response,
+      `/orders/${orderId}/delivery/cdek/calculate`
     );
   }
 
@@ -1207,12 +1274,7 @@ export async function saveCdekDelivery(
   });
 
   if (!response.ok) {
-    const responseBody = await response.text();
-    throw new Error(
-      `/orders/${orderId}/delivery/cdek ${response.status}${
-        responseBody ? ` ${responseBody}` : ""
-      }`
-    );
+    await throwApiResponseError(response, `/orders/${orderId}/delivery/cdek`);
   }
 
   const result = (await response.json()) as {

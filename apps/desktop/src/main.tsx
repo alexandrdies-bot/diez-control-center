@@ -37,6 +37,7 @@ import {
   updateMaterialPurchasePrice,
   uploadOrderAttachment,
   updateOrderFromDraft,
+  ApiResponseError,
   type ApiHealth,
   type AuthUser,
   type CdekCity,
@@ -570,6 +571,54 @@ function getCdekUiErrorMessage(error: unknown) {
   }
 
   return "Не удалось проверить СДЭК. Повторите проверку.";
+}
+
+function getShortCdekErrorDetail(error: unknown) {
+  if (!(error instanceof ApiResponseError)) {
+    return null;
+  }
+
+  const { details } = error;
+  const code = details.error ?? details.code ?? details.cdekCode;
+  const providerStatus =
+    details.cdekStatus === undefined ? null : String(details.cdekStatus);
+  const providerMessage = details.cdekMessage ?? details.message;
+  let detail = "";
+
+  if (code && providerStatus) {
+    detail = `${code} / ${providerStatus}`;
+  } else if (code) {
+    detail = code;
+  } else if (providerStatus) {
+    detail = providerStatus;
+  }
+
+  if (providerMessage && providerMessage !== code) {
+    detail = detail ? `${detail}: ${providerMessage}` : providerMessage;
+  }
+
+  if (!detail.trim()) {
+    return null;
+  }
+
+  return detail.length > 140 ? `${detail.slice(0, 137)}...` : detail;
+}
+
+function getCdekCitySearchErrorMessage(error: unknown) {
+  if (
+    error instanceof ApiResponseError &&
+    (error.status === 401 || error.status === 403)
+  ) {
+    return "Нет доступа к поиску города СДЭК. Войдите как менеджер/администратор.";
+  }
+
+  const detail = getShortCdekErrorDetail(error);
+
+  if (detail) {
+    return `Не удалось найти город СДЭК: ${detail}`;
+  }
+
+  return "Не удалось найти город СДЭК. Повторите поиск.";
 }
 
 function getCdekStatusMessage(status: CdekStatus) {
@@ -3285,7 +3334,7 @@ function App() {
       setCdekPanelState((current) => ({
         ...current,
         isLoadingCities: false,
-        message: getCdekUiErrorMessage(unknownError)
+        message: getCdekCitySearchErrorMessage(unknownError)
       }));
     }
   }
