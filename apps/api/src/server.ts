@@ -2539,6 +2539,102 @@ function normalizeCdekTariffItem(
   };
 }
 
+function getCdekTariffDiagnosticDetails(tariff: CdekTariffListResponseItem | null) {
+  if (!tariff) {
+    return {
+      deliveryMode: null,
+      errorCodes: [],
+      errorMessages: [],
+      hasErrors: false,
+      present: false,
+      tariffCode: null,
+      tariffName: null
+    };
+  }
+
+  return {
+    deliveryMode: tariff.deliveryMode,
+    errorCodes: tariff.errors
+      .map((error) =>
+        getCdekDiagnosticString(
+          error,
+          [
+            ["code"],
+            ["error"],
+            ["errorCode"],
+            ["error_code"]
+          ],
+          ""
+        )
+      )
+      .filter((value): value is string => Boolean(value)),
+    errorMessages: tariff.errors
+      .map((error) =>
+        getCdekDiagnosticString(
+          error,
+          [
+            ["message"],
+            ["msg"],
+            ["description"],
+            ["text"]
+          ],
+          ""
+        )
+      )
+      .filter((value): value is string => Boolean(value)),
+    hasErrors: tariff.errors.length > 0,
+    present: true,
+    tariffCode: tariff.tariffCode,
+    tariffName: tariff.tariffName
+  };
+}
+
+function isCdekWarehouseWarehouseTariff(tariff: CdekTariffListResponseItem) {
+  const mode = tariff.deliveryMode?.toLocaleLowerCase("ru-RU") ?? "";
+  const name = tariff.tariffName?.toLocaleLowerCase("ru-RU") ?? "";
+
+  return (
+    tariff.deliveryMode === "4" ||
+    mode === "4" ||
+    name.includes("склад-склад") ||
+    mode.includes("склад-склад") ||
+    mode.includes("pvz-pvz")
+  );
+}
+
+function buildCdekTariffDiagnosticSummary(items: CdekTariffListResponseItem[]) {
+  const parcelTariff136 =
+    items.find((tariff) => tariff.tariffCode === 136) ?? null;
+  const parcelNameTariffs = items.filter((tariff) =>
+    (tariff.tariffName ?? "").toLocaleLowerCase("ru-RU").includes("посылка")
+  );
+  const warehouseWarehouseCount = items.filter(
+    isCdekWarehouseWarehouseTariff
+  ).length;
+
+  return {
+    erroredItems: items.filter((tariff) => tariff.errors.length > 0).length,
+    hasParcelName: parcelNameTariffs.length > 0,
+    hasParcelTariff136: Boolean(parcelTariff136),
+    order: "safe diagnostic only",
+    otherVariantsCount: items.length - warehouseWarehouseCount,
+    parcelNameTariffs: parcelNameTariffs.map(getCdekTariffDiagnosticDetails),
+    parcelTariff136: getCdekTariffDiagnosticDetails(parcelTariff136),
+    pvzToPvzCount: warehouseWarehouseCount,
+    tariffCodes: items.map((tariff) => ({
+      deliveryMode: tariff.deliveryMode,
+      hasErrors: tariff.errors.length > 0,
+      tariffCode: tariff.tariffCode,
+      tariffName: tariff.tariffName
+    })),
+    totalItems: items.length,
+    validItems: items.filter(
+      (tariff) => tariff.tariffCode !== null && tariff.errors.length === 0
+    ).length,
+    warehouseWarehouseCount
+  };
+}
+
 function normalizeCdekCalculationResponse(
   value: unknown,
   requestPayload: NormalizedCdekCalculationRequest
@@ -3969,8 +4065,15 @@ app.post<{
       buildCdekTariffListProviderPayload(normalizedPayload.value)
     );
 
+    const items = getCdekTariffItems(responseBody).map(normalizeCdekTariffItem);
+
+    request.log.info(
+      buildCdekTariffDiagnosticSummary(items),
+      "cdek tariffs normalized"
+    );
+
     return {
-      items: getCdekTariffItems(responseBody).map(normalizeCdekTariffItem)
+      items
     };
   } catch (error) {
     return sendCdekProxyError(reply, error);
