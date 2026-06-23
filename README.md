@@ -193,6 +193,8 @@ CDEK calculator принимает валюту как provider numeric code: De
 
 Backend API имеет endpoint `PATCH /orders/:id/delivery/cdek` для сохранения выбранной СДЭК-доставки как delivery summary заказа. Он пишет только существующие `app.order_delivery` и `app.orders` delivery/total fields, не создаёт отправление, не использует `app.order_shipments` / `app.order_shipment_packages`, не вызывает CDEK API и не получает OAuth token. Если изменение доставки влияет на сумму заказа, active Ozon payments автоматически отменяются через существующий cancellation flow, final/financial payments блокируют изменение, а response возвращает `payment.financialChanged`, `payment.activePaymentsCanceled` и `payment.canceledPaymentIds`.
 
+При повторном открытии сохранённой CDEK-доставки Desktop prefill берёт данные из `delivery.providerPayload`: город и ПВЗ получателя, тариф, стоимость, срок, габариты, sender point code и сохранённый результат. Это не запускает новый расчёт, не вызывает CDEK endpoints и не сохраняет доставку повторно. Для сохранённых payload, где есть только `shipmentPointCode` без полного адреса/города отправителя, форма показывает доступные данные; будущие сохранения дополнительно пишут sender city и shipment point summary в provider payload, если UI эти данные знает.
+
 ## Правило работы с Data Base 02
 
 По вопросам базы данных работает отдельный чат `Data Base 02`.

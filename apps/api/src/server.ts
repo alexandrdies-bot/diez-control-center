@@ -604,7 +604,15 @@ type SaveCdekDeliveryPayload = {
   recipientName?: unknown;
   recipientPhone?: unknown;
   region?: unknown;
+  senderCity?: unknown;
+  senderCityCode?: unknown;
+  senderCountryCode?: unknown;
+  senderRegion?: unknown;
+  shipmentPointAddress?: unknown;
   shipmentPointCode?: unknown;
+  shipmentPointName?: unknown;
+  shipmentPointType?: unknown;
+  shipmentPointUuid?: unknown;
   tariffCode?: unknown;
   tariffName?: unknown;
 };
@@ -635,7 +643,15 @@ type NormalizedCdekDeliverySelection = {
   recipientName: string | null;
   recipientPhone: string | null;
   region: string | null;
+  senderCity: string | null;
+  senderCityCode: number | null;
+  senderCountryCode: string | null;
+  senderRegion: string | null;
+  shipmentPointAddress: string | null;
   shipmentPointCode: string | null;
+  shipmentPointName: string | null;
+  shipmentPointType: string | null;
+  shipmentPointUuid: string | null;
   tariffCode: number;
   tariffName: string | null;
 };
@@ -2708,7 +2724,15 @@ function normalizeSaveCdekDeliveryPayload(
       recipientName: getOptionalString(payload.recipientName),
       recipientPhone: getOptionalString(payload.recipientPhone),
       region: getOptionalString(payload.region),
+      senderCity: getOptionalString(payload.senderCity),
+      senderCityCode: getPositiveInteger(payload.senderCityCode),
+      senderCountryCode: getOptionalString(payload.senderCountryCode)?.toUpperCase() ?? null,
+      senderRegion: getOptionalString(payload.senderRegion),
+      shipmentPointAddress: getOptionalString(payload.shipmentPointAddress),
       shipmentPointCode: getOptionalString(payload.shipmentPointCode),
+      shipmentPointName: getOptionalString(payload.shipmentPointName),
+      shipmentPointType: getOptionalString(payload.shipmentPointType),
+      shipmentPointUuid: getOptionalString(payload.shipmentPointUuid),
       tariffCode,
       tariffName: getOptionalString(payload.tariffName)
     }
@@ -2741,6 +2765,19 @@ function buildCdekDeliveryProviderPayload(
       priceMinor: payload.priceMinor
     },
     provider: "cdek",
+    senderCity: {
+      city: payload.senderCity,
+      code: payload.senderCityCode,
+      countryCode: payload.senderCountryCode,
+      region: payload.senderRegion
+    },
+    shipmentPoint: {
+      address: payload.shipmentPointAddress,
+      code: payload.shipmentPointCode,
+      name: payload.shipmentPointName,
+      type: payload.shipmentPointType,
+      uuid: payload.shipmentPointUuid
+    },
     shipmentPointCode: payload.shipmentPointCode,
     tariff: {
       code: payload.tariffCode,

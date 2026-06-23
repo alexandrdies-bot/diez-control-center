@@ -342,6 +342,7 @@ type DraftOrderDelivery = {
   periodMin?: number;
   phone?: string;
   priceMinor?: number;
+  providerPayload?: unknown;
   tariffCode?: number;
   tariffName?: string;
 };
@@ -516,6 +517,332 @@ function createDefaultCdekPanelState(): CdekPanelState {
     tariffResults: [],
     weightGrams: "1000",
     widthCm: "20"
+  };
+}
+
+function getFirstRecordItem(value: unknown): unknown {
+  return Array.isArray(value) ? value[0] : undefined;
+}
+
+function getProviderArray(value: unknown) {
+  return Array.isArray(value) ? value : [];
+}
+
+function createCdekCityFromProviderPayload(
+  cityPayload: unknown,
+  fallbackAddress?: string
+): CdekCity | null {
+  const code = getOptionalNumber(getRecordValue(cityPayload, "code"));
+  const city = getOptionalString(getRecordValue(cityPayload, "city"));
+  const fullName =
+    getOptionalString(getRecordValue(cityPayload, "fullName")) ??
+    [city, getOptionalString(getRecordValue(cityPayload, "region"))]
+      .filter(Boolean)
+      .join(", ");
+
+  if (!code && !city && !fullName && !fallbackAddress) {
+    return null;
+  }
+
+  return {
+    city: city ?? fullName ?? fallbackAddress ?? null,
+    cityUuid:
+      getOptionalString(getRecordValue(cityPayload, "uuid")) ??
+      getOptionalString(getRecordValue(cityPayload, "cityUuid")) ??
+      null,
+    code: code ?? null,
+    countryCode:
+      getOptionalString(getRecordValue(cityPayload, "countryCode")) ?? "RU",
+    fiasGuid:
+      getOptionalString(getRecordValue(cityPayload, "fiasGuid")) ?? null,
+    fullName: fullName || city || fallbackAddress || null,
+    latitude: getOptionalNumber(getRecordValue(cityPayload, "latitude")) ?? null,
+    longitude: getOptionalNumber(getRecordValue(cityPayload, "longitude")) ?? null,
+    region: getOptionalString(getRecordValue(cityPayload, "region")) ?? null,
+    regionCode:
+      getOptionalNumber(getRecordValue(cityPayload, "regionCode")) ?? null
+  };
+}
+
+function createCdekDeliveryPointFromProviderPayload(
+  pointPayload: unknown,
+  city: CdekCity | null
+): CdekDeliveryPoint | null {
+  const code = getOptionalString(getRecordValue(pointPayload, "code"));
+  const address =
+    getOptionalString(getRecordValue(pointPayload, "address")) ??
+    getOptionalString(getRecordValue(pointPayload, "addressFull"));
+  const name = getOptionalString(getRecordValue(pointPayload, "name"));
+  const type = getOptionalString(getRecordValue(pointPayload, "type"));
+
+  if (!code && !address && !name) {
+    return null;
+  }
+
+  return {
+    address: address ?? name ?? code ?? null,
+    addressFull:
+      getOptionalString(getRecordValue(pointPayload, "addressFull")) ??
+      address ??
+      name ??
+      null,
+    allowedCod: null,
+    city: city?.city ?? null,
+    cityCode: city?.code ?? null,
+    code: code ?? null,
+    countryCode: city?.countryCode ?? null,
+    dimensions: null,
+    haveCash: null,
+    haveCashless: null,
+    heightMax: null,
+    isDressingRoom: null,
+    latitude: getOptionalNumber(getRecordValue(pointPayload, "latitude")) ?? null,
+    lengthMax: null,
+    longitude: getOptionalNumber(getRecordValue(pointPayload, "longitude")) ?? null,
+    name: name ?? address ?? code ?? null,
+    nearestStation: null,
+    phones: [],
+    type: type ?? null,
+    uuid:
+      getOptionalString(getRecordValue(pointPayload, "uuid")) ??
+      getOptionalString(getRecordValue(pointPayload, "deliveryPointUuid")) ??
+      null,
+    weightMax: null,
+    weightMin: null,
+    widthMax: null,
+    workTime: null
+  };
+}
+
+function createCdekSenderPointFromCode(
+  shipmentPointCode: string | undefined
+): CdekDeliveryPoint | null {
+  if (!shipmentPointCode) {
+    return null;
+  }
+
+  return {
+    address: shipmentPointCode,
+    addressFull: shipmentPointCode,
+    allowedCod: null,
+    code: shipmentPointCode,
+    dimensions: null,
+    haveCash: null,
+    haveCashless: null,
+    heightMax: null,
+    isDressingRoom: null,
+    latitude: null,
+    lengthMax: null,
+    longitude: null,
+    name: shipmentPointCode,
+    nearestStation: null,
+    phones: [],
+    type: "PVZ",
+    weightMax: null,
+    weightMin: null,
+    widthMax: null,
+    workTime: null
+  };
+}
+
+function createCdekPanelStateFromSavedDelivery(
+  draftOrder: DraftOrder,
+  currentStatus: CdekStatus | null
+): CdekPanelState {
+  const defaultState = createDefaultCdekPanelState();
+  const providerPayload = draftOrder.delivery.providerPayload;
+
+  if (draftOrder.delivery.mode !== "cdek" || !providerPayload) {
+    return {
+      ...defaultState,
+      status: currentStatus
+    };
+  }
+
+  const cityPayload = getRecordValue(providerPayload, "city");
+  const deliveryPointPayload = getRecordValue(providerPayload, "deliveryPoint");
+  const pricingPayload = getRecordValue(providerPayload, "pricing");
+  const packagePayload = getRecordValue(providerPayload, "package");
+  const packageItems = getProviderArray(getRecordValue(packagePayload, "items"));
+  const firstPackage =
+    getFirstRecordItem(packageItems) ??
+    getFirstRecordItem(getRecordValue(providerPayload, "packages"));
+  const senderCityPayload =
+    getRecordValue(providerPayload, "senderCity") ??
+    getRecordValue(providerPayload, "fromCity") ??
+    getRecordValue(providerPayload, "fromLocation");
+  const shipmentPointPayload =
+    getRecordValue(providerPayload, "shipmentPoint") ??
+    getRecordValue(providerPayload, "senderDeliveryPoint");
+  const tariffPayload = getRecordValue(providerPayload, "tariff");
+  const timingPayload = getRecordValue(providerPayload, "timing");
+  const calculationPayload = getRecordValue(providerPayload, "calculation");
+  const selectedCity = createCdekCityFromProviderPayload(
+    cityPayload,
+    draftOrder.delivery.address
+  );
+  const selectedDeliveryPoint = createCdekDeliveryPointFromProviderPayload(
+    deliveryPointPayload,
+    selectedCity
+  );
+  const shipmentPointCode = getOptionalString(
+    getRecordValue(providerPayload, "shipmentPointCode")
+  );
+  const selectedSenderCity =
+    createCdekCityFromProviderPayload(senderCityPayload);
+  const selectedSenderDeliveryPoint =
+    createCdekDeliveryPointFromProviderPayload(
+      shipmentPointPayload,
+      selectedSenderCity
+    ) ?? createCdekSenderPointFromCode(shipmentPointCode);
+  const tariffCode =
+    getOptionalNumber(getRecordValue(tariffPayload, "code")) ??
+    draftOrder.delivery.tariffCode ??
+    getOptionalNumber(getRecordValue(calculationPayload, "tariffCode"));
+  const tariffName =
+    getOptionalString(getRecordValue(tariffPayload, "name")) ??
+    draftOrder.delivery.tariffName;
+  const priceMinor =
+    getOptionalNumber(getRecordValue(pricingPayload, "priceMinor")) ??
+    draftOrder.delivery.priceMinor ??
+    getOptionalNumber(getRecordValue(calculationPayload, "priceMinor"));
+  const deliverySumMinor =
+    getOptionalNumber(getRecordValue(calculationPayload, "deliverySumMinor")) ??
+    priceMinor ??
+    null;
+  const totalSumMinor =
+    getOptionalNumber(getRecordValue(calculationPayload, "totalSumMinor")) ??
+    priceMinor ??
+    null;
+  const periodMin =
+    getOptionalNumber(getRecordValue(timingPayload, "periodMin")) ??
+    draftOrder.delivery.periodMin ??
+    getOptionalNumber(getRecordValue(calculationPayload, "periodMin")) ??
+    null;
+  const periodMax =
+    getOptionalNumber(getRecordValue(timingPayload, "periodMax")) ??
+    draftOrder.delivery.periodMax ??
+    getOptionalNumber(getRecordValue(calculationPayload, "periodMax")) ??
+    null;
+  const selectedTariff: CdekTariff | null =
+    tariffCode || tariffName || priceMinor
+      ? {
+          deliveryMode: null,
+          deliverySumMinor,
+          errors: getProviderArray(getRecordValue(calculationPayload, "errors")),
+          periodMax,
+          periodMin,
+          tariffCode: tariffCode ?? null,
+          tariffName: tariffName ?? null,
+          totalSumMinor,
+          warnings: getProviderArray(
+            getRecordValue(calculationPayload, "warnings")
+          )
+        }
+      : null;
+  const calculationResult: CdekDeliveryCalculationResult | null =
+    tariffCode && priceMinor !== undefined
+      ? {
+          calculation: {
+            calendarMax:
+              getOptionalNumber(getRecordValue(calculationPayload, "calendarMax")) ??
+              null,
+            calendarMin:
+              getOptionalNumber(getRecordValue(calculationPayload, "calendarMin")) ??
+              null,
+            currencyCode:
+              getOptionalString(getRecordValue(pricingPayload, "currencyCode")) ??
+              draftOrder.delivery.currencyCode ??
+              "RUB",
+            deliverySumMinor,
+            errors: getProviderArray(getRecordValue(calculationPayload, "errors")),
+            notSaved: true,
+            periodMax,
+            periodMin,
+            priceMinor,
+            provider: "cdek",
+            services: getProviderArray(
+              getRecordValue(calculationPayload, "services")
+            ),
+            tariffCode,
+            totalSumMinor,
+            warnings: getProviderArray(
+              getRecordValue(calculationPayload, "warnings")
+            ),
+            weightCalc:
+              getOptionalNumber(getRecordValue(calculationPayload, "weightCalc")) ??
+              null
+          },
+          order: {
+            id: draftOrder.serverOrderId ?? 0,
+            orderNumber: draftOrder.serverOrderNumber ?? ""
+          }
+        }
+      : null;
+  const saveResult: CdekSaveDeliveryResult | null =
+    priceMinor !== undefined
+      ? {
+          delivery: {
+            addressText: draftOrder.delivery.address ?? null,
+            currencyCode: draftOrder.delivery.currencyCode ?? "RUB",
+            deliveryMode: "cdek",
+            deliveryStatus: "selected",
+            priceMinor,
+            providerPayload,
+            recipientName: draftOrder.delivery.contactName ?? null,
+            recipientPhone: draftOrder.delivery.phone ?? null
+          },
+          order: {
+            id: draftOrder.serverOrderId ?? 0,
+            orderNumber: draftOrder.serverOrderNumber ?? ""
+          },
+          payment: {
+            activePaymentsCanceled: false,
+            canceledPaymentIds: [],
+            financialChanged: false
+          },
+          saved: true,
+          totals: {
+            deliveryTotalMinor: priceMinor,
+            totalPriceMinor: draftOrder.totalPriceMinor
+          }
+        }
+      : null;
+  const message =
+    shipmentPointCode && !selectedSenderCity
+      ? "Пункт отправки сохранён, но адрес не найден в сохранённых данных."
+      : null;
+
+  return {
+    ...defaultState,
+    calculationResult,
+    cityQuery: formatCdekCityLabel(selectedCity),
+    heightCm:
+      getOptionalNumber(getRecordValue(firstPackage, "heightCm"))?.toString() ??
+      defaultState.heightCm,
+    lengthCm:
+      getOptionalNumber(getRecordValue(firstPackage, "lengthCm"))?.toString() ??
+      defaultState.lengthCm,
+    message,
+    saveResult,
+    selectedCity,
+    selectedDeliveryPoint,
+    selectedSenderCity,
+    selectedSenderDeliveryPoint,
+    selectedTariff,
+    senderCityQuery: selectedSenderCity
+      ? formatCdekCityLabel(selectedSenderCity)
+      : defaultState.senderCityQuery,
+    shipmentPointCode: shipmentPointCode ?? "",
+    status: currentStatus,
+    tariffCode: tariffCode ? String(tariffCode) : "",
+    tariffResults: selectedTariff ? [selectedTariff] : [],
+    weightGrams:
+      getOptionalNumber(getRecordValue(firstPackage, "weightGrams"))?.toString() ??
+      defaultState.weightGrams,
+    widthCm:
+      getOptionalNumber(getRecordValue(firstPackage, "widthCm"))?.toString() ??
+      defaultState.widthCm
   };
 }
 
@@ -777,11 +1104,14 @@ function formatCdekCityLabel(city: CdekCity | null) {
 }
 
 function getCdekSenderSummary(state: CdekPanelState) {
-  if (!state.selectedSenderCity || !state.selectedSenderDeliveryPoint) {
+  if (!state.selectedSenderDeliveryPoint?.code) {
     return "Пункт отправки не выбран";
   }
 
-  const cityLabel = formatCdekCityLabel(state.selectedSenderCity);
+  const cityLabel =
+    formatCdekCityLabel(state.selectedSenderCity) ||
+    state.senderCityQuery.trim() ||
+    "город отправителя";
   const pointLabel =
     state.selectedSenderDeliveryPoint.address ??
     state.selectedSenderDeliveryPoint.addressFull ??
@@ -936,6 +1266,7 @@ function mapOrderDetailsToDraftOrder(
           periodMin: cdekProviderSummary?.periodMin,
           phone: orderDetails.delivery.recipientPhone ?? "",
           priceMinor: Number(orderDetails.delivery.priceMinor),
+          providerPayload: orderDetails.delivery.providerPayload,
           tariffCode: cdekProviderSummary?.tariffCode,
           tariffName: cdekProviderSummary?.tariffName
         }
@@ -1602,6 +1933,7 @@ function normalizeDraftOrderDelivery(
     periodMin: delivery?.periodMin,
     phone: delivery?.phone ? formatRussianPhone(delivery.phone) : undefined,
     priceMinor: delivery?.priceMinor,
+    providerPayload: delivery?.providerPayload,
     tariffCode: delivery?.tariffCode,
     tariffName: delivery?.tariffName
   };
@@ -3348,6 +3680,9 @@ function App() {
       mode: draftOrder.delivery.mode,
       phone: formatRussianPhone(draftOrder.delivery.phone ?? "")
     });
+    setCdekPanelState((current) =>
+      createCdekPanelStateFromSavedDelivery(draftOrder, current.status)
+    );
   }
 
   function handleSaveDraftOrderCustomer(draftOrderId: string) {
@@ -4062,7 +4397,22 @@ function App() {
           recipientName,
           recipientPhone,
           region: selectedCity.region ?? undefined,
+          senderCity:
+            selectedSenderCity.city ??
+            selectedSenderCity.fullName ??
+            cdekPanelState.senderCityQuery.trim() ??
+            undefined,
+          senderCityCode: selectedSenderCity.code,
+          senderCountryCode: selectedSenderCity.countryCode ?? undefined,
+          senderRegion: selectedSenderCity.region ?? undefined,
+          shipmentPointAddress:
+            selectedSenderDeliveryPoint.address ??
+            selectedSenderDeliveryPoint.addressFull ??
+            undefined,
           shipmentPointCode,
+          shipmentPointName: selectedSenderDeliveryPoint.name ?? undefined,
+          shipmentPointType: selectedSenderDeliveryPoint.type ?? undefined,
+          shipmentPointUuid: selectedSenderDeliveryPoint.uuid ?? undefined,
           tariffCode: calculationResult.calculation.tariffCode || tariffCode,
           tariffName: cdekPanelState.selectedTariff?.tariffName ?? undefined
         },
@@ -4086,6 +4436,7 @@ function App() {
                   periodMin: calculationResult.calculation.periodMin ?? undefined,
                   phone: result.delivery.recipientPhone ?? recipientPhone,
                   priceMinor: result.delivery.priceMinor,
+                  providerPayload: result.delivery.providerPayload,
                   tariffCode: calculationResult.calculation.tariffCode || tariffCode,
                   tariffName: cdekPanelState.selectedTariff?.tariffName ?? undefined
                 },

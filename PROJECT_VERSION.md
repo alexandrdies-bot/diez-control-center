@@ -62,6 +62,8 @@ CDEK tariff discovery добавлен отдельным backend endpoint `POST
 
 CDEK calculator payload приведён к OpenAPI по полю `type`: backend больше не отправляет в `/v2/calculator/tarifflist` delivery mode `1/2/3/4` как order type. Выбранные склад/ПВЗ передаются через `shipment_point` и `delivery_point`; calculation response shape, Desktop UI, DB, shipment lifecycle и Ozon-flow не менялись.
 
+Desktop CDEK delivery edit теперь подставляет сохранённую доставку из `delivery.providerPayload`: при повторном открытии формы восстанавливаются город/ПВЗ получателя, выбранный тариф, сохранённая стоимость/сроки, габариты, sender point code и saved-state. Форма не пересчитывает доставку автоматически, не вызывает CDEK endpoints и не сохраняет повторно; если старый payload содержит только `shipmentPointCode` без адреса/города отправителя, Desktop показывает доступные сохранённые данные. Для будущих сохранений provider payload дополнительно хранит sender city и shipment point summary, если UI эти данные знает.
+
 Добавлен первый API auth/session layer: `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`. Сессии хранятся в `app.user_sessions` только как hash токена, Basic Auth на nginx пока не снят, а order write/delete endpoints ещё не переведены на bearer auth и остаются на текущем production guard.
 
 Добавлен production-safe CLI bootstrap для первого `admin`/`manager` пользователя: `pnpm --filter @diez/api bootstrap:admin`. Пользователь автоматически не создавался; пароль передаётся только временными env-переменными shell и не хранится в repo, `.env` или seed.

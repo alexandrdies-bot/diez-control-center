@@ -409,7 +409,15 @@ export type CdekSaveDeliveryRequest = {
   recipientName?: string;
   recipientPhone?: string;
   region?: string;
+  senderCity?: string;
+  senderCityCode?: number;
+  senderCountryCode?: string;
+  senderRegion?: string;
+  shipmentPointAddress?: string;
   shipmentPointCode?: string;
+  shipmentPointName?: string;
+  shipmentPointType?: string;
+  shipmentPointUuid?: string;
   tariffCode: number;
   tariffName?: string;
 };
