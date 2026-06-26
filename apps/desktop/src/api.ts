@@ -194,6 +194,7 @@ export type DeleteOrderResult = {
 
 export type UpdateOrderResult = {
   canceledOzonPaymentIds?: number[];
+  deliveryNeedsReview?: boolean;
   id: number;
   ozonPaymentAutoCanceled?: boolean;
   orderNumber: string;
@@ -440,6 +441,7 @@ export type CdekSaveDeliveryResult = {
   payment: {
     activePaymentsCanceled: boolean;
     canceledPaymentIds: number[];
+    deliveryNeedsReview: boolean;
     financialChanged: boolean;
   };
   saved: boolean;
@@ -1337,6 +1339,7 @@ export async function saveCdekDelivery(
   const payment = result.payment ?? {
     activePaymentsCanceled: false,
     canceledPaymentIds: [],
+    deliveryNeedsReview: false,
     financialChanged: false
   };
 

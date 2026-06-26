@@ -702,6 +702,7 @@ type OzonOrderPaymentOrderRow = {
   currencyCode: string;
   customerEmail: string | null;
   customerPhone: string | null;
+  deliveryNeedsReview?: boolean;
   id: number;
   isDtf: boolean;
   orderNumber: string;
@@ -2977,6 +2978,278 @@ async function requestOzonCancelOrder(
   };
 }
 
+function buildOzonProviderExtId(
+  orderNumber: string,
+  existingPayments: ApiOrderPaymentRow[]
+) {
+  const existingExtIds = new Set(
+    existingPayments
+      .map((payment) => payment.providerExtId)
+      .filter((value): value is string => Boolean(value))
+  );
+
+  if (!existingExtIds.has(orderNumber)) {
+    return orderNumber;
+  }
+
+  let sequence = existingPayments.length + 1;
+  let providerExtId = `${orderNumber}-PAY-${sequence}`;
+
+  while (existingExtIds.has(providerExtId)) {
+    sequence += 1;
+    providerExtId = `${orderNumber}-PAY-${sequence}`;
+  }
+
+  return providerExtId;
+}
+
+function buildOzonCreateOrderRequest(
+  config: OzonAcquiringConfig,
+  order: OzonOrderPaymentOrderRow,
+  providerExtId: string
+) {
+  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  const amountMinor = String(order.totalPriceMinor);
+  const itemName = order.isDtf
+    ? `DTF-печать по заявке ${order.orderNumber}`
+    : `Оплата заказа ${order.orderNumber}`;
+
+  return {
+    amount: {
+      currencyCode: "643",
+      value: amountMinor
+    },
+    expiresAt,
+    extId: providerExtId,
+    failUrl: config.failUrl,
+    fiscalizationPhone: order.customerPhone ?? undefined,
+    fiscalizationType: "FISCAL_TYPE_SINGLE",
+    items: [
+      {
+        extId: providerExtId,
+        name: itemName,
+        needMark: false,
+        price: {
+          currencyCode: "643",
+          value: amountMinor
+        },
+        quantity: 1,
+        type: "TYPE_PRODUCT",
+        vat: "VAT_0"
+      }
+    ],
+    mode: "MODE_FULL",
+    notificationUrl: config.notificationUrl,
+    paymentAlgorithm: "PAY_ALGO_SMS",
+    receiptEmail: order.customerEmail ?? undefined,
+    successUrl: config.successUrl
+  };
+}
+
+async function requestOzonCreateOrder(
+  config: OzonAcquiringConfig,
+  order: OzonOrderPaymentOrderRow,
+  providerExtId: string
+) {
+  const createOrderRequest = buildOzonCreateOrderRequest(
+    config,
+    order,
+    providerExtId
+  );
+  const requestSign = signOzonCreateOrderRequest(config, createOrderRequest);
+  const requestBody = {
+    ...createOrderRequest,
+    accessKey: config.accessKey,
+    requestSign
+  };
+  let response: Response;
+
+  try {
+    response = await fetch(`${config.baseUrl}/v1/createOrder`, {
+      body: JSON.stringify(requestBody),
+      headers: {
+        "Content-Type": "application/json"
+      },
+      method: "POST"
+    });
+  } catch (error) {
+    return {
+      createOrderRequest,
+      diagnostic: {
+        ozonCode: "FETCH_FAILED",
+        ozonDetails: error instanceof Error ? sanitizeOzonText(error.message) : null,
+        ozonMessage: "Не удалось вызвать Ozon createOrder",
+        ozonStatus: 0
+      },
+      ok: false as const
+    };
+  }
+
+  const responseText = await response.text();
+  let responseBody: unknown = {};
+
+  try {
+    responseBody = responseText ? JSON.parse(responseText) : {};
+  } catch {
+    responseBody = {
+      raw: responseText
+    };
+  }
+
+  if (!response.ok) {
+    return {
+      createOrderRequest,
+      diagnostic: buildOzonErrorDiagnostic(
+        response.status,
+        responseBody,
+        responseText
+      ),
+      ok: false as const
+    };
+  }
+
+  return {
+    createOrderRequest,
+    ok: true as const,
+    responseBody
+  };
+}
+
+async function insertOzonCreatedPayment(input: {
+  actorName: string;
+  actorUserId: number;
+  client: PoolClient;
+  createOrderRequest: unknown;
+  order: OzonOrderPaymentOrderRow;
+  orderId: number;
+  providerExtId: string;
+  responseBody: unknown;
+}) {
+  const providerOrderId = getNestedString(input.responseBody, [
+    ["order", "id"],
+    ["order", "orderId"],
+    ["orderID"],
+    ["id"]
+  ]);
+  const ozonStatus = getNestedString(input.responseBody, [
+    ["order", "status"],
+    ["status"]
+  ]);
+  const payLink = getNestedString(input.responseBody, [
+    ["order", "payLink"],
+    ["payLink"],
+    ["paymentUrl"]
+  ]);
+  const testMode = getNestedBoolean(input.responseBody, [
+    ["order", "testMode"],
+    ["testMode"]
+  ]);
+  const mappedStatus = mapOzonOrderStatus(ozonStatus);
+  const expiresAt = getNestedString(input.createOrderRequest, [["expiresAt"]]);
+  const paymentResult = await input.client.query<ApiOrderPaymentRow>(
+    `
+      insert into app.order_payments (
+        order_id,
+        provider,
+        provider_ext_id,
+        provider_order_id,
+        amount_minor,
+        currency_code,
+        status,
+        ozon_status,
+        pay_link,
+        test_mode,
+        expires_at,
+        create_request_json,
+        create_response_json,
+        created_by_user_id
+      )
+      values (
+        $1,
+        'ozon_pay_checkout',
+        $2,
+        $3,
+        $4,
+        'RUB',
+        $5,
+        $6,
+        $7,
+        $8,
+        $9,
+        $10::jsonb,
+        $11::jsonb,
+        $12
+      )
+      on conflict (provider, provider_ext_id) do update
+      set updated_at = app.order_payments.updated_at
+      returning
+        id::text as id,
+        provider,
+        provider_order_id as "providerOrderId",
+        provider_ext_id as "providerExtId",
+        amount_minor::text as "amountMinor",
+        currency_code as "currencyCode",
+        status,
+        ozon_status as "ozonStatus",
+        pay_link as "payLink",
+        payment_method as "paymentMethod",
+        test_mode as "testMode",
+        paid_at::text as "paidAt",
+        canceled_at::text as "canceledAt",
+        refunded_at::text as "refundedAt",
+        expires_at::text as "expiresAt",
+        last_error_code as "lastErrorCode",
+        last_error_message as "lastErrorMessage",
+        created_at::text as "createdAt",
+        updated_at::text as "updatedAt"
+    `,
+    [
+      input.orderId,
+      input.providerExtId,
+      providerOrderId,
+      input.order.totalPriceMinor,
+      mappedStatus === "unknown" ? "created" : mappedStatus,
+      ozonStatus,
+      payLink,
+      testMode,
+      expiresAt,
+      JSON.stringify(sanitizeOzonPayload(input.createOrderRequest)),
+      JSON.stringify(sanitizeOzonPayload(input.responseBody)),
+      input.actorUserId
+    ]
+  );
+  const payment = paymentResult.rows[0];
+
+  await input.client.query(
+    `
+      insert into app.order_events (
+        order_id,
+        event_type,
+        actor_type,
+        actor_user_id,
+        actor_name,
+        payload_json
+      )
+      values ($1, 'payment_created', 'manager', $2, $3, $4::jsonb)
+    `,
+    [
+      input.orderId,
+      input.actorUserId,
+      input.actorName,
+      JSON.stringify({
+        amountMinor: input.order.totalPriceMinor,
+        paymentId: Number(payment.id),
+        provider: "ozon_pay_checkout",
+        providerExtId: input.providerExtId,
+        providerOrderId,
+        status: payment.status
+      })
+    ]
+  );
+
+  return payment;
+}
+
 function mapOzonOrderStatus(status: string | null): DiezPaymentStatus {
   switch (status) {
     case "STATUS_NEW":
@@ -3820,6 +4093,49 @@ function buildDraftOrderFinancialSignature(
   });
 }
 
+function buildStoredOrderItemsSignature(items: OrderFinancialItemRow[]) {
+  return JSON.stringify(
+    items
+      .map((item) => ({
+        calculationSnapshotJson: normalizeFinancialJson(
+          item.calculationSnapshotJson
+        ),
+        paramsJson: normalizeFinancialJson(item.paramsJson),
+        quantity: Number(item.quantity),
+        serviceType: item.serviceType,
+        sortOrder: item.sortOrder,
+        title: item.title,
+        totalPriceMinor: Number(item.totalPriceMinor),
+        unitPriceMinor: Number(item.unitPriceMinor)
+      }))
+      .sort((left, right) => left.sortOrder - right.sortOrder)
+  );
+}
+
+function buildDraftOrderItemsSignature(normalizedItems: DesktopDraftOrderItem[]) {
+  return JSON.stringify(
+    normalizedItems
+      .map((item, index) => {
+        const itemTotalPriceMinor = getOrderItemPriceMinor(item) ?? 0;
+        const quantity = getPositiveQuantity(item.quantity);
+
+        return {
+          calculationSnapshotJson: normalizeFinancialJson(
+            getOrderItemCalculationSnapshot(item)
+          ),
+          paramsJson: normalizeFinancialJson(getOrderItemParams(item)),
+          quantity,
+          serviceType: mapServiceType(getRequiredString(item.serviceType)),
+          sortOrder: index + 1,
+          title: getRequiredString(item.title),
+          totalPriceMinor: itemTotalPriceMinor,
+          unitPriceMinor: Math.round(itemTotalPriceMinor / quantity)
+        };
+      })
+      .sort((left, right) => left.sortOrder - right.sortOrder)
+  );
+}
+
 function getOrderItemsTotalMinor(normalizedItems: DesktopDraftOrderItem[]) {
   return normalizedItems.reduce(
     (total, item) => total + (getOrderItemPriceMinor(item) ?? 0),
@@ -3883,9 +4199,11 @@ async function upsertOrderDelivery(
   orderId: number,
   delivery: Record<string, unknown>,
   customerName: string | null,
-  customerPhone: string | null
+  customerPhone: string | null,
+  options: { clearNeedsReview?: boolean } = {}
 ) {
   const deliveryMode = normalizeDeliveryMode(delivery.mode);
+  const clearNeedsReview = options.clearNeedsReview ?? true;
   const values = [
     orderId,
     deliveryMode,
@@ -3893,7 +4211,8 @@ async function upsertOrderDelivery(
     getOptionalString(delivery.contactName) ?? customerName,
     getOptionalString(delivery.phone) ?? customerPhone,
     getOptionalString(delivery.address),
-    getOptionalString(delivery.comment)
+    getOptionalString(delivery.comment),
+    clearNeedsReview
   ];
   const existingDelivery = await client.query<{ id: number }>(
     `
@@ -3919,7 +4238,11 @@ async function upsertOrderDelivery(
           recipient_phone = $5,
           address_text = $6,
           comment = $7,
-          currency_code = 'RUB'
+          currency_code = 'RUB',
+          provider_payload_json = case
+            when $8::boolean then coalesce(provider_payload_json, '{}'::jsonb) - 'needsReview' - 'needsReviewReason'
+            else provider_payload_json
+          end
         where order_id = $1
       `,
       values
@@ -3954,7 +4277,7 @@ async function upsertOrderDelivery(
         '{}'::jsonb
       )
     `,
-    values
+    values.slice(0, 7)
   );
 }
 
@@ -5705,6 +6028,7 @@ app.patch<{
       payment: {
         activePaymentsCanceled: canceledOzonPaymentIds.length > 0,
         canceledPaymentIds: canceledOzonPaymentIds,
+        deliveryNeedsReview: false,
         financialChanged: hasFinancialChanges
       },
       status: "updated" as const,
@@ -6230,6 +6554,10 @@ app.post<{ Params: { id: string } }>(
           o.currency_code as "currencyCode",
           c.email as "customerEmail",
           c.phone as "customerPhone",
+          coalesce(
+            order_delivery.provider_payload_json->>'needsReview',
+            'false'
+          ) = 'true' as "deliveryNeedsReview",
           exists (
             select 1
             from app.order_items oi
@@ -6238,6 +6566,13 @@ app.post<{ Params: { id: string } }>(
           ) as "isDtf"
         from app.orders o
         left join app.customers c on c.id = o.customer_id
+        left join lateral (
+          select od.provider_payload_json
+          from app.order_delivery od
+          where od.order_id = o.id
+          order by od.id desc
+          limit 1
+        ) order_delivery on true
         where o.id = $1
         limit 1
       `,
@@ -6263,6 +6598,13 @@ app.post<{ Params: { id: string } }>(
       });
     }
 
+    if (order.deliveryNeedsReview) {
+      return reply.code(409).send({
+        error: "DELIVERY_NEEDS_REVIEW",
+        message: "Проверьте и сохраните доставку перед созданием оплаты."
+      });
+    }
+
     const existingPayments = await queryDatabase<ApiOrderPaymentRow>(
       `
         ${getOrderPaymentSelectSql()}
@@ -6284,11 +6626,10 @@ app.post<{ Params: { id: string } }>(
       };
     }
 
-    const paymentSequence = existingPayments.length + 1;
-    const providerExtId =
-      existingPayments.length === 0
-        ? order.orderNumber
-        : `${order.orderNumber}-PAY-${paymentSequence}`;
+    const providerExtId = buildOzonProviderExtId(
+      order.orderNumber,
+      existingPayments
+    );
     const existingExtIdPayments = await queryDatabase<ApiOrderPaymentRow>(
       `
         ${getOrderPaymentSelectSql()}
@@ -6306,217 +6647,44 @@ app.post<{ Params: { id: string } }>(
       };
     }
 
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-    const amountMinor = String(order.totalPriceMinor);
-    const itemName = order.isDtf
-      ? `DTF-печать по заявке ${order.orderNumber}`
-      : `Оплата заказа ${order.orderNumber}`;
-    const createOrderRequest = {
-      amount: {
-        currencyCode: "643",
-        value: amountMinor
-      },
-      expiresAt,
-      extId: providerExtId,
-      failUrl: config.failUrl,
-      fiscalizationPhone: order.customerPhone ?? undefined,
-      fiscalizationType: "FISCAL_TYPE_SINGLE",
-      items: [
-        {
-          extId: providerExtId,
-          name: itemName,
-          needMark: false,
-          price: {
-            currencyCode: "643",
-            value: amountMinor
-          },
-          quantity: 1,
-          type: "TYPE_PRODUCT",
-          vat: "VAT_0"
-        }
-      ],
-      mode: "MODE_FULL",
-      notificationUrl: config.notificationUrl,
-      paymentAlgorithm: "PAY_ALGO_SMS",
-      receiptEmail: order.customerEmail ?? undefined,
-      successUrl: config.successUrl
-    };
-    const requestSign = signOzonCreateOrderRequest(config, createOrderRequest);
-    const requestBody = {
-      ...createOrderRequest,
-      accessKey: config.accessKey,
-      requestSign
-    };
+    const createResult = await requestOzonCreateOrder(
+      config,
+      order,
+      providerExtId
+    );
 
-    const response = await fetch(`${config.baseUrl}/v1/createOrder`, {
-      body: JSON.stringify(requestBody),
-      headers: {
-        "Content-Type": "application/json"
-      },
-      method: "POST"
-    });
-    const responseText = await response.text();
-    let responseBody: unknown = {};
-
-    try {
-      responseBody = responseText ? JSON.parse(responseText) : {};
-    } catch {
-      responseBody = {
-        raw: responseText
-      };
-    }
-
-    if (!response.ok) {
-      const ozonError = buildOzonErrorDiagnostic(
-        response.status,
-        responseBody,
-        responseText
-      );
-
+    if (!createResult.ok) {
       request.log.warn(
         {
           endpoint: "/v1/createOrder",
           orderNumber: order.orderNumber,
-          ozonCode: ozonError.ozonCode,
-          ozonDetails: ozonError.ozonDetails,
-          ozonMessage: ozonError.ozonMessage,
-          ozonStatus: ozonError.ozonStatus
+          ozonCode: createResult.diagnostic.ozonCode,
+          ozonDetails: createResult.diagnostic.ozonDetails,
+          ozonMessage: createResult.diagnostic.ozonMessage,
+          ozonStatus: createResult.diagnostic.ozonStatus
         },
         "Ozon Pay Checkout createOrder failed"
       );
       return reply.code(502).send({
         error: "OZON_CREATE_ORDER_FAILED",
-        ozonCode: ozonError.ozonCode,
-        ozonDetails: ozonError.ozonDetails,
-        ozonMessage: ozonError.ozonMessage,
-        ozonStatus: ozonError.ozonStatus
+        ozonCode: createResult.diagnostic.ozonCode,
+        ozonDetails: createResult.diagnostic.ozonDetails,
+        ozonMessage: createResult.diagnostic.ozonMessage,
+        ozonStatus: createResult.diagnostic.ozonStatus
       });
     }
 
-    const providerOrderId = getNestedString(responseBody, [
-      ["order", "id"],
-      ["order", "orderId"],
-      ["orderID"],
-      ["id"]
-    ]);
-    const ozonStatus = getNestedString(responseBody, [
-      ["order", "status"],
-      ["status"]
-    ]);
-    const payLink = getNestedString(responseBody, [
-      ["order", "payLink"],
-      ["payLink"],
-      ["paymentUrl"]
-    ]);
-    const testMode = getNestedBoolean(responseBody, [
-      ["order", "testMode"],
-      ["testMode"]
-    ]);
-    const mappedStatus = mapOzonOrderStatus(ozonStatus);
-
     const insertedPayment = await withDatabaseTransaction(async (client) => {
-      const paymentResult = await client.query<ApiOrderPaymentRow>(
-        `
-          insert into app.order_payments (
-            order_id,
-            provider,
-            provider_ext_id,
-            provider_order_id,
-            amount_minor,
-            currency_code,
-            status,
-            ozon_status,
-            pay_link,
-            test_mode,
-            expires_at,
-            create_request_json,
-            create_response_json,
-            created_by_user_id
-          )
-          values (
-            $1,
-            'ozon_pay_checkout',
-            $2,
-            $3,
-            $4,
-            'RUB',
-            $5,
-            $6,
-            $7,
-            $8,
-            $9,
-            $10::jsonb,
-            $11::jsonb,
-            $12
-          )
-          on conflict (provider, provider_ext_id) do update
-          set updated_at = app.order_payments.updated_at
-          returning
-            id::text as id,
-            provider,
-            provider_order_id as "providerOrderId",
-            provider_ext_id as "providerExtId",
-            amount_minor::text as "amountMinor",
-            currency_code as "currencyCode",
-            status,
-            ozon_status as "ozonStatus",
-            pay_link as "payLink",
-            payment_method as "paymentMethod",
-            test_mode as "testMode",
-            paid_at::text as "paidAt",
-            canceled_at::text as "canceledAt",
-            refunded_at::text as "refundedAt",
-            expires_at::text as "expiresAt",
-            last_error_code as "lastErrorCode",
-            last_error_message as "lastErrorMessage",
-            created_at::text as "createdAt",
-            updated_at::text as "updatedAt"
-        `,
-        [
-          orderId,
-          providerExtId,
-          providerOrderId,
-          order.totalPriceMinor,
-          mappedStatus === "unknown" ? "created" : mappedStatus,
-          ozonStatus,
-          payLink,
-          testMode,
-          expiresAt,
-          JSON.stringify(sanitizeOzonPayload(createOrderRequest)),
-          JSON.stringify(sanitizeOzonPayload(responseBody)),
-          authSession.user.id
-        ]
-      );
-      const payment = paymentResult.rows[0];
-
-      await client.query(
-        `
-          insert into app.order_events (
-            order_id,
-            event_type,
-            actor_type,
-            actor_user_id,
-            actor_name,
-            payload_json
-          )
-          values ($1, 'payment_created', 'manager', $2, $3, $4::jsonb)
-        `,
-        [
-          orderId,
-          authSession.user.id,
-          authSession.user.displayName ?? authSession.user.login,
-          JSON.stringify({
-            amountMinor: order.totalPriceMinor,
-            paymentId: Number(payment.id),
-            provider: "ozon_pay_checkout",
-            providerExtId,
-            providerOrderId,
-            status: payment.status
-          })
-        ]
-      );
-
-      return payment;
+      return insertOzonCreatedPayment({
+        actorName: authSession.user.displayName ?? authSession.user.login,
+        actorUserId: authSession.user.id,
+        client,
+        createOrderRequest: createResult.createOrderRequest,
+        order,
+        orderId,
+        providerExtId,
+        responseBody: createResult.responseBody
+      });
     });
 
     return {
@@ -7659,6 +7827,7 @@ app.patch<{ Body: DesktopDraftOrderPayload; Params: { id: string } }>(
     const result = await withDatabaseTransaction(async (client) => {
       const existingOrder = await client.query<{
         customer_id: number | null;
+        delivery_mode: string | null;
         delivery_total_minor: number | string | null;
         id: number;
         order_number: string;
@@ -7666,14 +7835,22 @@ app.patch<{ Body: DesktopDraftOrderPayload; Params: { id: string } }>(
       }>(
         `
           select
-            id,
-            order_number,
-            customer_id,
-            total_price_minor,
-            delivery_total_minor
-          from app.orders
-          where id = $1
-          for update
+            o.id,
+            o.order_number,
+            o.customer_id,
+            o.total_price_minor,
+            o.delivery_total_minor,
+            order_delivery.delivery_mode
+          from app.orders o
+          left join lateral (
+            select od.delivery_mode
+            from app.order_delivery od
+            where od.order_id = o.id
+            order by od.id desc
+            limit 1
+          ) order_delivery on true
+          where o.id = $1
+          for update of o
         `,
         [orderId]
       );
@@ -7720,6 +7897,16 @@ app.patch<{ Body: DesktopDraftOrderPayload; Params: { id: string } }>(
       );
       const hasFinancialChanges =
         existingFinancialSignature !== nextFinancialSignature;
+      const hasItemFinancialChanges =
+        buildStoredOrderItemsSignature(existingItems.rows) !==
+        buildDraftOrderItemsSignature(normalizedItems);
+      const nextDeliveryMode = normalizeDeliveryMode(delivery.mode);
+      const savedDeliveryNeedsReview =
+        hasItemFinancialChanges &&
+        ["cdek", "manual"].includes(nextDeliveryMode) &&
+        ["cdek", "manual"].includes(
+          String(order.delivery_mode ?? "").trim().toLowerCase()
+        );
       const ozonPayments = await client.query<ApiOrderPaymentRow>(
         `
           ${getOrderPaymentSelectSql()}
@@ -7906,8 +8093,27 @@ app.patch<{ Body: DesktopDraftOrderPayload; Params: { id: string } }>(
         orderId,
         delivery,
         customerName,
-        customerPhone
+        customerPhone,
+        {
+          clearNeedsReview: !savedDeliveryNeedsReview
+        }
       );
+
+      if (savedDeliveryNeedsReview) {
+        await client.query(
+          `
+            update app.order_delivery
+            set provider_payload_json =
+              coalesce(provider_payload_json, '{}'::jsonb) ||
+              jsonb_build_object(
+                'needsReview', true,
+                'needsReviewReason', 'order_items_changed'
+              )
+            where order_id = $1
+          `,
+          [orderId]
+        );
+      }
 
       await client.query(
         `
@@ -7924,6 +8130,7 @@ app.patch<{ Body: DesktopDraftOrderPayload; Params: { id: string } }>(
           orderId,
           authSession.user.id,
           JSON.stringify({
+            deliveryNeedsReview: savedDeliveryNeedsReview,
             source: "desktop_patch"
           })
         ]
@@ -7931,6 +8138,7 @@ app.patch<{ Body: DesktopDraftOrderPayload; Params: { id: string } }>(
 
       return {
         canceledOzonPaymentIds,
+        deliveryNeedsReview: savedDeliveryNeedsReview,
         id: order.id,
         orderNumber: order.order_number,
         ozonPaymentAutoCanceled: canceledOzonPaymentIds.length > 0,
