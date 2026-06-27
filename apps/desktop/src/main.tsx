@@ -439,9 +439,20 @@ type CdekActivePicker =
 type CdekTariffFromMode = "door" | "warehouse";
 type CdekTariffToMode = "door" | "postamat" | "warehouse";
 
+type CdekPackageState = {
+  cargoDescription: string;
+  heightCm: string;
+  id: string;
+  isDangerousCargo: boolean;
+  lengthCm: string;
+  weightKg: string;
+  widthCm: string;
+};
+
 type CdekPanelState = {
   activePicker: CdekActivePicker;
   calculationResult: CdekDeliveryCalculationResult | null;
+  cargoDescription: string;
   cityQuery: string;
   cityResults: CdekCity[];
   deliveryPointFilter: string;
@@ -458,8 +469,10 @@ type CdekPanelState = {
   isLoadingStatus: boolean;
   isLoadingTariffs: boolean;
   isSaving: boolean;
+  isDangerousCargo: boolean;
   lengthCm: string;
   message: string | null;
+  packages: CdekPackageState[];
   saveResult: CdekSaveDeliveryResult | null;
   selectedCity: CdekCity | null;
   selectedDeliveryPoint: CdekDeliveryPoint | null;
@@ -525,6 +538,8 @@ const DEFAULT_CDEK_SENDER_POINT: CdekDeliveryPoint = {
   workTime: null
 };
 
+const DEFAULT_CDEK_CARGO_DESCRIPTION = "Рекламная продукция";
+
 function getCdekCityCode(city: CdekCity | null) {
   return city?.code ?? getOptionalNumber(getRecordValue(city, "cityCode")) ?? null;
 }
@@ -551,10 +566,40 @@ type DtfPrintCalculationResult = {
   widthCm: number;
 };
 
-function createDefaultCdekPanelState(): CdekPanelState {
+function getDefaultCdekCargoDescription(draftOrder?: Pick<DraftOrder, "items">) {
+  const title = draftOrder?.items
+    .map((item) => item.title.trim())
+    .filter(Boolean)
+    .slice(0, 4)
+    .join(", ");
+
+  return title || DEFAULT_CDEK_CARGO_DESCRIPTION;
+}
+
+function createCdekPackageState(
+  cargoDescription = DEFAULT_CDEK_CARGO_DESCRIPTION,
+  index = 0
+): CdekPackageState {
+  return {
+    cargoDescription,
+    heightCm: "10",
+    id: `cdek-package-${Date.now()}-${index}`,
+    isDangerousCargo: false,
+    lengthCm: "30",
+    weightKg: "1",
+    widthCm: "20"
+  };
+}
+
+function createDefaultCdekPanelState(
+  cargoDescription = DEFAULT_CDEK_CARGO_DESCRIPTION
+): CdekPanelState {
+  const defaultPackage = createCdekPackageState(cargoDescription);
+
   return {
     activePicker: null,
     calculationResult: null,
+    cargoDescription,
     cityQuery: "",
     cityResults: [],
     deliveryPointFilter: "",
@@ -571,8 +616,10 @@ function createDefaultCdekPanelState(): CdekPanelState {
     isLoadingStatus: false,
     isLoadingTariffs: false,
     isSaving: false,
+    isDangerousCargo: false,
     lengthCm: "30",
     message: null,
+    packages: [defaultPackage],
     saveResult: null,
     selectedCity: null,
     selectedDeliveryPoint: null,
@@ -592,8 +639,8 @@ function createDefaultCdekPanelState(): CdekPanelState {
     tariffResultsFingerprint: null,
     tariffResults: [],
     tariffToMode: "warehouse",
-    weightKg: "1",
-    widthCm: "20"
+    weightKg: defaultPackage.weightKg,
+    widthCm: defaultPackage.widthCm
   };
 }
 
@@ -756,7 +803,9 @@ function createCdekPanelStateFromSavedDelivery(
   draftOrder: DraftOrder,
   currentStatus: CdekStatus | null
 ): CdekPanelState {
-  const defaultState = createDefaultCdekPanelState();
+  const defaultState = createDefaultCdekPanelState(
+    getDefaultCdekCargoDescription(draftOrder)
+  );
   const providerPayload = draftOrder.delivery.providerPayload;
 
   if (draftOrder.delivery.mode !== "cdek" || !providerPayload) {
@@ -784,6 +833,7 @@ function createCdekPanelStateFromSavedDelivery(
   const tariffPayload = getRecordValue(providerPayload, "tariff");
   const timingPayload = getRecordValue(providerPayload, "timing");
   const calculationPayload = getRecordValue(providerPayload, "calculation");
+  const cargoPayload = getRecordValue(providerPayload, "cargo");
   const selectedCity = createCdekCityFromProviderPayload(
     cityPayload,
     draftOrder.delivery.address
@@ -792,6 +842,52 @@ function createCdekPanelStateFromSavedDelivery(
     deliveryPointPayload,
     selectedCity
   );
+  const savedCargoDescription =
+    getOptionalString(getRecordValue(providerPayload, "cargoDescription")) ??
+    getOptionalString(getRecordValue(cargoPayload, "description")) ??
+    defaultState.cargoDescription;
+  const savedIsDangerousCargo =
+    getOptionalBoolean(getRecordValue(providerPayload, "isDangerousCargo")) ??
+    getOptionalBoolean(getRecordValue(cargoPayload, "isDangerousCargo")) ??
+    defaultState.isDangerousCargo;
+  const savedPackagePayloads = packageItems.length
+    ? packageItems
+    : firstPackage
+      ? [firstPackage]
+      : [];
+  const savedPackages = savedPackagePayloads
+    .map((packagePayload, index) => {
+      const weightGrams = getOptionalNumber(
+        getRecordValue(packagePayload, "weightGrams")
+      );
+      const lengthCm = getOptionalNumber(getRecordValue(packagePayload, "lengthCm"));
+      const widthCm = getOptionalNumber(getRecordValue(packagePayload, "widthCm"));
+      const heightCm = getOptionalNumber(getRecordValue(packagePayload, "heightCm"));
+
+      if (!weightGrams || !lengthCm || !widthCm || !heightCm) {
+        return null;
+      }
+
+      return {
+        cargoDescription:
+          getOptionalString(getRecordValue(packagePayload, "description")) ??
+          savedCargoDescription,
+        heightCm: String(heightCm),
+        id: `saved-cdek-package-${index}`,
+        isDangerousCargo:
+          getOptionalBoolean(getRecordValue(packagePayload, "isDangerousCargo")) ??
+          savedIsDangerousCargo,
+        lengthCm: String(lengthCm),
+        weightKg: formatCdekWeightKgInput(weightGrams) ?? defaultState.weightKg,
+        widthCm: String(widthCm)
+      };
+    })
+    .filter(Boolean) as CdekPackageState[];
+  const packageStates =
+    savedPackages.length > 0
+      ? savedPackages
+      : [createCdekPackageState(savedCargoDescription)];
+  const firstPackageState = packageStates[0];
   const shipmentPointCode = getOptionalString(
     getRecordValue(providerPayload, "shipmentPointCode")
   );
@@ -821,10 +917,12 @@ function createCdekPanelStateFromSavedDelivery(
     draftOrder.delivery.priceMinor ??
     getOptionalNumber(getRecordValue(calculationPayload, "priceMinor"));
   const deliverySumMinor =
+    getOptionalNumber(getRecordValue(pricingPayload, "deliverySumMinor")) ??
     getOptionalNumber(getRecordValue(calculationPayload, "deliverySumMinor")) ??
     priceMinor ??
     null;
   const totalSumMinor =
+    getOptionalNumber(getRecordValue(pricingPayload, "totalSumMinor")) ??
     getOptionalNumber(getRecordValue(calculationPayload, "totalSumMinor")) ??
     priceMinor ??
     null;
@@ -841,7 +939,10 @@ function createCdekPanelStateFromSavedDelivery(
   const selectedTariff: CdekTariff | null =
     tariffCode || tariffName || priceMinor
       ? {
-          deliveryMode: null,
+          deliveryMode:
+            getOptionalString(getRecordValue(tariffPayload, "deliveryMode")) ??
+            getOptionalString(getRecordValue(providerPayload, "deliveryMode")) ??
+            null,
           deliverySumMinor,
           errors: getProviderArray(getRecordValue(calculationPayload, "errors")),
           periodMax,
@@ -929,16 +1030,15 @@ function createCdekPanelStateFromSavedDelivery(
     ...defaultState,
     activePicker: null,
     calculationResult,
+    cargoDescription: firstPackageState.cargoDescription,
     cityQuery: formatCdekCityLabel(selectedCity),
-    heightCm:
-      getOptionalNumber(getRecordValue(firstPackage, "heightCm"))?.toString() ??
-      defaultState.heightCm,
-    lengthCm:
-      getOptionalNumber(getRecordValue(firstPackage, "lengthCm"))?.toString() ??
-      defaultState.lengthCm,
+    heightCm: firstPackageState.heightCm,
+    lengthCm: firstPackageState.lengthCm,
     message,
     saveResult,
+    isDangerousCargo: firstPackageState.isDangerousCargo,
     isEditingSavedDelivery: false,
+    packages: packageStates,
     selectedCity,
     selectedDeliveryPoint,
     selectedSenderCity,
@@ -955,13 +1055,8 @@ function createCdekPanelStateFromSavedDelivery(
     status: currentStatus,
     tariffCode: tariffCode ? String(tariffCode) : "",
     tariffResults: selectedTariff ? [selectedTariff] : [],
-    weightKg:
-      formatCdekWeightKgInput(
-        getOptionalNumber(getRecordValue(firstPackage, "weightGrams"))
-      ) ?? defaultState.weightKg,
-    widthCm:
-      getOptionalNumber(getRecordValue(firstPackage, "widthCm"))?.toString() ??
-      defaultState.widthCm
+    weightKg: firstPackageState.weightKg,
+    widthCm: firstPackageState.widthCm
   };
 }
 
@@ -1175,6 +1270,97 @@ function formatCdekWeightKgInput(weightGrams: number | null | undefined) {
   return Number((weightGrams / 1000).toFixed(3)).toString();
 }
 
+function getCdekPackagePayloads(state: CdekPanelState) {
+  const packages = state.packages.length
+    ? state.packages
+    : [
+        {
+          cargoDescription: state.cargoDescription,
+          heightCm: state.heightCm,
+          id: "legacy-cdek-package",
+          isDangerousCargo: state.isDangerousCargo,
+          lengthCm: state.lengthCm,
+          weightKg: state.weightKg,
+          widthCm: state.widthCm
+        }
+      ];
+
+  const normalizedPackages = packages.map((packageState) => {
+    const weightGrams = getCdekWeightGramsInput(packageState.weightKg);
+    const lengthCm = getPositiveIntegerInput(packageState.lengthCm);
+    const widthCm = getPositiveIntegerInput(packageState.widthCm);
+    const heightCm = getPositiveIntegerInput(packageState.heightCm);
+
+    if (!weightGrams || !lengthCm || !widthCm || !heightCm) {
+      return null;
+    }
+
+    return {
+      description:
+        packageState.cargoDescription.trim() || DEFAULT_CDEK_CARGO_DESCRIPTION,
+      heightCm,
+      isDangerousCargo: packageState.isDangerousCargo,
+      lengthCm,
+      weightGrams,
+      widthCm
+    };
+  });
+
+  return normalizedPackages.some((packagePayload) => packagePayload === null)
+    ? null
+    : (normalizedPackages as Array<{
+        description: string;
+        heightCm: number;
+        isDangerousCargo: boolean;
+        lengthCm: number;
+        weightGrams: number;
+        widthCm: number;
+      }>);
+}
+
+function getCdekTotalPackageWeightKg(state: CdekPanelState) {
+  const packages = getCdekPackagePayloads(state);
+
+  if (!packages) {
+    return null;
+  }
+
+  return packages.reduce((sum, packagePayload) => sum + packagePayload.weightGrams, 0) / 1000;
+}
+
+function resetCdekPackageDependentState(state: CdekPanelState): CdekPanelState {
+  return {
+    ...state,
+    calculationResult: null,
+    message: null,
+    saveResult: null,
+    selectedTariff: null,
+    tariffCode: "",
+    tariffRequestFingerprint: null,
+    tariffResults: [],
+    tariffResultsFingerprint: null
+  };
+}
+
+function syncCdekLegacyCargoFields(
+  state: CdekPanelState,
+  packages: CdekPackageState[]
+): CdekPanelState {
+  const firstPackage = packages[0];
+
+  return {
+    ...state,
+    cargoDescription: firstPackage?.cargoDescription ?? state.cargoDescription,
+    heightCm: firstPackage?.heightCm ?? state.heightCm,
+    isDangerousCargo:
+      firstPackage?.isDangerousCargo ?? state.isDangerousCargo,
+    lengthCm: firstPackage?.lengthCm ?? state.lengthCm,
+    packages,
+    weightKg: firstPackage?.weightKg ?? state.weightKg,
+    widthCm: firstPackage?.widthCm ?? state.widthCm
+  };
+}
+
 function getCdekCalculationPriceMinor(
   calculationResult: CdekDeliveryCalculationResult | null
 ) {
@@ -1208,15 +1394,73 @@ function formatCdekTariffCode(tariff: CdekTariff | null) {
   return tariff?.tariffCode ? `#${tariff.tariffCode}` : null;
 }
 
+function formatCdekRubMinor(valueMinor: number) {
+  return `${(valueMinor / 100).toLocaleString("ru-RU", {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: valueMinor % 100 === 0 ? 0 : 2
+  })} ₽`;
+}
+
+function getCdekTariffBasePriceMinor(tariff: CdekTariff) {
+  return tariff.deliverySumMinor ?? tariff.totalSumMinor ?? null;
+}
+
+function getCdekTariffPayableMinor(tariff: CdekTariff) {
+  return tariff.totalSumMinor ?? tariff.deliverySumMinor ?? null;
+}
+
 function getCdekTariffPriceLabel(tariff: CdekTariff) {
-  const priceMinor = tariff.totalSumMinor ?? tariff.deliverySumMinor ?? null;
+  const priceMinor = getCdekTariffBasePriceMinor(tariff);
 
   return priceMinor === null
     ? "цена не получена"
-    : `${(priceMinor / 100).toLocaleString("ru-RU", {
-        maximumFractionDigits: 2,
-        minimumFractionDigits: priceMinor % 100 === 0 ? 0 : 2
-      })} ₽`;
+    : formatCdekRubMinor(priceMinor);
+}
+
+function getCdekTariffPaymentHint(tariff: CdekTariff) {
+  const basePriceMinor = getCdekTariffBasePriceMinor(tariff);
+  const payableMinor = getCdekTariffPayableMinor(tariff);
+
+  if (
+    basePriceMinor === null ||
+    payableMinor === null ||
+    basePriceMinor === payableMinor
+  ) {
+    return null;
+  }
+
+  return `к оплате ${formatCdekRubMinor(payableMinor)} с НДС`;
+}
+
+function getCdekCalculationTariffPriceMinor(
+  calculationResult: CdekDeliveryCalculationResult | null
+) {
+  return calculationResult?.calculation.deliverySumMinor ?? null;
+}
+
+function getCdekCalculationVatMinor(
+  calculationResult: CdekDeliveryCalculationResult | null
+) {
+  const tariffPriceMinor = getCdekCalculationTariffPriceMinor(calculationResult);
+  const payableMinor = getCdekCalculationPriceMinor(calculationResult);
+
+  if (tariffPriceMinor === null || payableMinor === null) {
+    return null;
+  }
+
+  const vatMinor = payableMinor - tariffPriceMinor;
+
+  return vatMinor > 0 ? vatMinor : null;
+}
+
+function getCdekCalculationPayableLabel(
+  calculationResult: CdekDeliveryCalculationResult | null
+) {
+  const payableMinor = getCdekCalculationPriceMinor(calculationResult);
+
+  return payableMinor === null
+    ? "стоимость не рассчитана"
+    : formatCdekRubMinor(payableMinor);
 }
 
 function getCdekTariffPeriodLabel(tariff: CdekTariff) {
@@ -1555,12 +1799,24 @@ function getCdekRecipientSectionSummary(state: CdekPanelState) {
 }
 
 function getCdekCargoSummary(state: CdekPanelState) {
-  const dimensions = [state.lengthCm, state.widthCm, state.heightCm]
-    .map((value) => value.trim())
-    .filter(Boolean)
-    .join("×");
+  const packages = getCdekPackagePayloads(state);
 
-  return `${state.weightKg || "?"} кг${dimensions ? `, ${dimensions} см` : ""}`;
+  if (!packages || packages.length === 0) {
+    return "Проверьте грузовые места";
+  }
+
+  if (packages.length === 1) {
+    const [packagePayload] = packages;
+    const weightKg = Number((packagePayload.weightGrams / 1000).toFixed(3));
+
+    return `${weightKg} кг, ${packagePayload.lengthCm}×${packagePayload.widthCm}×${packagePayload.heightCm} см`;
+  }
+
+  const totalWeightKg =
+    packages.reduce((sum, packagePayload) => sum + packagePayload.weightGrams, 0) /
+    1000;
+
+  return `${packages.length} места · ${Number(totalWeightKg.toFixed(3))} кг суммарно`;
 }
 
 function getCdekCalculationPeriodLabel(
@@ -1600,9 +1856,17 @@ function getCdekTariffSectionSummary(state: CdekPanelState) {
     .join(" · ");
 }
 
-function getCdekSaveButtonLabel(state: CdekPanelState, draftOrder: DraftOrder) {
+function getCdekSaveButtonLabel(
+  state: CdekPanelState,
+  draftOrder: DraftOrder,
+  deliveryNeedsReview = false
+) {
   if (state.isSaving) {
     return "Сохраняем...";
+  }
+
+  if (deliveryNeedsReview && state.saveResult) {
+    return "Подтвердить доставку";
   }
 
   if (state.saveResult) {
@@ -1620,10 +1884,19 @@ function canRequestCdekTariffs(state: CdekPanelState) {
       state.selectedSenderDeliveryPoint?.code &&
       state.selectedCity?.code &&
       state.selectedDeliveryPoint?.code &&
-      getCdekWeightGramsInput(state.weightKg) &&
-      getPositiveIntegerInput(state.lengthCm) &&
-      getPositiveIntegerInput(state.widthCm) &&
-      getPositiveIntegerInput(state.heightCm)
+      getCdekPackagePayloads(state)
+  );
+}
+
+function canCalculateCdekDelivery(state: CdekPanelState) {
+  return Boolean(canRequestCdekTariffs(state) && state.selectedTariff?.tariffCode);
+}
+
+function canSubmitCdekDelivery(state: CdekPanelState) {
+  return Boolean(
+    canCalculateCdekDelivery(state) &&
+      state.calculationResult &&
+      getCdekCalculationPriceMinor(state.calculationResult) !== null
   );
 }
 
@@ -1632,20 +1905,14 @@ function getCdekTariffRequestFingerprint(state: CdekPanelState) {
   const shipmentPointCode = state.selectedSenderDeliveryPoint?.code ?? null;
   const toCityCode = state.selectedCity?.code ?? null;
   const deliveryPointCode = state.selectedDeliveryPoint?.code ?? null;
-  const weightGrams = getCdekWeightGramsInput(state.weightKg);
-  const lengthCm = getPositiveIntegerInput(state.lengthCm);
-  const widthCm = getPositiveIntegerInput(state.widthCm);
-  const heightCm = getPositiveIntegerInput(state.heightCm);
+  const packages = getCdekPackagePayloads(state);
 
   if (
     !fromCityCode ||
     !shipmentPointCode ||
     !toCityCode ||
     !deliveryPointCode ||
-    !weightGrams ||
-    !lengthCm ||
-    !widthCm ||
-    !heightCm
+    !packages
   ) {
     return null;
   }
@@ -1658,10 +1925,12 @@ function getCdekTariffRequestFingerprint(state: CdekPanelState) {
     state.selectedCity?.city ?? state.cityQuery.trim(),
     deliveryPointCode,
     state.selectedDeliveryPoint?.address ?? state.selectedDeliveryPoint?.addressFull ?? "",
-    weightGrams,
-    lengthCm,
-    widthCm,
-    heightCm
+    ...packages.flatMap((packagePayload) => [
+      packagePayload.weightGrams,
+      packagePayload.lengthCm,
+      packagePayload.widthCm,
+      packagePayload.heightCm
+    ])
   ].join("|");
 }
 
@@ -1705,8 +1974,13 @@ function createCdekCalculationResultFromTariff(
 
 function getCdekCalculationSectionSummary(
   state: CdekPanelState,
-  draftOrder: DraftOrder
+  draftOrder: DraftOrder,
+  deliveryNeedsReview = false
 ) {
+  if (deliveryNeedsReview && state.saveResult) {
+    return "Доставка требует проверки после изменения заказа.";
+  }
+
   if (state.saveResult) {
     return "СДЭК-доставка сохранена в заказ";
   }
@@ -1838,6 +2112,10 @@ function isDraftOrderDeliveryNeedsReview(draftOrder: DraftOrder) {
 
 function getOptionalNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function getOptionalBoolean(value: unknown) {
+  return typeof value === "boolean" ? value : undefined;
 }
 
 function getOptionalString(value: unknown) {
@@ -3269,8 +3547,12 @@ function App() {
     );
   }, [activeDraftOrder, draftOrders, selectedDraftOrderId]);
   useEffect(() => {
-    setCdekPanelState(createDefaultCdekPanelState());
-  }, [selectedDraftOrderId]);
+    setCdekPanelState(
+      createDefaultCdekPanelState(
+        getDefaultCdekCargoDescription(detailDraftOrder ?? undefined)
+      )
+    );
+  }, [detailDraftOrder, selectedDraftOrderId]);
   useEffect(() => {
     if (
       draftOrderPanelMode !== "delivery" ||
@@ -3435,9 +3717,8 @@ function App() {
   }, [
     cdekPanelState.cityQuery,
     cdekPanelState.deliveryPointResults,
-    cdekPanelState.heightCm,
     cdekPanelState.isLoadingTariffs,
-    cdekPanelState.lengthCm,
+    cdekPanelState.packages,
     cdekPanelState.selectedCity,
     cdekPanelState.selectedDeliveryPoint,
     cdekPanelState.selectedSenderCity,
@@ -3446,8 +3727,6 @@ function App() {
     cdekPanelState.tariffRequestFingerprint,
     cdekPanelState.tariffResults.length,
     cdekPanelState.tariffResultsFingerprint,
-    cdekPanelState.weightKg,
-    cdekPanelState.widthCm,
     draftOrderDeliveryForm.mode,
     draftOrderPanelMode
   ]);
@@ -4909,10 +5188,7 @@ function App() {
       cdekPanelState.selectedSenderDeliveryPoint?.code ?? null;
     const toCityCode = cdekPanelState.selectedCity?.code ?? null;
     const deliveryPointCode = cdekPanelState.selectedDeliveryPoint?.code ?? null;
-    const weightGrams = getCdekWeightGramsInput(cdekPanelState.weightKg);
-    const lengthCm = getPositiveIntegerInput(cdekPanelState.lengthCm);
-    const widthCm = getPositiveIntegerInput(cdekPanelState.widthCm);
-    const heightCm = getPositiveIntegerInput(cdekPanelState.heightCm);
+    const packages = getCdekPackagePayloads(cdekPanelState);
     const fingerprint =
       requestFingerprint ?? getCdekTariffRequestFingerprint(cdekPanelState);
 
@@ -4948,7 +5224,7 @@ function App() {
       return;
     }
 
-    if (!weightGrams || !lengthCm || !widthCm || !heightCm) {
+    if (!packages) {
       setCdekPanelState((current) => ({
         ...current,
         message:
@@ -4977,14 +5253,12 @@ function App() {
           fromLocation: {
             code: fromCityCode
           },
-          packages: [
-            {
-              heightCm,
-              lengthCm,
-              weightGrams,
-              widthCm
-            }
-          ],
+          packages: packages.map((packagePayload) => ({
+            heightCm: packagePayload.heightCm,
+            lengthCm: packagePayload.lengthCm,
+            weightGrams: packagePayload.weightGrams,
+            widthCm: packagePayload.widthCm
+          })),
           shipmentPointCode,
           toLocation: {
             code: toCityCode
@@ -5039,10 +5313,7 @@ function App() {
       cdekPanelState.selectedSenderDeliveryPoint?.code ?? null;
     const toCityCode = cdekPanelState.selectedCity?.code ?? null;
     const deliveryPointCode = cdekPanelState.selectedDeliveryPoint?.code ?? null;
-    const weightGrams = getCdekWeightGramsInput(cdekPanelState.weightKg);
-    const lengthCm = getPositiveIntegerInput(cdekPanelState.lengthCm);
-    const widthCm = getPositiveIntegerInput(cdekPanelState.widthCm);
-    const heightCm = getPositiveIntegerInput(cdekPanelState.heightCm);
+    const packages = getCdekPackagePayloads(cdekPanelState);
 
     if (!tariffCode) {
       setCdekPanelState((current) => ({
@@ -5084,7 +5355,7 @@ function App() {
       return;
     }
 
-    if (!weightGrams || !lengthCm || !widthCm || !heightCm) {
+    if (!packages) {
       setCdekPanelState((current) => ({
         ...current,
         message:
@@ -5110,14 +5381,12 @@ function App() {
           fromLocation: {
             code: fromCityCode
           },
-          packages: [
-            {
-              heightCm,
-              lengthCm,
-              weightGrams,
-              widthCm
-            }
-          ],
+          packages: packages.map((packagePayload) => ({
+            heightCm: packagePayload.heightCm,
+            lengthCm: packagePayload.lengthCm,
+            weightGrams: packagePayload.weightGrams,
+            widthCm: packagePayload.widthCm
+          })),
           shipmentPointCode,
           tariffCode,
           toLocation: {
@@ -5167,11 +5436,11 @@ function App() {
     const selectedDeliveryPoint = cdekPanelState.selectedDeliveryPoint;
     const tariffCode = cdekPanelState.selectedTariff?.tariffCode ?? null;
     const selectedSenderCityCode = getCdekCityCode(selectedSenderCity);
-    const weightGrams = getCdekWeightGramsInput(cdekPanelState.weightKg);
-    const lengthCm = getPositiveIntegerInput(cdekPanelState.lengthCm);
-    const widthCm = getPositiveIntegerInput(cdekPanelState.widthCm);
-    const heightCm = getPositiveIntegerInput(cdekPanelState.heightCm);
+    const packages = getCdekPackagePayloads(cdekPanelState);
     const priceMinor = getCdekCalculationPriceMinor(calculationResult);
+    const deliverySumMinor = getCdekCalculationTariffPriceMinor(calculationResult);
+    const totalSumMinor = getCdekCalculationPriceMinor(calculationResult);
+    const vatMinor = getCdekCalculationVatMinor(calculationResult);
 
     if (!canSaveCdekDeliveryMode(cdekPanelState)) {
       setCdekPanelState((current) => ({
@@ -5221,7 +5490,7 @@ function App() {
       return;
     }
 
-    if (!tariffCode || !weightGrams || !lengthCm || !widthCm || !heightCm) {
+    if (!tariffCode || !packages) {
       setCdekPanelState((current) => ({
         ...current,
         message: "Проверьте тариф, вес и габариты."
@@ -5241,7 +5510,23 @@ function App() {
       draftOrder.delivery.phone?.trim() ||
       draftOrder.customer?.phone?.trim() ||
       undefined;
+    const recipientEmail = draftOrder.customer?.email?.trim() || undefined;
     const shipmentPointCode = selectedSenderDeliveryPoint.code;
+    const cargoDescription = packages
+      .map((packagePayload) => packagePayload.description)
+      .filter(Boolean)
+      .filter((value, index, values) => values.indexOf(value) === index)
+      .join(", ");
+    const declaredValueMinor = getDraftOrderTotalMinor(draftOrder.items);
+    const isDangerousCargo = packages.some(
+      (packagePayload) => packagePayload.isDangerousCargo
+    );
+    const deliveryMode =
+      cdekPanelState.selectedTariff?.deliveryMode ??
+      (cdekPanelState.tariffFromMode === "warehouse" &&
+      cdekPanelState.tariffToMode === "warehouse"
+        ? "4"
+        : undefined);
 
     setCdekPanelState((current) => ({
       ...current,
@@ -5254,27 +5539,35 @@ function App() {
         draftOrder.serverOrderId,
         {
           calculation: calculationResult.calculation,
+          cargoDescription,
           city: selectedCity.city ?? selectedCity.fullName ?? cdekPanelState.cityQuery,
           cityCode: selectedCity.code,
           cityUuid: selectedCity.cityUuid ?? undefined,
           comment: draftOrder.delivery.comment?.trim() || undefined,
           countryCode: selectedCity.countryCode ?? "RU",
           currencyCode: "RUB",
+          declaredValueMinor,
+          deliveryMode,
           deliveryPointAddress,
           deliveryPointCode: selectedDeliveryPoint.code,
+          deliveryPointName: selectedDeliveryPoint.name ?? undefined,
           deliveryPointType: selectedDeliveryPoint.type ?? undefined,
           deliveryPointUuid: selectedDeliveryPoint.uuid ?? undefined,
-          packages: [
-            {
-              heightCm,
-              lengthCm,
-              weightGrams,
-              widthCm
-            }
-          ],
+          deliverySumMinor: deliverySumMinor ?? undefined,
+          isDangerousCargo,
+          packages: packages.map((packagePayload) => ({
+            description: packagePayload.description,
+            heightCm: packagePayload.heightCm,
+            isDangerousCargo: packagePayload.isDangerousCargo,
+            lengthCm: packagePayload.lengthCm,
+            weightGrams: packagePayload.weightGrams,
+            widthCm: packagePayload.widthCm
+          })),
           periodMax: calculationResult.calculation.periodMax ?? undefined,
           periodMin: calculationResult.calculation.periodMin ?? undefined,
+          placesCount: packages.length,
           priceMinor,
+          recipientEmail,
           recipientName,
           recipientPhone,
           region: selectedCity.region ?? undefined,
@@ -5295,7 +5588,9 @@ function App() {
           shipmentPointType: selectedSenderDeliveryPoint.type ?? undefined,
           shipmentPointUuid: selectedSenderDeliveryPoint.uuid ?? undefined,
           tariffCode: calculationResult.calculation.tariffCode || tariffCode,
-          tariffName: cdekPanelState.selectedTariff?.tariffName ?? undefined
+          tariffName: cdekPanelState.selectedTariff?.tariffName ?? undefined,
+          totalSumMinor: totalSumMinor ?? undefined,
+          vatMinor: vatMinor ?? undefined
         },
         authToken
       );
@@ -5685,7 +5980,14 @@ function App() {
             </p>
           </div>
           {deliveryNeedsReview ? (
-            <button className="secondary-action-button" disabled type="button">
+            <button
+              className="secondary-action-button"
+              onClick={() => {
+                closePaymentPreparationPanel();
+                openDraftOrderDeliveryForm(draftOrder);
+              }}
+              type="button"
+            >
               Проверьте доставку
             </button>
           ) : canCreatePayment ? (
@@ -7470,12 +7772,18 @@ function App() {
                         </p>
                       ) : draftOrderDeliveryForm.mode === "cdek" ? (
                         <div
-                          className={
+                          className={[
+                            "delivery-cdek-panel",
                             cdekPanelState.saveResult &&
                             !cdekPanelState.isEditingSavedDelivery
-                              ? "delivery-cdek-panel delivery-cdek-panel-summary"
-                              : "delivery-cdek-panel"
-                          }
+                              ? "delivery-cdek-panel-summary"
+                              : null,
+                            isDraftOrderDeliveryNeedsReview(detailDraftOrder)
+                              ? "delivery-cdek-panel-review"
+                              : null
+                          ]
+                            .filter(Boolean)
+                            .join(" ")}
                         >
                           <div className="delivery-cdek-header">
                             <div>
@@ -7496,12 +7804,16 @@ function App() {
 
                           <p
                             className={
-                              cdekPanelState.saveResult
+                              isDraftOrderDeliveryNeedsReview(detailDraftOrder)
+                                ? "delivery-cdek-save-note delivery-cdek-save-note-warning"
+                                : cdekPanelState.saveResult
                                 ? "delivery-cdek-save-note delivery-cdek-save-note-success"
                                 : "delivery-cdek-save-note"
                             }
                           >
-                            {cdekPanelState.saveResult
+                            {isDraftOrderDeliveryNeedsReview(detailDraftOrder)
+                              ? "Заказ изменён. Проверьте вес/габариты и сохраните доставку перед оплатой."
+                              : cdekPanelState.saveResult
                               ? "СДЭК-доставка сохранена в заказ. Отправление СДЭК ещё не создано."
                               : "Расчёт не сохранён в заказ. Сохраните доставку, чтобы добавить её стоимость в итог заказа."}
                           </p>
@@ -7517,15 +7829,31 @@ function App() {
                             <div className="delivery-cdek-summary-card">
                               <div className="delivery-cdek-summary-header">
                                 <div>
-                                  <strong>СДЭК-доставка сохранена</strong>
-                                  <span>Отправление СДЭК ещё не создано</span>
+                                  <strong>
+                                    {isDraftOrderDeliveryNeedsReview(detailDraftOrder)
+                                      ? "СДЭК-доставка требует проверки"
+                                      : "СДЭК-доставка сохранена"}
+                                  </strong>
+                                  <span>
+                                    {isDraftOrderDeliveryNeedsReview(detailDraftOrder)
+                                      ? "Заказ изменён после сохранения доставки"
+                                      : "Отправление СДЭК ещё не создано"}
+                                  </span>
                                 </div>
                               </div>
-                              <p className="delivery-cdek-save-note">
-                                Это предварительная доставка для расчёта суммы
-                                заказа. Трек, документы и этикетки создаются
-                                позже.
-                              </p>
+                              {isDraftOrderDeliveryNeedsReview(detailDraftOrder) ? (
+                                <p className="delivery-cdek-save-note delivery-cdek-save-note-warning">
+                                  Проверьте вес, габариты и подтвердите доставку.
+                                  Новая ссылка на оплату будет доступна после
+                                  подтверждения.
+                                </p>
+                              ) : (
+                                <p className="delivery-cdek-save-note">
+                                  Это предварительная доставка для расчёта суммы
+                                  заказа. Трек, документы и этикетки создаются
+                                  позже.
+                                </p>
+                              )}
                               <dl className="delivery-cdek-summary-list">
                                 <div>
                                   <dt>Откуда</dt>
@@ -7586,6 +7914,23 @@ function App() {
                                 </div>
                               </dl>
                               <div className="delivery-cdek-summary-actions">
+                                {isDraftOrderDeliveryNeedsReview(detailDraftOrder) ? (
+                                  <button
+                                    className="primary-action-button"
+                                    disabled={
+                                      cdekPanelState.isSaving ||
+                                      !canSubmitCdekDelivery(cdekPanelState)
+                                    }
+                                    onClick={() =>
+                                      void handleSaveCdekDelivery(detailDraftOrder)
+                                    }
+                                    type="button"
+                                  >
+                                    {cdekPanelState.isSaving
+                                      ? "Сохраняем..."
+                                      : "Подтвердить доставку"}
+                                  </button>
+                                ) : null}
                                 <button
                                   className="secondary-action-button"
                                   onClick={() =>
@@ -8067,102 +8412,253 @@ function App() {
                                 </div>
                               </div>
                               <div className="delivery-cdek-cargo-grid">
-                                <label className="form-field">
-                                  <span>Вес, кг</span>
-                                  <input
-                                    inputMode="decimal"
-                                    onFocus={() =>
-                                      setCdekPanelState((current) => ({
-                                        ...current,
-                                        activePicker: null
-                                      }))
-                                    }
-                                    value={cdekPanelState.weightKg}
-                                    onChange={(event) =>
-                                      setCdekPanelState((current) => ({
-                                        ...current,
-                                        calculationResult: null,
-                                        saveResult: null,
-                                        selectedTariff: null,
-                                        tariffCode: "",
-                                        tariffResults: [],
-                                        weightKg: event.target.value
-                                      }))
-                                    }
-                                  />
-                                </label>
-                                <label className="form-field">
-                                  <span>Длина, см</span>
-                                  <input
-                                    inputMode="numeric"
-                                    onFocus={() =>
-                                      setCdekPanelState((current) => ({
-                                        ...current,
-                                        activePicker: null
-                                      }))
-                                    }
-                                    value={cdekPanelState.lengthCm}
-                                    onChange={(event) =>
-                                      setCdekPanelState((current) => ({
-                                        ...current,
-                                        calculationResult: null,
-                                        saveResult: null,
-                                        selectedTariff: null,
-                                        tariffCode: "",
-                                        tariffResults: [],
-                                        lengthCm: event.target.value
-                                      }))
-                                    }
-                                  />
-                                </label>
-                                <label className="form-field">
-                                  <span>Ширина, см</span>
-                                  <input
-                                    inputMode="numeric"
-                                    onFocus={() =>
-                                      setCdekPanelState((current) => ({
-                                        ...current,
-                                        activePicker: null
-                                      }))
-                                    }
-                                    value={cdekPanelState.widthCm}
-                                    onChange={(event) =>
-                                      setCdekPanelState((current) => ({
-                                        ...current,
-                                        calculationResult: null,
-                                        saveResult: null,
-                                        selectedTariff: null,
-                                        tariffCode: "",
-                                        tariffResults: [],
-                                        widthCm: event.target.value
-                                      }))
-                                    }
-                                  />
-                                </label>
-                                <label className="form-field">
-                                  <span>Высота, см</span>
-                                  <input
-                                    inputMode="numeric"
-                                    onFocus={() =>
-                                      setCdekPanelState((current) => ({
-                                        ...current,
-                                        activePicker: null
-                                      }))
-                                    }
-                                    value={cdekPanelState.heightCm}
-                                    onChange={(event) =>
-                                      setCdekPanelState((current) => ({
-                                        ...current,
-                                        calculationResult: null,
-                                        saveResult: null,
-                                        selectedTariff: null,
-                                        tariffCode: "",
-                                        tariffResults: [],
-                                        heightCm: event.target.value
-                                      }))
-                                    }
-                                  />
-                                </label>
+                                {cdekPanelState.packages.map((packageState, index) => (
+                                  <div
+                                    className="delivery-cdek-package-card"
+                                    key={packageState.id}
+                                  >
+                                    <div className="delivery-cdek-package-header">
+                                      <strong>Грузовое место №{index + 1}</strong>
+                                      <div>
+                                        <button
+                                          className="delivery-cdek-package-action-button"
+                                          onClick={() =>
+                                            setCdekPanelState((current) => {
+                                              const packages = [
+                                                ...current.packages.slice(0, index + 1),
+                                                {
+                                                  ...packageState,
+                                                  id: `cdek-package-${Date.now()}-${index}`
+                                                },
+                                                ...current.packages.slice(index + 1)
+                                              ];
+
+                                              return syncCdekLegacyCargoFields(
+                                                resetCdekPackageDependentState(current),
+                                                packages
+                                              );
+                                            })
+                                          }
+                                          type="button"
+                                        >
+                                          Копировать
+                                        </button>
+                                        {cdekPanelState.packages.length > 1 ? (
+                                          <button
+                                            className="delivery-cdek-package-action-button delivery-cdek-package-action-button-danger"
+                                            onClick={() =>
+                                              setCdekPanelState((current) => {
+                                                const packages =
+                                                  current.packages.filter(
+                                                    (item) =>
+                                                      item.id !== packageState.id
+                                                  );
+
+                                                return syncCdekLegacyCargoFields(
+                                                  resetCdekPackageDependentState(
+                                                    current
+                                                  ),
+                                                  packages
+                                                );
+                                              })
+                                            }
+                                            type="button"
+                                          >
+                                            Удалить
+                                          </button>
+                                        ) : null}
+                                      </div>
+                                    </div>
+                                    <div className="delivery-cdek-package-fields">
+                                      <label className="form-field">
+                                        <span>Вес, кг</span>
+                                        <input
+                                          inputMode="decimal"
+                                          onFocus={() =>
+                                            setCdekPanelState((current) => ({
+                                              ...current,
+                                              activePicker: null
+                                            }))
+                                          }
+                                          value={packageState.weightKg}
+                                          onChange={(event) =>
+                                            setCdekPanelState((current) => {
+                                              const packages = current.packages.map(
+                                                (item) =>
+                                                  item.id === packageState.id
+                                                    ? {
+                                                        ...item,
+                                                        weightKg: event.target.value
+                                                      }
+                                                    : item
+                                              );
+
+                                              return syncCdekLegacyCargoFields(
+                                                resetCdekPackageDependentState(current),
+                                                packages
+                                              );
+                                            })
+                                          }
+                                        />
+                                      </label>
+                                      <label className="form-field">
+                                        <span>Длина, см</span>
+                                        <input
+                                          inputMode="numeric"
+                                          value={packageState.lengthCm}
+                                          onChange={(event) =>
+                                            setCdekPanelState((current) => {
+                                              const packages = current.packages.map(
+                                                (item) =>
+                                                  item.id === packageState.id
+                                                    ? {
+                                                        ...item,
+                                                        lengthCm: event.target.value
+                                                      }
+                                                    : item
+                                              );
+
+                                              return syncCdekLegacyCargoFields(
+                                                resetCdekPackageDependentState(current),
+                                                packages
+                                              );
+                                            })
+                                          }
+                                        />
+                                      </label>
+                                      <label className="form-field">
+                                        <span>Ширина, см</span>
+                                        <input
+                                          inputMode="numeric"
+                                          value={packageState.widthCm}
+                                          onChange={(event) =>
+                                            setCdekPanelState((current) => {
+                                              const packages = current.packages.map(
+                                                (item) =>
+                                                  item.id === packageState.id
+                                                    ? {
+                                                        ...item,
+                                                        widthCm: event.target.value
+                                                      }
+                                                    : item
+                                              );
+
+                                              return syncCdekLegacyCargoFields(
+                                                resetCdekPackageDependentState(current),
+                                                packages
+                                              );
+                                            })
+                                          }
+                                        />
+                                      </label>
+                                      <label className="form-field">
+                                        <span>Высота, см</span>
+                                        <input
+                                          inputMode="numeric"
+                                          value={packageState.heightCm}
+                                          onChange={(event) =>
+                                            setCdekPanelState((current) => {
+                                              const packages = current.packages.map(
+                                                (item) =>
+                                                  item.id === packageState.id
+                                                    ? {
+                                                        ...item,
+                                                        heightCm: event.target.value
+                                                      }
+                                                    : item
+                                              );
+
+                                              return syncCdekLegacyCargoFields(
+                                                resetCdekPackageDependentState(current),
+                                                packages
+                                              );
+                                            })
+                                          }
+                                        />
+                                      </label>
+                                      <label className="form-field form-field-wide">
+                                        <span>Описание груза</span>
+                                        <textarea
+                                          value={packageState.cargoDescription}
+                                          onChange={(event) =>
+                                            setCdekPanelState((current) => {
+                                              const packages = current.packages.map(
+                                                (item) =>
+                                                  item.id === packageState.id
+                                                    ? {
+                                                        ...item,
+                                                        cargoDescription:
+                                                          event.target.value
+                                                      }
+                                                    : item
+                                              );
+
+                                              return syncCdekLegacyCargoFields(
+                                                resetCdekPackageDependentState(current),
+                                                packages
+                                              );
+                                            })
+                                          }
+                                        />
+                                      </label>
+                                      <label className="checkbox-field delivery-cdek-cargo-flag">
+                                        <input
+                                          checked={packageState.isDangerousCargo}
+                                          onChange={(event) =>
+                                            setCdekPanelState((current) => {
+                                              const packages = current.packages.map(
+                                                (item) =>
+                                                  item.id === packageState.id
+                                                    ? {
+                                                        ...item,
+                                                        isDangerousCargo:
+                                                          event.target.checked
+                                                      }
+                                                    : item
+                                              );
+
+                                              return syncCdekLegacyCargoFields(
+                                                resetCdekPackageDependentState(current),
+                                                packages
+                                              );
+                                            })
+                                          }
+                                          type="checkbox"
+                                        />
+                                        <span>Опасный груз</span>
+                                      </label>
+                                    </div>
+                                  </div>
+                                ))}
+                                <button
+                                  className="secondary-action-button delivery-cdek-add-package"
+                                  onClick={() =>
+                                    setCdekPanelState((current) => {
+                                      const lastPackage =
+                                        current.packages[current.packages.length - 1] ??
+                                        createCdekPackageState(
+                                          getDefaultCdekCargoDescription(
+                                            detailDraftOrder
+                                          )
+                                        );
+                                      const packages = [
+                                        ...current.packages,
+                                        {
+                                          ...lastPackage,
+                                          id: `cdek-package-${Date.now()}-${current.packages.length}`
+                                        }
+                                      ];
+
+                                      return syncCdekLegacyCargoFields(
+                                        resetCdekPackageDependentState(current),
+                                        packages
+                                      );
+                                    })
+                                  }
+                                  type="button"
+                                >
+                                  + Грузовое место
+                                </button>
                               </div>
                             </section>
 
@@ -8344,7 +8840,14 @@ function App() {
                                                   </span>
                                                 ) : null}
                                               </strong>
-                                              <em>{getCdekTariffPriceLabel(tariff)}</em>
+                                              <span className="delivery-cdek-tariff-price">
+                                                <em>{getCdekTariffPriceLabel(tariff)}</em>
+                                                {getCdekTariffPaymentHint(tariff) ? (
+                                                  <small>
+                                                    {getCdekTariffPaymentHint(tariff)}
+                                                  </small>
+                                                ) : null}
+                                              </span>
                                             </span>
                                             <span className="delivery-cdek-tariff-meta">
                                               {getCdekTariffDeliverySummaryLabel(tariff)}
@@ -8379,7 +8882,8 @@ function App() {
                                 <span>
                                   {getCdekCalculationSectionSummary(
                                     cdekPanelState,
-                                    detailDraftOrder
+                                    detailDraftOrder,
+                                    isDraftOrderDeliveryNeedsReview(detailDraftOrder)
                                   )}
                                 </span>
                               </div>
@@ -8390,19 +8894,12 @@ function App() {
                                 className="primary-action-button"
                                 disabled={
                                   cdekPanelState.isCalculating ||
-                                  Boolean(cdekPanelState.saveResult) ||
+                                  (Boolean(cdekPanelState.saveResult) &&
+                                    !isDraftOrderDeliveryNeedsReview(
+                                      detailDraftOrder
+                                    )) ||
                                   !canSaveCdekDeliveryMode(cdekPanelState) ||
-                                  !getCdekCityCode(
-                                    cdekPanelState.selectedSenderCity
-                                  ) ||
-                                  !cdekPanelState.selectedSenderDeliveryPoint?.code ||
-                                  !cdekPanelState.selectedCity?.code ||
-                                  !cdekPanelState.selectedDeliveryPoint?.code ||
-                                  !cdekPanelState.selectedTariff?.tariffCode ||
-                                  !getCdekWeightGramsInput(cdekPanelState.weightKg) ||
-                                  !getPositiveIntegerInput(cdekPanelState.lengthCm) ||
-                                  !getPositiveIntegerInput(cdekPanelState.widthCm) ||
-                                  !getPositiveIntegerInput(cdekPanelState.heightCm)
+                                  !canCalculateCdekDelivery(cdekPanelState)
                                 }
                                 onClick={() =>
                                   void handleCalculateCdekDelivery(detailDraftOrder)
@@ -8417,23 +8914,12 @@ function App() {
                                 className="secondary-action-button"
                                 disabled={
                                   cdekPanelState.isSaving ||
-                                  Boolean(cdekPanelState.saveResult) ||
+                                  (Boolean(cdekPanelState.saveResult) &&
+                                    !isDraftOrderDeliveryNeedsReview(
+                                      detailDraftOrder
+                                    )) ||
                                   !canSaveCdekDeliveryMode(cdekPanelState) ||
-                                  !cdekPanelState.calculationResult ||
-                                  !getCdekCalculationPriceMinor(
-                                    cdekPanelState.calculationResult
-                                  ) ||
-                                  !getCdekCityCode(
-                                    cdekPanelState.selectedSenderCity
-                                  ) ||
-                                  !cdekPanelState.selectedSenderDeliveryPoint?.code ||
-                                  !cdekPanelState.selectedCity?.code ||
-                                  !cdekPanelState.selectedDeliveryPoint?.code ||
-                                  !cdekPanelState.selectedTariff?.tariffCode ||
-                                  !getCdekWeightGramsInput(cdekPanelState.weightKg) ||
-                                  !getPositiveIntegerInput(cdekPanelState.lengthCm) ||
-                                  !getPositiveIntegerInput(cdekPanelState.widthCm) ||
-                                  !getPositiveIntegerInput(cdekPanelState.heightCm)
+                                  !canSubmitCdekDelivery(cdekPanelState)
                                 }
                                 onClick={() =>
                                   void handleSaveCdekDelivery(detailDraftOrder)
@@ -8442,7 +8928,8 @@ function App() {
                               >
                                 {getCdekSaveButtonLabel(
                                   cdekPanelState,
-                                  detailDraftOrder
+                                  detailDraftOrder,
+                                  isDraftOrderDeliveryNeedsReview(detailDraftOrder)
                                 )}
                               </button>
                               <span>{getCdekSenderSummary(cdekPanelState)}</span>
@@ -8458,16 +8945,35 @@ function App() {
                             {cdekPanelState.calculationResult ? (
                               <div className="delivery-cdek-result">
                                 <strong>
-                                  {cdekPanelState.calculationResult.calculation.priceMinor !==
-                                  null
-                                    ? formatMinorPrice(
-                                        cdekPanelState.calculationResult.calculation
-                                          .priceMinor,
-                                        cdekPanelState.calculationResult.calculation
-                                          .currencyCode
-                                      )
-                                    : "Цена не получена"}
+                                  К оплате за доставку:{" "}
+                                  {getCdekCalculationPayableLabel(
+                                    cdekPanelState.calculationResult
+                                  )}
                                 </strong>
+                                {getCdekCalculationTariffPriceMinor(
+                                  cdekPanelState.calculationResult
+                                ) !== null ? (
+                                  <span>
+                                    Стоимость тарифа:{" "}
+                                    {formatCdekRubMinor(
+                                      getCdekCalculationTariffPriceMinor(
+                                        cdekPanelState.calculationResult
+                                      ) ?? 0
+                                    )}
+                                  </span>
+                                ) : null}
+                                {getCdekCalculationVatMinor(
+                                  cdekPanelState.calculationResult
+                                ) !== null ? (
+                                  <span>
+                                    НДС:{" "}
+                                    {formatCdekRubMinor(
+                                      getCdekCalculationVatMinor(
+                                        cdekPanelState.calculationResult
+                                      ) ?? 0
+                                    )}
+                                  </span>
+                                ) : null}
                                 <span>
                                   Срок:{" "}
                                   {cdekPanelState.calculationResult.calculation.periodMin ??
@@ -8498,44 +9004,58 @@ function App() {
                                   </span>
                                 ) : null}
                                 <em>
-                                  {cdekPanelState.saveResult
+                                  {isDraftOrderDeliveryNeedsReview(detailDraftOrder)
+                                    ? "Проверьте и подтвердите доставку перед оплатой"
+                                    : cdekPanelState.saveResult
                                     ? "Расчёт сохранён как СДЭК-доставка заказа"
                                     : "Расчёт не сохранён в заказ"}
                                 </em>
                               </div>
                             ) : null}
 
-                            {cdekPanelState.saveResult ? (
+                            {cdekPanelState.saveResult &&
+                            !isDraftOrderDeliveryNeedsReview(detailDraftOrder) ? (
                               <div className="delivery-cdek-saved-result">
-                                <strong>СДЭК-доставка сохранена в заказ</strong>
+                                <strong>СДЭК-доставка сохранена</strong>
                                 <span>Отправление СДЭК ещё не создано.</span>
                                 <span>
-                                  Доставка:{" "}
-                                  {formatMinorPrice(
-                                    cdekPanelState.saveResult.totals
-                                      .deliveryTotalMinor,
-                                    "RUB"
+                                  Стоимость тарифа:{" "}
+                                  {getCdekCalculationTariffPriceMinor(
+                                    cdekPanelState.calculationResult
+                                  ) !== null
+                                    ? formatCdekRubMinor(
+                                        getCdekCalculationTariffPriceMinor(
+                                          cdekPanelState.calculationResult
+                                        ) ?? 0
+                                      )
+                                    : getCdekCalculationPayableLabel(
+                                        cdekPanelState.calculationResult
+                                      )}
+                                </span>
+                                {getCdekCalculationVatMinor(
+                                  cdekPanelState.calculationResult
+                                ) !== null ? (
+                                  <span>
+                                    НДС:{" "}
+                                    {formatCdekRubMinor(
+                                      getCdekCalculationVatMinor(
+                                        cdekPanelState.calculationResult
+                                      ) ?? 0
+                                    )}
+                                  </span>
+                                ) : null}
+                                <span>
+                                  К оплате за доставку:{" "}
+                                  {getCdekCalculationPayableLabel(
+                                    cdekPanelState.calculationResult
                                   )}
                                 </span>
                                 <span>
-                                  Новый итог:{" "}
-                                  {formatMinorPrice(
-                                    cdekPanelState.saveResult.totals.totalPriceMinor,
-                                    "RUB"
+                                  Срок:{" "}
+                                  {getCdekCalculationPeriodLabel(
+                                    cdekPanelState.calculationResult
                                   )}
                                 </span>
-                                {cdekPanelState.saveResult.payment
-                                  .activePaymentsCanceled ? (
-                                  <em>
-                                    Старая Ozon-оплата отменена из-за изменения суммы.
-                                    Создайте новую ссылку вручную после проверки доставки.
-                                  </em>
-                                ) : cdekPanelState.saveResult.payment
-                                    .financialChanged ? (
-                                  <em>Сумма заказа обновлена.</em>
-                                ) : (
-                                  <em>Сумма заказа не изменилась.</em>
-                                )}
                               </div>
                             ) : null}
                           </section>

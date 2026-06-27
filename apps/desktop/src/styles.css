@@ -2286,6 +2286,11 @@ tbody tr {
   background: rgba(80, 255, 140, 0.07);
 }
 
+.delivery-cdek-panel-review .delivery-cdek-summary-card {
+  border-color: rgba(245, 158, 11, 0.34);
+  background: rgba(245, 158, 11, 0.1);
+}
+
 .delivery-cdek-summary-header {
   display: flex;
   gap: 10px;
@@ -2307,6 +2312,10 @@ tbody tr {
   color: rgba(188, 255, 211, 0.78);
   font-size: 12px;
   font-weight: 800;
+}
+
+.delivery-cdek-panel-review .delivery-cdek-summary-header span {
+  color: rgba(252, 211, 77, 0.9);
 }
 
 .delivery-cdek-summary-list {
@@ -2369,6 +2378,13 @@ tbody tr {
 .delivery-cdek-save-note-success {
   color: rgba(188, 255, 211, 0.9);
   background: rgba(80, 255, 140, 0.1);
+}
+
+.delivery-cdek-save-note-warning,
+.delivery-cdek-panel-summary .delivery-cdek-save-note-warning,
+.delivery-cdek-panel-review .delivery-cdek-save-note {
+  color: rgba(252, 211, 77, 0.94);
+  background: rgba(245, 158, 11, 0.14);
 }
 
 .delivery-cdek-message {
@@ -2518,6 +2534,85 @@ tbody tr {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
+}
+
+.delivery-cdek-package-card {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.delivery-cdek-package-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.delivery-cdek-package-header strong {
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 13px;
+}
+
+.delivery-cdek-package-header > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.delivery-cdek-package-action-button {
+  min-height: 26px;
+  padding: 4px 8px;
+  border: 1px solid rgba(159, 183, 255, 0.24);
+  border-radius: 8px;
+  color: rgba(232, 238, 255, 0.88);
+  background: rgba(159, 183, 255, 0.1);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.delivery-cdek-package-action-button:hover {
+  border-color: rgba(159, 183, 255, 0.42);
+  color: #ffffff;
+  background: rgba(159, 183, 255, 0.16);
+}
+
+.delivery-cdek-package-action-button-danger {
+  border-color: rgba(255, 120, 120, 0.22);
+  color: rgba(255, 214, 214, 0.9);
+  background: rgba(255, 90, 90, 0.08);
+}
+
+.delivery-cdek-package-action-button-danger:hover {
+  border-color: rgba(255, 120, 120, 0.42);
+  background: rgba(255, 90, 90, 0.14);
+}
+
+.delivery-cdek-package-fields {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.delivery-cdek-cargo-grid .form-field-wide,
+.delivery-cdek-cargo-flag {
+  grid-column: 1 / -1;
+}
+
+.delivery-cdek-cargo-grid textarea {
+  min-height: 74px;
+}
+
+.delivery-cdek-add-package {
+  grid-column: 1 / -1;
+  justify-self: start;
 }
 
 .delivery-cdek-calculation-section .delivery-cdek-actions {
@@ -2769,6 +2864,21 @@ tbody tr {
   white-space: nowrap;
 }
 
+.delivery-cdek-tariff-price {
+  display: grid;
+  gap: 2px;
+  justify-items: end;
+  min-width: max-content;
+  text-align: right;
+}
+
+.delivery-cdek-tariff-price small {
+  color: rgba(190, 204, 228, 0.7);
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
 .delivery-cdek-tariff-row .delivery-cdek-tariff-meta {
   min-width: 0;
   color: rgba(190, 204, 228, 0.82);
@@ -2804,6 +2914,7 @@ tbody tr {
 }
 
 .delivery-cdek-result strong {
+  grid-column: 1 / -1;
   color: #ffffff;
   font-size: 15px;
 }
@@ -2869,11 +2980,15 @@ tbody tr {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
+  align-items: stretch;
 }
 
 .draft-summary-card {
   display: grid;
   gap: 7px;
+  align-content: start;
+  justify-content: stretch;
+  justify-items: stretch;
   min-width: 0;
   padding: 10px 12px;
   border-radius: 12px;
@@ -2986,13 +3101,14 @@ tbody tr {
 
 .draft-delivery-review-warning {
   margin: 0;
-  padding: 10px 12px;
+  padding: 8px 10px;
+  align-self: start;
   border: 1px solid rgba(245, 158, 11, 0.34);
   border-radius: 10px;
   background: rgba(245, 158, 11, 0.12);
   color: #fbbf24;
-  font-size: 13px;
-  line-height: 1.4;
+  font-size: 12px;
+  line-height: 1.32;
 }
 
 .draft-comment-card {
@@ -3520,21 +3636,23 @@ tbody tr {
 }
 
 .draft-order-footer {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
-  align-items: center;
-  justify-content: flex-end;
+  align-items: start;
+  justify-items: stretch;
 }
 
 .draft-order-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+  justify-content: flex-end;
+  min-width: 0;
+  width: 100%;
 }
 
 .draft-order-save-status {
-  flex: 1 1 100%;
   margin: 0;
   color: rgba(255, 255, 255, 0.64);
   font-size: 12px;
@@ -3597,33 +3715,41 @@ tbody tr {
 }
 
 .draft-total-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  align-items: baseline;
+  display: grid;
+  grid-template-columns: minmax(280px, 420px) auto;
+  gap: 12px;
+  align-items: start;
+  justify-content: end;
+  min-width: 0;
+  width: 100%;
 }
 
 .draft-total-breakdown {
   display: grid;
-  min-width: min(100%, 320px);
   gap: 4px;
+  min-width: 0;
+  width: 100%;
 }
 
 .draft-total-breakdown-row {
   display: grid;
-  grid-template-columns: minmax(80px, 1fr) auto;
+  grid-template-columns: auto minmax(0, max-content);
   gap: 14px;
   align-items: baseline;
+  min-width: 0;
 }
 
 .draft-total-breakdown-row span {
   color: rgba(255, 255, 255, 0.64);
+  min-width: 0;
+  white-space: nowrap;
 }
 
 .draft-total-breakdown-row strong {
   color: rgba(255, 255, 255, 0.82);
   font-size: 13px;
   text-align: right;
+  white-space: nowrap;
 }
 
 .draft-total-breakdown-row-total {
@@ -3637,6 +3763,7 @@ tbody tr {
 }
 
 .payment-preparation-button {
+  justify-self: end;
   min-height: 30px;
   padding: 6px 10px;
   border: 1px solid rgba(159, 183, 255, 0.24);
@@ -3645,6 +3772,7 @@ tbody tr {
   background: rgba(159, 183, 255, 0.12);
   font-size: 12px;
   font-weight: 800;
+  white-space: nowrap;
   cursor: pointer;
 }
 
@@ -3840,6 +3968,14 @@ tbody tr {
   .draft-order-overview {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
+
+  .draft-total-row {
+    grid-template-columns: minmax(280px, 420px);
+  }
+
+  .payment-preparation-button {
+    justify-self: end;
+  }
 }
 
 @media (max-width: 980px) {
@@ -3870,6 +4006,14 @@ tbody tr {
   }
 
   .draft-order-overview {
+    grid-template-columns: 1fr;
+  }
+
+  .draft-total-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .delivery-cdek-package-fields {
     grid-template-columns: 1fr;
   }
 

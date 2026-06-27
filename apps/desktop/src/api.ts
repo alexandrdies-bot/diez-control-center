@@ -383,7 +383,9 @@ export type CdekDeliveryCalculationResult = {
 };
 
 export type CdekSaveDeliveryPackage = {
+  description?: string;
   heightCm: number;
+  isDangerousCargo?: boolean;
   lengthCm: number;
   weightGrams: number;
   widthCm: number;
@@ -393,20 +395,28 @@ export type CdekSaveDeliveryRequest = {
   calculation?: CdekDeliveryCalculation;
   calendarMax?: string;
   calendarMin?: string;
+  cargoDescription?: string;
   city: string;
   cityCode: number;
   cityUuid?: string;
   comment?: string;
   countryCode?: string;
   currencyCode?: "RUB";
+  declaredValueMinor?: number;
+  deliveryMode?: string;
   deliveryPointAddress: string;
   deliveryPointCode: string;
+  deliveryPointName?: string;
   deliveryPointType?: string;
   deliveryPointUuid?: string;
+  deliverySumMinor?: number;
+  isDangerousCargo?: boolean;
   packages: CdekSaveDeliveryPackage[];
   periodMax?: number;
   periodMin?: number;
+  placesCount?: number;
   priceMinor: number;
+  recipientEmail?: string;
   recipientName?: string;
   recipientPhone?: string;
   region?: string;
@@ -421,6 +431,8 @@ export type CdekSaveDeliveryRequest = {
   shipmentPointUuid?: string;
   tariffCode: number;
   tariffName?: string;
+  totalSumMinor?: number;
+  vatMinor?: number;
 };
 
 export type CdekSaveDeliveryResult = {
@@ -501,7 +513,15 @@ function getOrderMutationErrorMessage(responseBody: string) {
     }
 
     if (parsedResponse.error === "ORDER_HAS_FINAL_OZON_PAYMENT") {
-      return "У заказа есть финансовая Ozon-оплата. Изменение заказа запрещено.";
+      return typeof parsedResponse.message === "string"
+        ? parsedResponse.message
+        : "Заказ уже имеет финальную оплату Ozon Pay. Удаление запрещено.";
+    }
+
+    if (parsedResponse.error === "OZON_CANCEL_ORDER_FAILED") {
+      return typeof parsedResponse.message === "string"
+        ? parsedResponse.message
+        : "Не удалось отменить активную Ozon-оплату. Заказ не удалён.";
     }
 
     if (

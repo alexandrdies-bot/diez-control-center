@@ -401,6 +401,8 @@ type CreateOrderCommentPayload = {
 type DiezPaymentStatus =
   | "created"
   | "pending"
+  | "waiting"
+  | "active"
   | "paid"
   | "authorized"
   | "failed"
@@ -577,7 +579,9 @@ type CdekTariffListResponseItem = {
 };
 
 type CdekDeliveryPackagePayload = {
+  description?: unknown;
   heightCm?: unknown;
+  isDangerousCargo?: unknown;
   lengthCm?: unknown;
   weightGrams?: unknown;
   widthCm?: unknown;
@@ -587,20 +591,28 @@ type SaveCdekDeliveryPayload = {
   calculation?: unknown;
   calendarMax?: unknown;
   calendarMin?: unknown;
+  cargoDescription?: unknown;
   city?: unknown;
   cityCode?: unknown;
   cityUuid?: unknown;
   comment?: unknown;
   countryCode?: unknown;
   currencyCode?: unknown;
+  declaredValueMinor?: unknown;
+  deliveryMode?: unknown;
   deliveryPointAddress?: unknown;
   deliveryPointCode?: unknown;
+  deliveryPointName?: unknown;
   deliveryPointType?: unknown;
   deliveryPointUuid?: unknown;
+  deliverySumMinor?: unknown;
+  isDangerousCargo?: unknown;
   packages?: unknown;
   periodMax?: unknown;
   periodMin?: unknown;
+  placesCount?: unknown;
   priceMinor?: unknown;
+  recipientEmail?: unknown;
   recipientName?: unknown;
   recipientPhone?: unknown;
   region?: unknown;
@@ -615,31 +627,43 @@ type SaveCdekDeliveryPayload = {
   shipmentPointUuid?: unknown;
   tariffCode?: unknown;
   tariffName?: unknown;
+  totalSumMinor?: unknown;
+  vatMinor?: unknown;
 };
 
 type NormalizedCdekDeliverySelection = {
   calculation: unknown;
   calendarMax: string | null;
   calendarMin: string | null;
+  cargoDescription: string | null;
   city: string;
   cityCode: number;
   cityUuid: string | null;
   comment: string | null;
   countryCode: string;
   currencyCode: "RUB";
+  declaredValueMinor: number | null;
+  deliveryMode: string | null;
   deliveryPointAddress: string;
   deliveryPointCode: string;
+  deliveryPointName: string | null;
   deliveryPointType: string | null;
   deliveryPointUuid: string | null;
+  deliverySumMinor: number | null;
+  isDangerousCargo: boolean;
   packages: {
+    description: string | null;
     heightCm: number;
+    isDangerousCargo: boolean;
     lengthCm: number;
     weightGrams: number;
     widthCm: number;
   }[];
   periodMax: number | null;
   periodMin: number | null;
+  placesCount: number;
   priceMinor: number;
+  recipientEmail: string | null;
   recipientName: string | null;
   recipientPhone: string | null;
   region: string | null;
@@ -654,6 +678,8 @@ type NormalizedCdekDeliverySelection = {
   shipmentPointUuid: string | null;
   tariffCode: number;
   tariffName: string | null;
+  totalSumMinor: number | null;
+  vatMinor: number | null;
 };
 
 type ApiOrderPaymentRow = {
@@ -732,7 +758,9 @@ const editableOrderStatuses = new Set([
 
 const activeOzonPaymentStatuses = new Set<DiezPaymentStatus>([
   "created",
-  "pending"
+  "pending",
+  "waiting",
+  "active"
 ]);
 
 const finalOzonPaymentStatuses = new Set<DiezPaymentStatus>([
@@ -1345,6 +1373,10 @@ async function requireCustomerAuthSession(
 
 function getOptionalString(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function getOptionalBoolean(value: unknown) {
+  return typeof value === "boolean" ? value : null;
 }
 
 function getRequiredEnvString(name: string) {
@@ -2698,7 +2730,10 @@ function normalizeCdekPackages(value: unknown) {
     }
 
     return {
+      description: getOptionalString(typedPackage.description),
       heightCm,
+      isDangerousCargo:
+        getOptionalBoolean(typedPackage.isDangerousCargo) ?? false,
       lengthCm,
       weightGrams,
       widthCm
@@ -2730,6 +2765,9 @@ function normalizeSaveCdekDeliveryPayload(
   const deliveryPointAddress = getOptionalString(payload.deliveryPointAddress);
   const tariffCode = getPositiveInteger(payload.tariffCode);
   const priceMinor = getMinorPrice(payload.priceMinor);
+  const deliverySumMinor = getMinorPrice(payload.deliverySumMinor);
+  const totalSumMinor = getMinorPrice(payload.totalSumMinor);
+  const vatMinor = getMinorPrice(payload.vatMinor);
   const currencyCode = getOptionalString(payload.currencyCode)?.toUpperCase() ?? "RUB";
   const packages = normalizeCdekPackages(payload.packages);
 
@@ -2804,20 +2842,28 @@ function normalizeSaveCdekDeliveryPayload(
       calculation: sanitizeCdekPayload(payload.calculation ?? null),
       calendarMax: getOptionalDateString(payload.calendarMax),
       calendarMin: getOptionalDateString(payload.calendarMin),
+      cargoDescription: getOptionalString(payload.cargoDescription),
       city,
       cityCode,
       cityUuid: getOptionalString(payload.cityUuid),
       comment: getOptionalString(payload.comment),
       countryCode: getOptionalString(payload.countryCode)?.toUpperCase() ?? "RU",
       currencyCode,
+      declaredValueMinor: getMinorPrice(payload.declaredValueMinor),
+      deliveryMode: getOptionalString(payload.deliveryMode),
       deliveryPointAddress,
       deliveryPointCode,
+      deliveryPointName: getOptionalString(payload.deliveryPointName),
       deliveryPointType: getOptionalString(payload.deliveryPointType),
       deliveryPointUuid: getOptionalString(payload.deliveryPointUuid),
+      deliverySumMinor,
+      isDangerousCargo: getOptionalBoolean(payload.isDangerousCargo) ?? false,
       packages,
       periodMax: getPositiveInteger(payload.periodMax),
       periodMin: getPositiveInteger(payload.periodMin),
+      placesCount: getPositiveInteger(payload.placesCount) ?? packages.length,
       priceMinor,
+      recipientEmail: getOptionalString(payload.recipientEmail),
       recipientName: getOptionalString(payload.recipientName),
       recipientPhone: getOptionalString(payload.recipientPhone),
       region: getOptionalString(payload.region),
@@ -2831,7 +2877,9 @@ function normalizeSaveCdekDeliveryPayload(
       shipmentPointType: getOptionalString(payload.shipmentPointType),
       shipmentPointUuid: getOptionalString(payload.shipmentPointUuid),
       tariffCode,
-      tariffName: getOptionalString(payload.tariffName)
+      tariffName: getOptionalString(payload.tariffName),
+      totalSumMinor,
+      vatMinor
     }
   };
 }
@@ -2839,33 +2887,82 @@ function normalizeSaveCdekDeliveryPayload(
 function buildCdekDeliveryProviderPayload(
   payload: NormalizedCdekDeliverySelection
 ) {
+  const deliverySumMinor = payload.deliverySumMinor ?? payload.priceMinor;
+  const totalSumMinor = payload.totalSumMinor ?? payload.priceMinor;
+  const vatMinor =
+    payload.vatMinor ??
+    (totalSumMinor > deliverySumMinor ? totalSumMinor - deliverySumMinor : null);
+  const cargoDescription =
+    payload.cargoDescription ?? "Рекламная продукция";
+  const country = payload.countryCode === "RU" ? "Россия" : payload.countryCode;
+  const senderCountry =
+    payload.senderCountryCode === "RU"
+      ? "Россия"
+      : payload.senderCountryCode;
+
   return {
     calculation: payload.calculation,
+    cargo: {
+      declaredValueMinor: payload.declaredValueMinor,
+      description: cargoDescription,
+      isDangerousCargo: payload.isDangerousCargo,
+      placesCount: payload.placesCount
+    },
+    cargoDescription,
     city: {
       city: payload.city,
       code: payload.cityCode,
+      country,
       countryCode: payload.countryCode,
+      name: payload.city,
       region: payload.region,
       uuid: payload.cityUuid
     },
+    declaredValueMinor: payload.declaredValueMinor,
     deliveryPoint: {
       address: payload.deliveryPointAddress,
       code: payload.deliveryPointCode,
+      name: payload.deliveryPointName,
       type: payload.deliveryPointType,
       uuid: payload.deliveryPointUuid
     },
+    deliveryMode: payload.deliveryMode,
+    isDangerousCargo: payload.isDangerousCargo,
     package: {
       items: payload.packages
     },
+    packages: payload.packages,
+    placesCount: payload.placesCount,
     pricing: {
       currencyCode: payload.currencyCode,
-      priceMinor: payload.priceMinor
+      deliverySumMinor,
+      priceMinor: payload.priceMinor,
+      totalSumMinor,
+      vatMinor
     },
     provider: "cdek",
+    recipient: {
+      email: payload.recipientEmail,
+      name: payload.recipientName,
+      phone: payload.recipientPhone
+    },
+    recipientCity: {
+      code: payload.cityCode,
+      country,
+      countryCode: payload.countryCode,
+      name: payload.city,
+      region: payload.region,
+      uuid: payload.cityUuid
+    },
+    recipientEmail: payload.recipientEmail,
+    recipientName: payload.recipientName,
+    recipientPhone: payload.recipientPhone,
     senderCity: {
       city: payload.senderCity,
       code: payload.senderCityCode,
+      country: senderCountry,
       countryCode: payload.senderCountryCode,
+      name: payload.senderCity,
       region: payload.senderRegion
     },
     shipmentPoint: {
@@ -2878,6 +2975,7 @@ function buildCdekDeliveryProviderPayload(
     shipmentPointCode: payload.shipmentPointCode,
     tariff: {
       code: payload.tariffCode,
+      deliveryMode: payload.deliveryMode,
       name: payload.tariffName
     },
     timing: {
@@ -5700,6 +5798,7 @@ app.patch<{
 
   const result = await withDatabaseTransaction(async (client) => {
     const existingOrder = await client.query<{
+      customerEmail: string | null;
       customerName: string | null;
       customerPhone: string | null;
       deliveryTotalMinor: number | string | null;
@@ -5717,6 +5816,7 @@ app.patch<{
           o.delivery_total_minor as "deliveryTotalMinor",
           o.discount_total_minor as "discountTotalMinor",
           o.total_price_minor as "totalPriceMinor",
+          c.email as "customerEmail",
           c.name as "customerName",
           c.phone as "customerPhone"
         from app.orders o
@@ -5887,7 +5987,12 @@ app.patch<{
       }
     }
 
-    const providerPayload = buildCdekDeliveryProviderPayload(validation.value);
+    const recipientEmail =
+      validation.value.recipientEmail ?? order.customerEmail ?? null;
+    const providerPayload = buildCdekDeliveryProviderPayload({
+      ...validation.value,
+      recipientEmail
+    });
     const recipientName =
       validation.value.recipientName ?? order.customerName ?? null;
     const recipientPhone =
@@ -8219,22 +8324,118 @@ app.delete<{ Params: { id: string } }>("/orders/:id", async (request, reply) => 
       };
     }
 
-    const ozonPayments = await client.query<{ exists: boolean }>(
+    const ozonPayments = await client.query<ApiOrderPaymentRow>(
       `
-        select exists (
-          select 1
-          from app.order_payments
-          where order_id = $1
-            and provider = 'ozon_pay_checkout'
-        ) as exists
+        ${getOrderPaymentSelectSql()}
+        where order_id = $1
+          and provider = 'ozon_pay_checkout'
+        order by created_at desc, id desc
+        for update
       `,
       [orderId]
     );
+    const hasFinalOzonPayment = ozonPayments.rows.some((payment) =>
+      finalOzonPaymentStatuses.has(payment.status)
+    );
 
-    if (ozonPayments.rows[0]?.exists) {
+    if (hasFinalOzonPayment) {
       return {
-        status: "has_ozon_payment" as const
+        status: "has_final_ozon_payment" as const
       };
+    }
+
+    const activeOzonPayments = ozonPayments.rows.filter((payment) =>
+      activeOzonPaymentStatuses.has(payment.status)
+    );
+
+    if (activeOzonPayments.length > 0) {
+      const config = getOzonAcquiringConfig();
+
+      if (!config) {
+        return {
+          status: "ozon_cancel_failed" as const
+        };
+      }
+
+      for (const payment of activeOzonPayments) {
+        if (!payment.providerOrderId) {
+          return {
+            status: "ozon_cancel_failed" as const
+          };
+        }
+
+        const cancelResult = await requestOzonCancelOrder(
+          config,
+          payment.providerOrderId
+        );
+
+        if (!cancelResult.ok) {
+          request.log.warn(
+            {
+              endpoint: "/v1/cancelOrder",
+              ozonCode: cancelResult.diagnostic.ozonCode,
+              ozonDetails: cancelResult.diagnostic.ozonDetails,
+              ozonMessage: cancelResult.diagnostic.ozonMessage,
+              ozonStatus: cancelResult.diagnostic.ozonStatus,
+              paymentId: payment.id
+            },
+            "Ozon Pay Checkout cancelOrder failed before order delete"
+          );
+
+          return {
+            status: "ozon_cancel_failed" as const
+          };
+        }
+
+        await client.query(
+          `
+            update app.order_payments
+            set
+              status = 'canceled',
+              ozon_status = 'STATUS_CANCELED',
+              canceled_at = now(),
+              last_error_code = null,
+              last_error_message = null,
+              status_response_json = $3::jsonb,
+              updated_at = now()
+            where id = $1
+              and order_id = $2
+              and provider = 'ozon_pay_checkout'
+          `,
+          [
+            payment.id,
+            orderId,
+            JSON.stringify(sanitizeOzonPayload(cancelResult.responseBody))
+          ]
+        );
+        await client.query(
+          `
+            insert into app.order_events (
+              order_id,
+              event_type,
+              actor_type,
+              actor_user_id,
+              actor_name,
+              payload_json
+            )
+            values ($1, 'payment_canceled', 'manager', $2, $3, $4::jsonb)
+          `,
+          [
+            orderId,
+            authSession.user.id,
+            authSession.user.displayName ?? authSession.user.login,
+            JSON.stringify({
+              newStatus: "canceled",
+              oldStatus: payment.status,
+              paymentId: Number(payment.id),
+              provider: "ozon_pay_checkout",
+              providerExtId: payment.providerExtId,
+              providerOrderId: payment.providerOrderId,
+              reason: "order_delete"
+            })
+          ]
+        );
+      }
     }
 
     const attachmentPaths = await client.query<{ storage_path: string | null }>(
@@ -8275,10 +8476,17 @@ app.delete<{ Params: { id: string } }>("/orders/:id", async (request, reply) => 
     });
   }
 
-  if (result.status === "has_ozon_payment") {
+  if (result.status === "has_final_ozon_payment") {
     return reply.code(409).send({
-      error: "ORDER_HAS_OZON_PAYMENT",
-      message: "У заказа есть Ozon-оплата. Удаление запрещено."
+      error: "ORDER_HAS_FINAL_OZON_PAYMENT",
+      message: "Заказ уже имеет финальную оплату Ozon Pay. Удаление запрещено."
+    });
+  }
+
+  if (result.status === "ozon_cancel_failed") {
+    return reply.code(502).send({
+      error: "OZON_CANCEL_ORDER_FAILED",
+      message: "Не удалось отменить активную Ozon-оплату. Заказ не удалён."
     });
   }
 
