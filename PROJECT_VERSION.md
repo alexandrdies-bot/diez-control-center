@@ -38,6 +38,16 @@ MVP-1 API read-only endpoints готовы.
 
 Добавлен MVP-режим `Запомнить это устройство`: desktop может сохранить session token, безопасные public user fields, срок действия и телефон в `localStorage`, проверить сессию через `GET /auth/me` при запуске и открыть приложение без повторного ввода кода. 4-значный код, Basic Auth пароль, `DATABASE_URL` и PostgreSQL секреты не сохраняются; позже это хранение нужно заменить на Windows Credential Manager / Tauri secure storage.
 
+Desktop UI convention: все будущие toast/уведомления должны появляться в верхнем правом углу окна с безопасным отступом от `+ Новый заказ`, cloud/status и настроек. Success-сообщения короткие и auto-hide через 2–3 секунды; warning/error могут жить дольше или требовать ручного закрытия; стиль остаётся в тёмной теме Desktop UI.
+
+Desktop UI standard: типографика, размеры иконок, радиусы cards/inputs/buttons/modals и close button заданы общими CSS tokens. Icons render without frames/background wrappers unless explicitly requested; hover uses opacity/color; dot/count badges are circular and placed at the icon bottom-right corner; close buttons are always circular; success toast stays top-right.
+
+Order item files/comments: клиентские файлы и комментарии показываются внутри edit screen соответствующей позиции; в строке позиции остаются только компактные paperclip/message индикаторы без превью и полного текста. `managerComment` сохраняется в item params через popup/modal и не влияет на цену, total, delivery `needsReview`, Ozon или CDEK. Загрузка файлов менеджера к конкретной позиции пока не активируется без отдельной item-level attachment mapping задачи (`order_item_id` или metadata `itemLocalId`/`orderItemId`).
+
+DTF edit existing position использует сохранённый `unitPriceMinor`: открытие редактора и сохранение без изменений не пересчитывают цену через default прайс, а изменение количества сохраняет прежнюю цену за единицу, если формат не менялся.
+
+Attachment preview: карточки файлов остаются в пропорции 3:5, thumbnail и modal используют authenticated blob/preview flow, image detection учитывает MIME type и расширения `.png/.jpg/.jpeg/.webp/.gif`, download/open не меняются.
+
 CDEK Phase 0 pre-fixes подготовлены без подключения СДЭК API: desktop mapping сохраняет `delivery_mode='cdek'`, обычный `PATCH /orders/:id` больше не обнуляет существующую delivery-сумму/provider-summary поля, а финансовая Ozon-защита продолжает учитывать доставку в сигнатуре заказа. CDEK credentials, env и миграции не добавлялись.
 
 CDEK backend skeleton добавлен как безопасный `GET /cdek/status` для manager/admin. Endpoint читает только `process.env`, возвращает configured/missing/baseUrl/test-prod/tokenStatus без секретов и не делает HTTP-запросов в CDEK, не получает OAuth token, не считает доставку и не использует shipment-таблицы.

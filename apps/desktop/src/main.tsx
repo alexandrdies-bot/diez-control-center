@@ -6,6 +6,8 @@ import downloadIconUrl from "./assets/svg/download.svg";
 import fileDownloadIconUrl from "./assets/svg/file-download.svg";
 import fileUploadIconUrl from "./assets/svg/file-upload.svg";
 import folderSymlinkIconUrl from "./assets/svg/folder-symlink.svg";
+import messageIconUrl from "./assets/svg/message-2.svg";
+import paperclipIconUrl from "./assets/svg/paperclip.svg";
 import pencilIconUrl from "./assets/svg/pencil.svg";
 import trashIconUrl from "./assets/svg/trash.svg";
 import truckIconUrl from "./assets/svg/truck.svg";
@@ -316,6 +318,7 @@ type DraftOrderItem = {
   priceMinor: number;
   formattedPrice: string;
   ledCount?: number;
+  managerComment?: string;
   calculationId: string;
   baselineStatus: string;
   checkMode: string;
@@ -363,6 +366,13 @@ type DraftOrder = {
   totalPriceMinor: number;
   createdAt: string;
   updatedAt: string;
+};
+
+type AddedDraftItemFeedback = {
+  draftOrderId: string;
+  itemPriceLabel: string;
+  itemServiceType: DraftOrderItem["serviceType"];
+  itemTitle: string;
 };
 
 type DraftOrdersStorage = {
@@ -2323,6 +2333,11 @@ function mapOrderDetailsToDraftOrder(
       currencyCode: item.currencyCode,
       formattedPrice: formatMinorPrice(priceMinor, item.currencyCode),
       id: `order-${orderDetails.id}-item-${item.id}`,
+      managerComment:
+        getOptionalString(getRecordValue(item.params, "managerComment")) ??
+        getOptionalString(
+          getRecordValue(item.calculationSnapshot, "managerComment")
+        ),
       params: item.params,
       priceMinor,
       quantity: Number(item.quantity) || 1,
@@ -2563,6 +2578,91 @@ function getDraftOrderItemServiceLabel(item: DraftOrderItem) {
 
 function getDraftOrderItemDescription(item: DraftOrderItem) {
   return item.title;
+}
+
+function getDraftOrderItemCommentText(item: DraftOrderItem) {
+  const records = [item.params, item.calculationSnapshot].filter(isPlainRecord);
+  const commentKeys = [
+    "comment",
+    "customerComment",
+    "requestComment",
+    "clientComment",
+    "notes"
+  ];
+
+  for (const record of records) {
+    for (const key of commentKeys) {
+      const value = record[key];
+
+      if (typeof value === "string" && value.trim()) {
+        return value.trim();
+      }
+    }
+  }
+
+  return "";
+}
+
+function getDraftOrderItemManagerComment(item: DraftOrderItem | null) {
+  if (!item) {
+    return "";
+  }
+
+  if (typeof item.managerComment === "string" && item.managerComment.trim()) {
+    return item.managerComment.trim();
+  }
+
+  const records = [item.params, item.calculationSnapshot].filter(isPlainRecord);
+
+  for (const record of records) {
+    const value = record.managerComment;
+
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+
+  return "";
+}
+
+function withManagerCommentPayload(
+  payload: Record<string, unknown>,
+  managerComment: string
+) {
+  const normalizedComment = managerComment.trim();
+
+  return {
+    ...payload,
+    managerComment: normalizedComment || null
+  };
+}
+
+function applyManagerCommentToDraftOrderItem(
+  item: DraftOrderItem,
+  managerComment: string
+): DraftOrderItem {
+  const normalizedComment = managerComment.trim();
+  const managerCommentValue = normalizedComment || undefined;
+  const managerCommentPayloadValue = normalizedComment || null;
+
+  return {
+    ...item,
+    calculationSnapshot: isPlainRecord(item.calculationSnapshot)
+      ? {
+          ...item.calculationSnapshot,
+          managerComment: managerCommentPayloadValue
+        }
+      : item.calculationSnapshot,
+    managerComment: managerCommentValue,
+    params: isPlainRecord(item.params)
+      ? {
+          ...item.params,
+          managerComment: managerCommentPayloadValue
+        }
+      : {
+          managerComment: managerCommentPayloadValue
+        }
+  };
 }
 
 function getDraftOrderItemQuantityLabel(item: DraftOrderItem) {
@@ -2828,31 +2928,61 @@ function getDraftOrderDisplayRequestComment(draftOrder: DraftOrder) {
     .join("\n");
 }
 
-function renderDtfOrderBlocks(draftOrder: DraftOrder) {
-  const info = getDtfOrderInfo(draftOrder);
+function getDraftOrderRequestCommentTargetItemId(draftOrder: DraftOrder) {
+  const comment = getDraftOrderDisplayRequestComment(draftOrder);
 
-  if (!info) {
+  if (!comment) {
     return null;
   }
 
-  return (
-    <section className="draft-comment-card dtf-order-info-card">
-      <h4>DTF-заявка</h4>
-      <div className="draft-summary-lines">
-        <span>Тип обращения: {info.requestKindLabel}</span>
-        <span>Количество листов А3: {info.a3SheetCount ?? "не указано"}</span>
-        <span>Цена за лист: {formatDtfRubValue(info.unitPriceRub)}</span>
-        <span>Сумма печати: {formatDtfRubValue(info.printTotalRub)}</span>
-        <span>Оценка дизайна/доработки: {info.designNeedsEstimate ? "нужна" : "не нужна"}</span>
-        {info.fileNames.length > 0 ? (
-          <span>Файлы: {info.fileNames.join(", ")}</span>
-        ) : info.hasFiles ? (
-          <span>Файлы: прикреплены</span>
-        ) : null}
-      </div>
-    </section>
+  if (draftOrder.items.length === 1) {
+    return draftOrder.items[0]?.id ?? null;
+  }
+
+  const dtfItems = draftOrder.items.filter(
+    (item) => item.serviceType === "dtf-print"
   );
+
+  if (getDtfOrderInfo(draftOrder) && dtfItems.length === 1) {
+    return dtfItems[0].id;
+  }
+
+  const lightLetterItems = draftOrder.items.filter(
+    (item) => item.serviceType === "light-letter"
+  );
+
+  if (dtfItems.length === 0 && lightLetterItems.length === 1) {
+    return lightLetterItems[0].id;
+  }
+
+  return null;
 }
+
+function getDraftOrderItemDisplayComment(
+  draftOrder: DraftOrder,
+  item: DraftOrderItem
+) {
+  const itemComment = getDraftOrderItemCommentText(item);
+
+  if (itemComment) {
+    return itemComment;
+  }
+
+  return getDraftOrderRequestCommentTargetItemId(draftOrder) === item.id
+    ? getDraftOrderDisplayRequestComment(draftOrder)
+    : "";
+}
+
+function getDraftOrderFallbackComment(draftOrder: DraftOrder) {
+  const comment = getDraftOrderDisplayRequestComment(draftOrder);
+
+  if (!comment || getDraftOrderRequestCommentTargetItemId(draftOrder)) {
+    return "";
+  }
+
+  return comment;
+}
+
 function getOrderSummaryCustomerLabel(order: OrderSummary) {
   const customerName = order.customerName?.trim();
   const customerPhone = order.customerPhone?.trim();
@@ -2882,15 +3012,38 @@ function isDtfQuoteRequestSummary(order: OrderSummary) {
   return order.totalPriceMinor === 0 && /dtf/i.test(order.firstItemTitle ?? "");
 }
 
+const imageAttachmentExtensions = new Set(["gif", "jpeg", "jpg", "png", "webp"]);
+
+function getAttachmentFileExtension(attachment: OrderAttachment) {
+  const extension = attachment.originalFileName.split(".").pop()?.trim().toLowerCase();
+
+  return extension && extension !== attachment.originalFileName.toLowerCase()
+    ? extension
+    : null;
+}
+
 function isImageAttachment(attachment: OrderAttachment) {
-  return attachment.mimeType?.startsWith("image/") ?? false;
+  const mimeType = attachment.mimeType?.toLowerCase() ?? "";
+
+  return (
+    mimeType.startsWith("image/") ||
+    imageAttachmentExtensions.has(getAttachmentFileExtension(attachment) ?? "")
+  );
+}
+
+function isPdfAttachment(attachment: OrderAttachment) {
+  const mimeType = attachment.mimeType?.toLowerCase() ?? "";
+
+  return (
+    mimeType === "application/pdf" ||
+    getAttachmentFileExtension(attachment) === "pdf"
+  );
 }
 
 function isPreviewableAttachment(attachment: OrderAttachment) {
-  return Boolean(
-    attachment.previewUrl &&
-      (attachment.mimeType?.startsWith("image/") ||
-        attachment.mimeType === "application/pdf")
+  return (
+    isImageAttachment(attachment) ||
+    Boolean(attachment.previewUrl && isPdfAttachment(attachment))
   );
 }
 
@@ -2953,6 +3106,75 @@ function formatAttachmentFileSize(fileSize: number | null) {
   }
 
   return `${fileSize} Б`;
+}
+
+function formatAttachmentCountLabel(count: number) {
+  const normalizedCount = Math.max(0, count);
+  const mod10 = normalizedCount % 10;
+  const mod100 = normalizedCount % 100;
+  const suffix =
+    mod10 === 1 && mod100 !== 11
+      ? "файл"
+      : mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)
+        ? "файла"
+        : "файлов";
+
+  return `${normalizedCount} ${suffix}`;
+}
+
+function getAttachmentDraftItemAffinity(
+  attachment: OrderAttachment
+): DraftOrderItem["serviceType"] | null {
+  if (attachment.attachmentType === "print_file") {
+    return "dtf-print";
+  }
+
+  if (
+    attachment.attachmentType === "design_file" ||
+    attachment.attachmentType === "drawing" ||
+    attachment.attachmentType === "reference" ||
+    attachment.attachmentType === "placement_photo"
+  ) {
+    return "light-letter";
+  }
+
+  return null;
+}
+
+function getDraftOrderAttachmentBuckets(
+  draftOrder: DraftOrder,
+  attachments: OrderAttachment[]
+) {
+  const firstItemIdByServiceType = new Map<DraftOrderItem["serviceType"], string>();
+  const attachmentsByItemId = new Map<string, OrderAttachment[]>();
+  const unassignedAttachments: OrderAttachment[] = [];
+
+  draftOrder.items.forEach((item) => {
+    if (!firstItemIdByServiceType.has(item.serviceType)) {
+      firstItemIdByServiceType.set(item.serviceType, item.id);
+    }
+  });
+
+  attachments.forEach((attachment) => {
+    const itemServiceType = getAttachmentDraftItemAffinity(attachment);
+    const itemId = itemServiceType
+      ? firstItemIdByServiceType.get(itemServiceType)
+      : null;
+
+    if (!itemId) {
+      unassignedAttachments.push(attachment);
+      return;
+    }
+
+    const itemAttachments = attachmentsByItemId.get(itemId) ?? [];
+    itemAttachments.push(attachment);
+    attachmentsByItemId.set(itemId, itemAttachments);
+  });
+
+  return {
+    attachmentsByItemId,
+    unassignedAttachments
+  };
 }
 
 function isDraftOrderCustomerFilled(customer: DraftOrderCustomer | undefined) {
@@ -3232,6 +3454,81 @@ function parsePositiveNumber(value: string, fallback: number) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function getDtfItemOriginalWidthCm(item: DraftOrderItem) {
+  const widthCm = Number(item.widthCm);
+  return Number.isFinite(widthCm) && widthCm > 0
+    ? widthCm
+    : getDtfNumberValue(item, "widthCm") ?? DTF_A3_WIDTH_CM;
+}
+
+function getDtfItemOriginalHeightCm(item: DraftOrderItem) {
+  const heightCm = Number(item.heightCm);
+  return Number.isFinite(heightCm) && heightCm > 0
+    ? heightCm
+    : getDtfNumberValue(item, "heightCm") ?? DTF_A3_HEIGHT_CM;
+}
+
+function getDtfItemSavedUnitPriceMinor(item: DraftOrderItem | null) {
+  if (!item) {
+    return null;
+  }
+
+  const directUnitPriceMinor = Number(item.unitPriceMinor);
+
+  if (Number.isFinite(directUnitPriceMinor) && directUnitPriceMinor > 0) {
+    return Math.round(directUnitPriceMinor);
+  }
+
+  const payloadUnitPriceMinor = getDtfNumberValue(item, "unitPriceMinor");
+
+  if (payloadUnitPriceMinor && payloadUnitPriceMinor > 0) {
+    return Math.round(payloadUnitPriceMinor);
+  }
+
+  const payloadUnitPriceRub = getDtfNumberValue(item, "unitPriceRub");
+
+  if (payloadUnitPriceRub && payloadUnitPriceRub > 0) {
+    return Math.round(payloadUnitPriceRub * 100);
+  }
+
+  const quantity = Number(item.quantity);
+  const totalPriceMinor = Number(item.totalPriceMinor ?? item.priceMinor);
+
+  if (
+    Number.isFinite(quantity) &&
+    quantity > 0 &&
+    Number.isFinite(totalPriceMinor) &&
+    totalPriceMinor > 0
+  ) {
+    return Math.round(totalPriceMinor / quantity);
+  }
+
+  return null;
+}
+
+function isSameDtfFormat(
+  item: DraftOrderItem,
+  widthCm: number,
+  heightCm: number
+) {
+  return (
+    Math.abs(getDtfItemOriginalWidthCm(item) - widthCm) < 0.001 &&
+    Math.abs(getDtfItemOriginalHeightCm(item) - heightCm) < 0.001
+  );
+}
+
+function isSameDtfCalculation(
+  item: DraftOrderItem,
+  result: DtfPrintCalculationResult
+) {
+  return (
+    isSameDtfFormat(item, result.widthCm, result.heightCm) &&
+    Number(item.quantity ?? 1) === result.quantity &&
+    Number(item.priceMinor) === result.priceMinor &&
+    Number(item.totalPriceMinor ?? item.priceMinor) === result.priceMinor
+  );
+}
+
 function formatCompactNumber(value: number) {
   return value.toLocaleString("ru-RU", {
     maximumFractionDigits: 2,
@@ -3414,6 +3711,7 @@ function App() {
   const [attachmentPreviewUrlById, setAttachmentPreviewUrlById] = useState<
     Record<number, string>
   >({});
+  const attachmentPreviewUrlByIdRef = useRef<Record<number, string>>({});
   const [attachmentsStatusByOrderId, setAttachmentsStatusByOrderId] = useState<
     Record<number, string>
   >({});
@@ -3425,6 +3723,7 @@ function App() {
     attachment: OrderAttachment;
     objectUrl: string | null;
   } | null>(null);
+  const attachmentPreviewObjectUrlRef = useRef<string | null>(null);
   const [serverConnectionState, setServerConnectionState] = useState<
     "connected" | "disconnected"
   >("disconnected");
@@ -3474,6 +3773,9 @@ function App() {
   const [draftOrderSaveStatusById, setDraftOrderSaveStatusById] = useState<
     Record<string, string>
   >({});
+  const [addedDraftItemFeedback, setAddedDraftItemFeedback] =
+    useState<AddedDraftItemFeedback | null>(null);
+  const addedDraftItemFeedbackTimerRef = useRef<number | null>(null);
   const [pendingDeleteOrderId, setPendingDeleteOrderId] = useState<string | null>(
     null
   );
@@ -3511,6 +3813,11 @@ function App() {
   const [editingDraftOrderItemId, setEditingDraftOrderItemId] = useState<
     string | null
   >(null);
+  const [managerCommentDraft, setManagerCommentDraft] = useState("");
+  const [managerCommentEditorDraft, setManagerCommentEditorDraft] =
+    useState("");
+  const [isManagerCommentEditorOpen, setIsManagerCommentEditorOpen] =
+    useState(false);
   const [isDraftJsonVisible, setIsDraftJsonVisible] = useState(false);
   const [officeConstructorForm, setOfficeConstructorForm] =
     useState<OfficeConstructorForm>(() => createDefaultOfficeConstructorForm());
@@ -3559,15 +3866,15 @@ function App() {
 
   useEffect(() => {
     return () => {
-      Object.values(attachmentPreviewUrlById).forEach((objectUrl) => {
+      Object.values(attachmentPreviewUrlByIdRef.current).forEach((objectUrl) => {
         URL.revokeObjectURL(objectUrl);
       });
 
-      if (attachmentPreview?.objectUrl) {
-        URL.revokeObjectURL(attachmentPreview.objectUrl);
+      if (attachmentPreviewObjectUrlRef.current) {
+        URL.revokeObjectURL(attachmentPreviewObjectUrlRef.current);
       }
     };
-  }, [attachmentPreview, attachmentPreviewUrlById]);
+  }, []);
 
   useEffect(() => {
     let isCurrent = true;
@@ -3742,6 +4049,14 @@ function App() {
     );
   }, [activeDraftOrderId, draftOrders]);
 
+  useEffect(() => {
+    return () => {
+      if (addedDraftItemFeedbackTimerRef.current !== null) {
+        window.clearTimeout(addedDraftItemFeedbackTimerRef.current);
+      }
+    };
+  }, []);
+
   const activeDraftOrder = useMemo(() => {
     return draftOrders.find((draftOrder) => draftOrder.id === activeDraftOrderId) ?? null;
   }, [activeDraftOrderId, draftOrders]);
@@ -3751,6 +4066,72 @@ function App() {
       activeDraftOrder
     );
   }, [activeDraftOrder, draftOrders, selectedDraftOrderId]);
+  const editingDraftOrderItem = useMemo(() => {
+    if (!editingDraftOrderItemId) {
+      return null;
+    }
+
+    return (
+      draftOrders
+        .flatMap((draftOrder) => draftOrder.items)
+        .find((item) => item.id === editingDraftOrderItemId) ?? null
+    );
+  }, [draftOrders, editingDraftOrderItemId]);
+  const detailDraftOrderAttachmentBuckets = useMemo(() => {
+    if (!detailDraftOrder?.serverOrderId) {
+      return null;
+    }
+
+    return getDraftOrderAttachmentBuckets(
+      detailDraftOrder,
+      orderAttachmentsByOrderId[detailDraftOrder.serverOrderId] ?? []
+    );
+  }, [detailDraftOrder, orderAttachmentsByOrderId]);
+  const editingDraftOrderItemAttachments = useMemo(() => {
+    if (!editingDraftOrderItemId) {
+      return [];
+    }
+
+    const draftOrder = draftOrders.find((currentDraftOrder) =>
+      currentDraftOrder.items.some((item) => item.id === editingDraftOrderItemId)
+    );
+
+    if (!draftOrder?.serverOrderId) {
+      return [];
+    }
+
+    const buckets = getDraftOrderAttachmentBuckets(
+      draftOrder,
+      orderAttachmentsByOrderId[draftOrder.serverOrderId] ?? []
+    );
+
+    return buckets.attachmentsByItemId.get(editingDraftOrderItemId) ?? [];
+  }, [draftOrders, editingDraftOrderItemId, orderAttachmentsByOrderId]);
+  const editingDraftOrderItemComment = useMemo(() => {
+    if (!editingDraftOrderItemId) {
+      return "";
+    }
+
+    const draftOrder = draftOrders.find((currentDraftOrder) =>
+      currentDraftOrder.items.some((item) => item.id === editingDraftOrderItemId)
+    );
+    const item = draftOrder?.items.find(
+      (draftItem) => draftItem.id === editingDraftOrderItemId
+    );
+
+    if (!draftOrder || !item) {
+      return "";
+    }
+
+    return getDraftOrderItemDisplayComment(draftOrder, item);
+  }, [draftOrders, editingDraftOrderItemId]);
+  useEffect(() => {
+    if (!editingDraftOrderItemId) {
+      setManagerCommentDraft("");
+      setManagerCommentEditorDraft("");
+      setIsManagerCommentEditorOpen(false);
+    }
+  }, [editingDraftOrderItemId]);
   useEffect(() => {
     setCdekPanelState(
       createDefaultCdekPanelState(
@@ -4197,13 +4578,26 @@ function App() {
       Math.ceil(parsePositiveNumber(dtfPrintForm.quantity, 1))
     );
     const areaM2 = (widthCm / 100) * (heightCm / 100);
-    const baseBreakdown = calculateDtfA3PrintCostBreakdown({
-      commercialMarginPercent: 10,
-      printCount: 1
-    });
-    const unitPriceMinor = Math.round(
-      baseBreakdown.totalPricePerPrintMinor * (areaM2 / DTF_A3_AREA_M2)
-    );
+    const editingDtfItem =
+      editingDraftOrderItem?.serviceType === "dtf-print"
+        ? editingDraftOrderItem
+        : null;
+    const savedUnitPriceMinor =
+      editingDtfItem && isSameDtfFormat(editingDtfItem, widthCm, heightCm)
+        ? getDtfItemSavedUnitPriceMinor(editingDtfItem)
+        : null;
+    const unitPriceMinor =
+      savedUnitPriceMinor ??
+      (() => {
+        const baseBreakdown = calculateDtfA3PrintCostBreakdown({
+          commercialMarginPercent: 10,
+          printCount: 1
+        });
+
+        return Math.round(
+          baseBreakdown.totalPricePerPrintMinor * (areaM2 / DTF_A3_AREA_M2)
+        );
+      })();
     const priceMinor = unitPriceMinor * quantity;
 
     return {
@@ -4217,7 +4611,12 @@ function App() {
       unitPriceMinor,
       widthCm
     };
-  }, [dtfPrintForm.heightCm, dtfPrintForm.quantity, dtfPrintForm.widthCm]);
+  }, [
+    dtfPrintForm.heightCm,
+    dtfPrintForm.quantity,
+    dtfPrintForm.widthCm,
+    editingDraftOrderItem
+  ]);
 
   useEffect(() => {
     if (!isConstructorPanelOpen) {
@@ -4510,6 +4909,33 @@ function App() {
     }
   }
 
+  function showDraftItemAddedFeedback(
+    draftOrderId: string,
+    item: DraftOrderItem
+  ) {
+    if (addedDraftItemFeedbackTimerRef.current !== null) {
+      window.clearTimeout(addedDraftItemFeedbackTimerRef.current);
+    }
+
+    setAddedDraftItemFeedback({
+      draftOrderId,
+      itemPriceLabel: formatMinorPrice(item.priceMinor, item.currencyCode ?? "RUB"),
+      itemServiceType: item.serviceType,
+      itemTitle: item.title
+    });
+
+    addedDraftItemFeedbackTimerRef.current = window.setTimeout(() => {
+      setAddedDraftItemFeedback(null);
+      addedDraftItemFeedbackTimerRef.current = null;
+    }, 2500);
+  }
+
+  function resetManagerCommentEditor() {
+    setManagerCommentDraft("");
+    setManagerCommentEditorDraft("");
+    setIsManagerCommentEditorOpen(false);
+  }
+
   function addDraftOrderItem(item: DraftOrderItem) {
     const currentActiveDraftOrder = draftOrders.find(
       (draftOrder) => draftOrder.id === activeDraftOrderId
@@ -4519,6 +4945,8 @@ function App() {
       const nextDraftOrder = createDraftOrder([item]);
       setDraftOrders((orders) => [...orders, nextDraftOrder]);
       setActiveDraftOrderId(nextDraftOrder.id);
+      showDraftItemAddedFeedback(nextDraftOrder.id, item);
+      resetManagerCommentEditor();
       return;
     }
 
@@ -4535,6 +4963,8 @@ function App() {
       )
     );
     void syncSavedDraftOrder(nextDraftOrder);
+    showDraftItemAddedFeedback(nextDraftOrder.id, item);
+    resetManagerCommentEditor();
   }
 
   function updateDraftOrderItem(itemId: string, nextItem: DraftOrderItem) {
@@ -4770,6 +5200,21 @@ function App() {
     const text = officeConstructorForm.text.trim() || "Без текста";
     const modeLabel =
       officeConstructorForm.mode === "light" ? "Световая" : "Несветовая";
+    const params = withManagerCommentPayload(
+      {
+        boardTapeColorName: result.boardTape.colorName,
+        boardThicknessMm: result.boardTape.thicknessMm,
+        boardWidthMm: result.boardTape.widthMm,
+        faceFilmColorCode: result.faceFilm.colorCode,
+        faceFilmLabel: getFaceFilmColorLabel(result.faceFilm),
+        heightMm: officeConstructorForm.heightMm,
+        lightingMode: officeConstructorForm.mode,
+        resolvedBoardTapeMaterialName: result.boardTape.materialName,
+        resolvedBoardTapeThicknessMm: result.boardTape.thicknessMm,
+        text: officeConstructorForm.text
+      },
+      managerCommentDraft
+    );
 
     return {
       id,
@@ -4790,6 +5235,8 @@ function App() {
       totalPriceMinor: result.priceMinor,
       formattedPrice: result.formattedPrice,
       ledCount: result.ledCount,
+      managerComment: managerCommentDraft.trim() || undefined,
+      params,
       calculationId: result.calculationId,
       baselineStatus: "real calculation",
       checkMode: "real",
@@ -4799,10 +5246,30 @@ function App() {
 
   function createDtfDraftOrderItem(
     id: string,
-    result: DtfPrintCalculationResult
+    result: DtfPrintCalculationResult,
+    previousItem?: DraftOrderItem | null
   ): DraftOrderItem {
     const widthLabel = formatCompactNumber(result.widthCm);
     const heightLabel = formatCompactNumber(result.heightCm);
+    const previousParams = isPlainRecord(previousItem?.params)
+      ? previousItem.params
+      : {};
+    const previousCalculationSnapshot = isPlainRecord(
+      previousItem?.calculationSnapshot
+    )
+      ? previousItem.calculationSnapshot
+      : {};
+    const dtfPayload = {
+      areaM2: result.areaM2,
+      heightCm: result.heightCm,
+      managerComment: managerCommentDraft.trim() || null,
+      printTotalRub: result.priceMinor / 100,
+      quantity: result.quantity,
+      totalPriceMinor: result.priceMinor,
+      unitPriceMinor: result.unitPriceMinor,
+      unitPriceRub: result.unitPriceMinor / 100,
+      widthCm: result.widthCm
+    };
 
     return {
       id,
@@ -4815,11 +5282,20 @@ function App() {
       areaM2: result.areaM2,
       priceMinor: result.priceMinor,
       totalPriceMinor: result.priceMinor,
+      unitPriceMinor: result.unitPriceMinor,
       formattedPrice: result.formattedPrice,
       calculationId: result.calculationId,
+      calculationSnapshot: {
+        ...previousCalculationSnapshot,
+        ...dtfPayload
+      },
       baselineStatus: "shared calculation",
       checkMode: "dtf-print",
-      calculationSource: "@diez/calculation-core/print"
+      calculationSource: "@diez/calculation-core/print",
+      params: {
+        ...previousParams,
+        ...dtfPayload
+      }
     };
   }
 
@@ -4848,6 +5324,34 @@ function App() {
   }
 
   function handleSaveDtfPrintItem() {
+    if (editingDraftOrderItemId) {
+      const currentItem =
+        editingDraftOrderItem?.serviceType === "dtf-print"
+          ? editingDraftOrderItem
+          : null;
+      const nextManagerComment = managerCommentDraft.trim();
+      const currentManagerComment = getDraftOrderItemManagerComment(currentItem);
+
+      if (
+        currentItem &&
+        isSameDtfCalculation(currentItem, dtfPrintCalculation) &&
+        currentManagerComment === nextManagerComment
+      ) {
+        setEditingDraftOrderItemId(null);
+        return;
+      }
+
+      const updatedItem = createDtfDraftOrderItem(
+        editingDraftOrderItemId,
+        dtfPrintCalculation,
+        currentItem
+      );
+
+      updateDraftOrderItem(editingDraftOrderItemId, updatedItem);
+      setEditingDraftOrderItemId(null);
+      return;
+    }
+
     addDraftOrderItem(
       createDtfDraftOrderItem(
         `dtf-print-${Date.now()}`,
@@ -4876,6 +5380,30 @@ function App() {
   }
 
   function handleEditDraftOrderItem(item: DraftOrderItem) {
+    const draftOrderId =
+      draftOrders.find((draftOrder) =>
+        draftOrder.items.some((draftItem) => draftItem.id === item.id)
+      )?.id ?? null;
+
+    if (item.serviceType === "dtf-print") {
+      setDtfPrintForm({
+        heightCm: String(item.heightCm ?? DTF_A3_HEIGHT_CM),
+        quantity: String(item.quantity ?? 1),
+        widthCm: String(item.widthCm ?? DTF_A3_WIDTH_CM)
+      });
+      const managerComment = getDraftOrderItemManagerComment(item);
+      setManagerCommentDraft(managerComment);
+      setManagerCommentEditorDraft(managerComment);
+      setIsManagerCommentEditorOpen(false);
+      setEditingDraftOrderItemId(item.id);
+      setActiveDraftOrderId(draftOrderId);
+      setIsNewOrderFormOpen(true);
+      setIsDraftOrderDetailsOpen(false);
+      setNewOrderStep("dtf-print");
+      setIsConstructorPanelOpen(false);
+      return;
+    }
+
     if (item.serviceType !== "light-letter") {
       return;
     }
@@ -4893,12 +5421,12 @@ function App() {
       mode: item.lightingMode ?? "light",
       text: item.text ?? ""
     });
+    const managerComment = getDraftOrderItemManagerComment(item);
+    setManagerCommentDraft(managerComment);
+    setManagerCommentEditorDraft(managerComment);
+    setIsManagerCommentEditorOpen(false);
     setEditingDraftOrderItemId(item.id);
-    setActiveDraftOrderId(
-      draftOrders.find((draftOrder) =>
-        draftOrder.items.some((draftItem) => draftItem.id === item.id)
-      )?.id ?? null
-    );
+    setActiveDraftOrderId(draftOrderId);
     setIsNewOrderFormOpen(true);
     setIsDraftOrderDetailsOpen(false);
     setNewOrderStep("calculation");
@@ -5939,6 +6467,31 @@ function App() {
     }
   }
 
+  async function fetchAttachmentPreviewBlob(
+    attachment: OrderAttachment,
+    sessionToken: string
+  ) {
+    try {
+      return await fetchOrderAttachmentBlob(
+        attachment.orderId,
+        attachment.id,
+        sessionToken,
+        "preview"
+      );
+    } catch (error) {
+      if (!isImageAttachment(attachment)) {
+        throw error;
+      }
+
+      return fetchOrderAttachmentBlob(
+        attachment.orderId,
+        attachment.id,
+        sessionToken,
+        "download"
+      );
+    }
+  }
+
   async function loadOrderAttachments(orderId: number, sessionToken = authToken) {
     if (!sessionToken) {
       setAttachmentsStatusByOrderId((current) => ({
@@ -5967,28 +6520,39 @@ function App() {
 
       const imageAttachments = attachments.filter(isImageAttachment);
 
-      await Promise.allSettled(
-        imageAttachments.map(async (attachment) => {
-          const blob = await fetchOrderAttachmentBlob(
-            orderId,
-            attachment.id,
-            sessionToken,
-            "preview"
-          );
-          const objectUrl = URL.createObjectURL(blob);
-
-          setAttachmentPreviewUrlById((current) => {
-            if (current[attachment.id]) {
-              URL.revokeObjectURL(current[attachment.id]);
-            }
-
-            return {
-              ...current,
-              [attachment.id]: objectUrl
-            };
-          });
-        })
+      const attachmentIds = new Set(
+        attachments.map((attachment) => attachment.id)
       );
+      const previewEntries = (
+        await Promise.allSettled(
+          imageAttachments.map(async (attachment) => {
+            const blob = await fetchAttachmentPreviewBlob(attachment, sessionToken);
+
+            return [attachment.id, URL.createObjectURL(blob)] as const;
+          })
+        )
+      ).flatMap((result) =>
+        result.status === "fulfilled" ? [result.value] : []
+      );
+
+      setAttachmentPreviewUrlById((current) => {
+        const next = { ...current };
+
+        Object.entries(current).forEach(([attachmentId, objectUrl]) => {
+          if (attachmentIds.has(Number(attachmentId))) {
+            URL.revokeObjectURL(objectUrl);
+            delete next[Number(attachmentId)];
+          }
+        });
+
+        previewEntries.forEach(([attachmentId, objectUrl]) => {
+          next[attachmentId] = objectUrl;
+        });
+
+        attachmentPreviewUrlByIdRef.current = next;
+
+        return next;
+      });
     } catch {
       setOrderAttachmentsByOrderId((current) => ({
         ...current,
@@ -6083,20 +6647,23 @@ function App() {
     }
 
     if (!isPreviewableAttachment(attachment)) {
-      setAttachmentPreview({
-        attachment,
-        objectUrl: null
+      setAttachmentPreview((current) => {
+        if (current?.objectUrl) {
+          URL.revokeObjectURL(current.objectUrl);
+        }
+
+        attachmentPreviewObjectUrlRef.current = null;
+
+        return {
+          attachment,
+          objectUrl: null
+        };
       });
       return;
     }
 
     try {
-      const blob = await fetchOrderAttachmentBlob(
-        attachment.orderId,
-        attachment.id,
-        authToken,
-        "preview"
-      );
+      const blob = await fetchAttachmentPreviewBlob(attachment, authToken);
       const objectUrl = URL.createObjectURL(blob);
 
       setAttachmentPreview((current) => {
@@ -6104,15 +6671,25 @@ function App() {
           URL.revokeObjectURL(current.objectUrl);
         }
 
+        attachmentPreviewObjectUrlRef.current = objectUrl;
+
         return {
           attachment,
           objectUrl
         };
       });
     } catch {
-      setAttachmentPreview({
-        attachment,
-        objectUrl: null
+      setAttachmentPreview((current) => {
+        if (current?.objectUrl) {
+          URL.revokeObjectURL(current.objectUrl);
+        }
+
+        attachmentPreviewObjectUrlRef.current = null;
+
+        return {
+          attachment,
+          objectUrl: null
+        };
       });
     }
   }
@@ -6217,6 +6794,173 @@ function App() {
             <img alt="" src={folderSymlinkIconUrl} />
           </button>
         ) : null}
+      </div>
+    );
+  }
+
+  function renderPositionAttachmentCard(attachment: OrderAttachment) {
+    const fileSizeLabel = formatAttachmentFileSize(attachment.fileSize);
+
+    return (
+      <article
+        className="position-attachment-card"
+        key={attachment.id}
+        onClick={() => void handleOpenAttachmentPreview(attachment)}
+        role="button"
+        tabIndex={0}
+        title={attachment.originalFileName}
+      >
+        <div className="position-attachment-preview">
+          {isImageAttachment(attachment) && attachmentPreviewUrlById[attachment.id] ? (
+            <img
+              alt={attachment.originalFileName}
+              src={attachmentPreviewUrlById[attachment.id]}
+            />
+          ) : (
+            <span>{getAttachmentFileKindLabel(attachment)}</span>
+          )}
+        </div>
+        <div className="position-attachment-meta">
+          <strong>{attachment.originalFileName}</strong>
+          <small>
+            {getAttachmentTypeLabel(attachment.attachmentType)}
+            {fileSizeLabel ? ` · ${fileSizeLabel}` : ""}
+          </small>
+        </div>
+        <button
+          aria-label="Скачать файл"
+          className="attachment-download-button position-attachment-download"
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            void handleDownloadAttachment(attachment);
+          }}
+          title="Скачать файл"
+          type="button"
+        >
+          <img alt="" src={downloadIconUrl} />
+        </button>
+      </article>
+    );
+  }
+
+  function renderPositionAttachmentsSection(attachments: OrderAttachment[]) {
+    if (attachments.length === 0) {
+      return null;
+    }
+
+    return (
+      <section className="position-attachments-section">
+        <div className="section-heading">
+          <div>
+            <h3>Файлы позиции</h3>
+            <p>{formatAttachmentCountLabel(attachments.length)}</p>
+          </div>
+        </div>
+        <div className="position-attachment-grid">
+          {attachments.map((attachment) => renderPositionAttachmentCard(attachment))}
+        </div>
+      </section>
+    );
+  }
+
+  function renderPositionCommentSection(comment: string) {
+    const normalizedComment = comment.trim();
+
+    if (!normalizedComment) {
+      return null;
+    }
+
+    return (
+      <section className="position-comment-section">
+        <div className="section-heading">
+          <div>
+            <h3>Комментарий клиента</h3>
+          </div>
+        </div>
+        <p>{normalizedComment}</p>
+      </section>
+    );
+  }
+
+  function renderPositionManagerCommentDisplaySection() {
+    const normalizedComment = managerCommentDraft.trim();
+
+    if (!normalizedComment) {
+      return null;
+    }
+
+    return (
+      <section className="position-comment-section position-manager-comment-display">
+        <div className="section-heading position-comment-heading">
+          <div>
+            <h3>Комментарий менеджера</h3>
+          </div>
+          <button
+            className="position-comment-edit-icon"
+            onClick={openManagerCommentEditor}
+            title="Редактировать комментарий"
+            type="button"
+          >
+            <img alt="" src={pencilIconUrl} />
+          </button>
+        </div>
+        <p>{normalizedComment}</p>
+      </section>
+    );
+  }
+
+  function openManagerCommentEditor() {
+    setManagerCommentEditorDraft(managerCommentDraft);
+    setIsManagerCommentEditorOpen(true);
+  }
+
+  function cancelManagerCommentEditor() {
+    setManagerCommentEditorDraft(managerCommentDraft);
+    setIsManagerCommentEditorOpen(false);
+  }
+
+  function confirmManagerCommentEditor() {
+    const normalizedComment = managerCommentEditorDraft.trim();
+
+    setManagerCommentDraft(normalizedComment);
+    setManagerCommentEditorDraft(normalizedComment);
+    setIsManagerCommentEditorOpen(false);
+
+    if (editingDraftOrderItemId && editingDraftOrderItem) {
+      updateDraftOrderItem(
+        editingDraftOrderItemId,
+        applyManagerCommentToDraftOrderItem(
+          editingDraftOrderItem,
+          normalizedComment
+        )
+      );
+    }
+  }
+
+  function renderPositionManagerActionIcons() {
+    return (
+      <div className="position-manager-action-icons">
+        <button
+          className="position-manager-action-icon"
+          onClick={openManagerCommentEditor}
+          title={
+            managerCommentDraft.trim()
+              ? "Редактировать комментарий"
+              : "Добавить комментарий"
+          }
+          type="button"
+        >
+          <img alt="" src={messageIconUrl} />
+        </button>
+        <button
+          className="position-manager-action-icon"
+          disabled
+          title="Нужна привязка файла к позиции"
+          type="button"
+        >
+          <img alt="" src={fileUploadIconUrl} />
+        </button>
       </div>
     );
   }
@@ -6362,6 +7106,8 @@ function App() {
       if (current?.objectUrl) {
         URL.revokeObjectURL(current.objectUrl);
       }
+
+      attachmentPreviewObjectUrlRef.current = null;
 
       return null;
     });
@@ -7172,6 +7918,16 @@ function App() {
 
   return (
     <main className="app-shell">
+      {addedDraftItemFeedback ? (
+        <div className="app-toast app-toast-success" role="status">
+          <strong>Позиция добавлена</strong>
+          <span>
+            {addedDraftItemFeedback.itemTitle} —{" "}
+            {addedDraftItemFeedback.itemPriceLabel}
+          </span>
+        </div>
+      ) : null}
+
       {pendingDeleteOrderId ? (
         <div
           aria-modal="true"
@@ -7210,6 +7966,59 @@ function App() {
                 type="button"
               >
                 {isDeletingOrder ? "Удаляем..." : "Удалить"}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {isManagerCommentEditorOpen ? (
+        <div
+          aria-modal="true"
+          className="app-modal-backdrop manager-comment-modal"
+          role="dialog"
+        >
+          <section className="app-modal manager-comment-content">
+            <div className="manager-comment-header">
+              <div>
+                <h2>Комментарий менеджера</h2>
+              </div>
+              <button
+                aria-label="Закрыть комментарий"
+                className="attachment-preview-close-button"
+                onClick={cancelManagerCommentEditor}
+                title="Закрыть"
+                type="button"
+              >
+                ×
+              </button>
+            </div>
+            <label className="form-field">
+              <span>Внутренний комментарий к позиции</span>
+              <textarea
+                autoFocus
+                className="manager-comment-textarea"
+                placeholder="Добавьте заметку для производства или менеджера"
+                value={managerCommentEditorDraft}
+                onChange={(event) =>
+                  setManagerCommentEditorDraft(event.target.value)
+                }
+              />
+            </label>
+            <div className="app-modal-actions">
+              <button
+                className="secondary-action-button"
+                onClick={cancelManagerCommentEditor}
+                type="button"
+              >
+                Отмена
+              </button>
+              <button
+                className="primary-action-button manager-comment-confirm-button"
+                onClick={confirmManagerCommentEditor}
+                type="button"
+              >
+                Подтвердить
               </button>
             </div>
           </section>
@@ -7255,14 +8064,14 @@ function App() {
             </div>
 
             {attachmentPreview.objectUrl &&
-            attachmentPreview.attachment.mimeType?.startsWith("image/") ? (
+            isImageAttachment(attachmentPreview.attachment) ? (
               <img
                 alt={attachmentPreview.attachment.originalFileName}
                 className="attachment-preview-image"
                 src={attachmentPreview.objectUrl}
               />
             ) : attachmentPreview.objectUrl &&
-              attachmentPreview.attachment.mimeType === "application/pdf" ? (
+              isPdfAttachment(attachmentPreview.attachment) ? (
               <iframe
                 className="attachment-preview-frame"
                 src={attachmentPreview.objectUrl}
@@ -7629,13 +8438,21 @@ function App() {
                     const deliveryState = getDraftOrderDeliveryState(
                       draftOrder.delivery
                     );
+                    const isRecentlyUpdated =
+                      addedDraftItemFeedback?.draftOrderId === draftOrder.id;
 
                     return (
                       <div
                         className={
-                          draftOrder.id === selectedDraftOrderId
-                            ? "draft-feed-card draft-feed-card-active"
-                            : "draft-feed-card"
+                          [
+                            "draft-feed-card",
+                            draftOrder.id === selectedDraftOrderId
+                              ? "draft-feed-card-active"
+                              : null,
+                            isRecentlyUpdated ? "draft-feed-card-flash" : null
+                          ]
+                            .filter(Boolean)
+                            .join(" ")
                         }
                         key={draftOrder.id}
                         onClick={() => handleSelectDraftOrder(draftOrder.id)}
@@ -9613,14 +10430,12 @@ function App() {
                       </section>
                     </div>
 
-                    {getDraftOrderDisplayRequestComment(detailDraftOrder) ? (
-                      <section className="draft-comment-card">
-                        <h4>Заявка / комментарий</h4>
-                        <p>{getDraftOrderDisplayRequestComment(detailDraftOrder)}</p>
+                    {getDraftOrderFallbackComment(detailDraftOrder) ? (
+                      <section className="draft-comment-fallback">
+                        <strong>Комментарий заказа</strong>
+                        <span>{getDraftOrderFallbackComment(detailDraftOrder)}</span>
                       </section>
                     ) : null}
-
-                    {renderDtfOrderBlocks(detailDraftOrder)}
 
                     <div className="section-heading">
                       <div>
@@ -9632,13 +10447,54 @@ function App() {
                     </div>
 
                     <ol className="draft-items-list">
-                      {detailDraftOrder.items.map((item, index) => (
+                      {detailDraftOrder.items.map((item, index) => {
+                        const itemAttachments =
+                          detailDraftOrderAttachmentBuckets?.attachmentsByItemId.get(
+                            item.id
+                          ) ?? [];
+                        const itemCommentText = getDraftOrderItemDisplayComment(
+                          detailDraftOrder,
+                          item
+                        ) || getDraftOrderItemManagerComment(item);
+
+                        return (
                         <li className="draft-item-row" key={item.id}>
                           <div className="draft-item-main">
                             <strong>
                               {index + 1}. {getDraftOrderItemServiceLabel(item)}
                             </strong>
                             <span>{getDraftOrderItemDescription(item)}</span>
+                            {itemAttachments.length > 0 || itemCommentText ? (
+                              <div className="draft-item-indicators">
+                                {itemAttachments.length > 0 ? (
+                                  <span
+                                    className="draft-item-indicator"
+                                    title={`Файлы: ${itemAttachments.length}`}
+                                  >
+                                    <img alt="" src={paperclipIconUrl} />
+                                    {itemAttachments.length > 1 ? (
+                                      <span
+                                        className={
+                                          itemAttachments.length > 9
+                                            ? "draft-item-indicator-badge draft-item-indicator-badge-wide"
+                                            : "draft-item-indicator-badge"
+                                        }
+                                      >
+                                        {itemAttachments.length}
+                                      </span>
+                                    ) : null}
+                                  </span>
+                                ) : null}
+                                {itemCommentText ? (
+                                  <span
+                                    className="draft-item-indicator"
+                                    title="Есть комментарий"
+                                  >
+                                    <img alt="" src={messageIconUrl} />
+                                  </span>
+                                ) : null}
+                              </div>
+                            ) : null}
                           </div>
                           <span className="draft-item-quantity">
                             {getDraftOrderItemQuantityLabel(item)}
@@ -9648,7 +10504,8 @@ function App() {
                               ? "Требует расчёта"
                               : item.formattedPrice}
                           </strong>
-                          {item.serviceType === "light-letter" ? (
+                          {item.serviceType === "light-letter" ||
+                          item.serviceType === "dtf-print" ? (
                             <button
                               aria-label="Редактировать позицию"
                               className="draft-item-action-button draft-item-action-edit"
@@ -9669,7 +10526,8 @@ function App() {
                             <img alt="" src={trashIconUrl} />
                           </button>
                         </li>
-                      ))}
+                        );
+                      })}
                     </ol>
 
                     {shouldShowDraftOrderDeliveryLine(detailDraftOrder) ? (
@@ -9790,12 +10648,18 @@ function App() {
                 </section>
 
                 {draftOrderPanelMode === "details" &&
-                detailDraftOrder.serverOrderId ? (
+                detailDraftOrder.serverOrderId &&
+                detailDraftOrderAttachmentBuckets &&
+                (detailDraftOrderAttachmentBuckets.unassignedAttachments.length > 0 ||
+                  Boolean(
+                    attachmentsStatusByOrderId[detailDraftOrder.serverOrderId]
+                  ) ||
+                  uploadingAttachmentOrderId === detailDraftOrder.serverOrderId) ? (
                   <section className="order-attachments-section order-attachments-section-standalone">
                     <div className="section-heading">
                       <div>
-                        <h3>Вложения</h3>
-                        <p>Макеты, чертежи, фото и файлы заказа</p>
+                        <h3>Прочие вложения</h3>
+                        <p>Файлы без понятной привязки к позиции</p>
                       </div>
 
                       <label className="secondary-action-button attachment-upload-button">
@@ -9816,13 +10680,12 @@ function App() {
                       </label>
                     </div>
 
-                    {(orderAttachmentsByOrderId[detailDraftOrder.serverOrderId] ?? [])
-                      .length > 0 ? (
+                    {detailDraftOrderAttachmentBuckets.unassignedAttachments.length >
+                    0 ? (
                       <>
                         <div className="attachment-grid">
-                          {orderAttachmentsByOrderId[
-                            detailDraftOrder.serverOrderId
-                          ].map((attachment) => (
+                          {detailDraftOrderAttachmentBuckets.unassignedAttachments.map(
+                            (attachment) => (
                             <article
                               className="attachment-card"
                               key={attachment.id}
@@ -9871,20 +10734,17 @@ function App() {
                                 }}
                                 title="Скачать файл"
                                 type="button"
-                              >
-                                <img alt="" src={downloadIconUrl} />
-                              </button>
-                            </article>
-                          ))}
+                            >
+                              <img alt="" src={downloadIconUrl} />
+                            </button>
+                          </article>
+                            )
+                          )}
                         </div>
                         {renderAttachmentStatus(detailDraftOrder.serverOrderId)}
                       </>
                     ) : (
-                      renderAttachmentStatus(detailDraftOrder.serverOrderId) ?? (
-                        <p className="draft-summary-muted">
-                          Файлы не прикреплены
-                        </p>
-                      )
+                      renderAttachmentStatus(detailDraftOrder.serverOrderId)
                     )}
                   </section>
                 ) : null}
@@ -10024,6 +10884,11 @@ function App() {
                                 {constructorFileActionStatus}
                               </span>
                             ) : null}
+                          </div>
+
+                          <div className="position-parameter-card-heading">
+                            <h3>Объёмные буквы</h3>
+                            {renderPositionManagerActionIcons()}
                           </div>
 
                           <div className="office-constructor-fields">
@@ -10283,7 +11148,10 @@ function App() {
                                 >
                                   {editingDraftOrderItemId
                                     ? "Обновить позицию"
-                                    : "Добавить позицию"}
+                                    : addedDraftItemFeedback?.itemServiceType ===
+                                        "light-letter"
+                                      ? "Добавлено ✓"
+                                      : "Добавить позицию"}
                                 </button>
                               </div>
                             ) : (
@@ -10316,6 +11184,15 @@ function App() {
                             </div>
                           </section>
 
+                          {renderPositionCommentSection(
+                            editingDraftOrderItemComment
+                          )}
+                          {renderPositionManagerCommentDisplaySection()}
+
+                          {renderPositionAttachmentsSection(
+                            editingDraftOrderItemAttachments
+                          )}
+
                         </>
                       ) : null}
 
@@ -10324,8 +11201,9 @@ function App() {
                     <section className="service-workspace dtf-service-workspace">
                       <div className="dtf-calculation-panel">
                         <section className="dtf-fields-card">
-                          <div className="section-heading">
+                          <div className="section-heading position-parameter-card-heading">
                             <h3>Параметры DTF</h3>
+                            {renderPositionManagerActionIcons()}
                           </div>
 
                           <div className="dtf-form-grid">
@@ -10415,10 +11293,20 @@ function App() {
                             onClick={handleSaveDtfPrintItem}
                             type="button"
                           >
-                            Добавить позицию
+                            {editingDraftOrderItemId
+                              ? "Обновить позицию"
+                              : addedDraftItemFeedback?.itemServiceType ===
+                                  "dtf-print"
+                                ? "Добавлено ✓"
+                                : "Добавить позицию"}
                           </button>
                         </section>
                       </div>
+                      {renderPositionCommentSection(editingDraftOrderItemComment)}
+                      {renderPositionManagerCommentDisplaySection()}
+                      {renderPositionAttachmentsSection(
+                        editingDraftOrderItemAttachments
+                      )}
                     </section>
                   ) : null}
 

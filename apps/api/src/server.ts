@@ -263,6 +263,7 @@ type DesktopDraftOrderItem = {
   id?: unknown;
   ledCount?: unknown;
   lightingMode?: unknown;
+  managerComment?: unknown;
   priceMinor?: unknown;
   params?: unknown;
   quantity?: unknown;
@@ -3711,8 +3712,13 @@ function getOrderItemPriceMinor(item: DesktopDraftOrderItem) {
 }
 
 function getOrderItemParams(item: DesktopDraftOrderItem) {
+  const managerComment = getOptionalString(item.managerComment);
+
   if (isRecord(item.params)) {
-    return item.params;
+    return {
+      ...item.params,
+      managerComment: managerComment ?? item.params.managerComment ?? null
+    };
   }
 
   const serviceType = getRequiredString(item.serviceType);
@@ -3726,6 +3732,7 @@ function getOrderItemParams(item: DesktopDraftOrderItem) {
       faceFilmLabel: getOptionalString(item.faceFilmLabel),
       heightMm: getOptionalString(item.heightMm),
       lightingMode: getOptionalString(item.lightingMode),
+      managerComment: managerComment ?? null,
       resolvedBoardTapeMaterialName: getOptionalString(
         item.resolvedBoardTapeMaterialName
       ),
@@ -3738,6 +3745,7 @@ function getOrderItemParams(item: DesktopDraftOrderItem) {
     return {
       areaM2: item.areaM2 ?? null,
       heightCm: item.heightCm ?? null,
+      managerComment: managerComment ?? null,
       quantity: item.quantity ?? null,
       widthCm: item.widthCm ?? null
     };
@@ -3745,6 +3753,7 @@ function getOrderItemParams(item: DesktopDraftOrderItem) {
 
   return {
     id: getOptionalString(item.id),
+    managerComment: managerComment ?? null,
     type: getOptionalString(item.type)
   };
 }
@@ -4094,6 +4103,8 @@ function validateCheckoutOrderPayload(
   };
 }
 
+const nonFinancialJsonKeys = new Set(["managerComment"]);
+
 function normalizeFinancialJson(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map(normalizeFinancialJson);
@@ -4102,6 +4113,7 @@ function normalizeFinancialJson(value: unknown): unknown {
   if (isRecord(value)) {
     return Object.fromEntries(
       Object.keys(value)
+        .filter((key) => !nonFinancialJsonKeys.has(key))
         .sort()
         .map((key) => [key, normalizeFinancialJson(value[key])])
     );
@@ -8026,7 +8038,7 @@ app.patch<{ Body: DesktopDraftOrderPayload; Params: { id: string } }>(
         finalOzonPaymentStatuses.has(payment.status)
       );
 
-      if (hasFinalOzonPayment) {
+      if (hasFinancialChanges && hasFinalOzonPayment) {
         return {
           status: "has_final_ozon_payment" as const
         };
