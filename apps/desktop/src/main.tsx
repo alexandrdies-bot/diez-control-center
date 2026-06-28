@@ -45,6 +45,7 @@ import {
   type CdekDeliveryCalculationResult,
   type CdekDeliveryPoint,
   type CdekSaveDeliveryResult,
+  type CdekSaveDeliveryRequest,
   type CdekStatus,
   type CdekTariff,
   type Material,
@@ -1858,7 +1859,6 @@ function getCdekTariffSectionSummary(state: CdekPanelState) {
 
 function getCdekSaveButtonLabel(
   state: CdekPanelState,
-  draftOrder: DraftOrder,
   deliveryNeedsReview = false
 ) {
   if (state.isSaving) {
@@ -1870,12 +1870,33 @@ function getCdekSaveButtonLabel(
   }
 
   if (state.saveResult) {
-    return "Доставка уже сохранена";
+    return "Доставка сохранена";
   }
 
-  return draftOrder.delivery.mode === "cdek" && draftOrder.delivery.priceMinor
-    ? "Сохранить изменения доставки"
-    : "Сохранить доставку";
+  if (!canSubmitCdekDelivery(state)) {
+    return "Заполните доставку";
+  }
+
+  return "Сохранить доставку в заказ";
+}
+
+function getCdekSaveActionNote(
+  state: CdekPanelState,
+  deliveryNeedsReview = false
+) {
+  if (deliveryNeedsReview && state.saveResult) {
+    return "Проверьте вес/габариты. Если всё верно — подтвердите доставку.";
+  }
+
+  if (state.saveResult) {
+    return "Отправление СДЭК ещё не создано.";
+  }
+
+  if (!canSubmitCdekDelivery(state)) {
+    return "Выберите маршрут, груз и тариф.";
+  }
+
+  return "Стоимость доставки будет добавлена в итог заказа.";
 }
 
 function canRequestCdekTariffs(state: CdekPanelState) {
@@ -1972,6 +1993,136 @@ function createCdekCalculationResultFromTariff(
   };
 }
 
+function buildLocalCdekDeliveryProviderPayload(payload: CdekSaveDeliveryRequest) {
+  const deliverySumMinor = payload.deliverySumMinor ?? payload.priceMinor;
+  const totalSumMinor = payload.totalSumMinor ?? payload.priceMinor;
+  const vatMinor =
+    payload.vatMinor ??
+    (totalSumMinor > deliverySumMinor ? totalSumMinor - deliverySumMinor : null);
+  const cargoDescription = payload.cargoDescription ?? DEFAULT_CDEK_CARGO_DESCRIPTION;
+  const country = payload.countryCode === "RU" ? "Россия" : payload.countryCode;
+  const senderCountry =
+    payload.senderCountryCode === "RU"
+      ? "Россия"
+      : payload.senderCountryCode;
+
+  return {
+    calculation: payload.calculation,
+    cargo: {
+      declaredValueMinor: payload.declaredValueMinor,
+      description: cargoDescription,
+      isDangerousCargo: payload.isDangerousCargo,
+      placesCount: payload.placesCount
+    },
+    cargoDescription,
+    city: {
+      city: payload.city,
+      code: payload.cityCode,
+      country,
+      countryCode: payload.countryCode,
+      name: payload.city,
+      region: payload.region,
+      uuid: payload.cityUuid
+    },
+    declaredValueMinor: payload.declaredValueMinor,
+    deliveryPoint: {
+      address: payload.deliveryPointAddress,
+      code: payload.deliveryPointCode,
+      name: payload.deliveryPointName,
+      type: payload.deliveryPointType,
+      uuid: payload.deliveryPointUuid
+    },
+    deliveryMode: payload.deliveryMode,
+    isDangerousCargo: payload.isDangerousCargo,
+    package: {
+      items: payload.packages
+    },
+    packages: payload.packages,
+    placesCount: payload.placesCount,
+    pricing: {
+      currencyCode: payload.currencyCode ?? "RUB",
+      deliverySumMinor,
+      priceMinor: payload.priceMinor,
+      totalSumMinor,
+      vatMinor
+    },
+    provider: "cdek",
+    recipient: {
+      email: payload.recipientEmail,
+      name: payload.recipientName,
+      phone: payload.recipientPhone
+    },
+    recipientCity: {
+      code: payload.cityCode,
+      country,
+      countryCode: payload.countryCode,
+      name: payload.city,
+      region: payload.region,
+      uuid: payload.cityUuid
+    },
+    recipientEmail: payload.recipientEmail,
+    recipientName: payload.recipientName,
+    recipientPhone: payload.recipientPhone,
+    saveRequest: payload,
+    senderCity: {
+      city: payload.senderCity,
+      code: payload.senderCityCode,
+      country: senderCountry,
+      countryCode: payload.senderCountryCode,
+      name: payload.senderCity,
+      region: payload.senderRegion
+    },
+    shipmentPoint: {
+      address: payload.shipmentPointAddress,
+      code: payload.shipmentPointCode,
+      name: payload.shipmentPointName,
+      type: payload.shipmentPointType,
+      uuid: payload.shipmentPointUuid
+    },
+    shipmentPointCode: payload.shipmentPointCode,
+    tariff: {
+      code: payload.tariffCode,
+      deliveryMode: payload.deliveryMode,
+      name: payload.tariffName
+    },
+    timing: {
+      calendarMax: payload.calendarMax,
+      calendarMin: payload.calendarMin,
+      periodMax: payload.periodMax,
+      periodMin: payload.periodMin
+    }
+  };
+}
+
+function getCdekSaveRequestFromDraftDelivery(
+  delivery: DraftOrderDelivery
+): CdekSaveDeliveryRequest | null {
+  const providerPayload = getRecordValue(delivery.providerPayload, "saveRequest");
+  const cityCode = getOptionalNumber(getRecordValue(providerPayload, "cityCode"));
+  const deliveryPointAddress = getOptionalString(
+    getRecordValue(providerPayload, "deliveryPointAddress")
+  );
+  const deliveryPointCode = getOptionalString(
+    getRecordValue(providerPayload, "deliveryPointCode")
+  );
+  const priceMinor = getOptionalNumber(getRecordValue(providerPayload, "priceMinor"));
+  const tariffCode = getOptionalNumber(getRecordValue(providerPayload, "tariffCode"));
+  const packagesValue = getRecordValue(providerPayload, "packages");
+
+  if (
+    !cityCode ||
+    !deliveryPointAddress ||
+    !deliveryPointCode ||
+    !priceMinor ||
+    !tariffCode ||
+    !Array.isArray(packagesValue)
+  ) {
+    return null;
+  }
+
+  return providerPayload as CdekSaveDeliveryRequest;
+}
+
 function getCdekCalculationSectionSummary(
   state: CdekPanelState,
   draftOrder: DraftOrder,
@@ -1982,6 +2133,10 @@ function getCdekCalculationSectionSummary(
   }
 
   if (state.saveResult) {
+    if (!draftOrder.serverOrderId) {
+      return "СДЭК-доставка сохранена в черновик заказа";
+    }
+
     return "СДЭК-доставка сохранена в заказ";
   }
 
@@ -2009,6 +2164,23 @@ function formatMinorPrice(value: number, currencyCode: string) {
 
 function getDraftOrderTotalMinor(items: DraftOrderItem[]) {
   return items.reduce((total, item) => total + item.priceMinor, 0);
+}
+
+function getDraftOrderDeliveryPriceMinor(delivery: DraftOrderDelivery) {
+  if (getDraftOrderDeliveryState(delivery) !== "filled") {
+    return 0;
+  }
+
+  const priceMinor = Number(delivery.priceMinor ?? 0);
+
+  return Number.isFinite(priceMinor) && priceMinor > 0 ? priceMinor : 0;
+}
+
+function getDraftOrderGrandTotalMinor(
+  items: DraftOrderItem[],
+  delivery: DraftOrderDelivery
+) {
+  return getDraftOrderTotalMinor(items) + getDraftOrderDeliveryPriceMinor(delivery);
 }
 
 function getDraftOrderDeliveryTotalLabel(draftOrder: DraftOrder) {
@@ -2452,6 +2624,29 @@ function isTerminalOzonPayment(payment: OrderPayment | null) {
     payment?.status === "canceled" ||
     payment?.status === "expired"
   );
+}
+
+function hasPaidOzonPayment(payments: OrderPayment[]) {
+  return payments.some(
+    (payment) =>
+      payment.provider === "ozon_pay_checkout" &&
+      (payment.status === "paid" || payment.status === "authorized")
+  );
+}
+
+function getCdekFutureShipmentNotice(
+  draftOrder: DraftOrder,
+  payments: OrderPayment[]
+) {
+  if (isDraftOrderDeliveryNeedsReview(draftOrder)) {
+    return "Перед созданием отправления проверьте и сохраните доставку.";
+  }
+
+  if (!hasPaidOzonPayment(payments)) {
+    return "Отправление СДЭК будет создано позже, после оплаты заказа.";
+  }
+
+  return "Создание отправления СДЭК — следующий этап.";
 }
 
 function getOzonPaymentErrorMessage(error: unknown) {
@@ -2906,25 +3101,28 @@ function getDatabaseOrderDisplayStatus(status: string) {
 
 function createDraftOrder(items: DraftOrderItem[] = []): DraftOrder {
   const now = new Date().toISOString();
+  const delivery: DraftOrderDelivery = {
+    mode: "manual"
+  };
 
   return {
     id: `draft-order-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     status: "receiving",
-    delivery: {
-      mode: "manual"
-    },
+    delivery,
     items,
-    totalPriceMinor: getDraftOrderTotalMinor(items),
+    totalPriceMinor: getDraftOrderGrandTotalMinor(items, delivery),
     createdAt: now,
     updatedAt: now
   };
 }
 
 function normalizeDraftOrder(draftOrder: DraftOrder): DraftOrder {
+  const delivery = normalizeDraftOrderDelivery(draftOrder.delivery);
+
   return {
     ...draftOrder,
-    delivery: normalizeDraftOrderDelivery(draftOrder.delivery),
-    totalPriceMinor: getDraftOrderTotalMinor(draftOrder.items),
+    delivery,
+    totalPriceMinor: getDraftOrderGrandTotalMinor(draftOrder.items, delivery),
     updatedAt: new Date().toISOString()
   };
 }
@@ -2958,11 +3156,18 @@ function loadDraftOrdersStorage(): DraftOrdersStorage {
               Array.isArray(draftOrder.items)
             );
           })
-          .map((draftOrder) => ({
-            ...draftOrder,
-            delivery: normalizeDraftOrderDelivery(draftOrder.delivery),
-            totalPriceMinor: getDraftOrderTotalMinor(draftOrder.items)
-          }))
+          .map((draftOrder) => {
+            const delivery = normalizeDraftOrderDelivery(draftOrder.delivery);
+
+            return {
+              ...draftOrder,
+              delivery,
+              totalPriceMinor: getDraftOrderGrandTotalMinor(
+                draftOrder.items,
+                delivery
+              )
+            };
+          })
       : [];
     const activeDraftOrderId =
       typeof parsedValue.activeDraftOrderId === "string" &&
@@ -5413,22 +5618,6 @@ function App() {
   }
 
   async function handleSaveCdekDelivery(draftOrder: DraftOrder) {
-    if (!authToken) {
-      setCdekPanelState((current) => ({
-        ...current,
-        message: "Войдите, чтобы сохранить СДЭК-доставку."
-      }));
-      return;
-    }
-
-    if (!draftOrder.serverOrderId) {
-      setCdekPanelState((current) => ({
-        ...current,
-        message: "Сначала завершите приём заказа, затем сохраните СДЭК-доставку."
-      }));
-      return;
-    }
-
     const calculationResult = cdekPanelState.calculationResult;
     const selectedSenderCity = cdekPanelState.selectedSenderCity;
     const selectedSenderDeliveryPoint = cdekPanelState.selectedSenderDeliveryPoint;
@@ -5527,6 +5716,139 @@ function App() {
       cdekPanelState.tariffToMode === "warehouse"
         ? "4"
         : undefined);
+    const cdekSavePayload: CdekSaveDeliveryRequest = {
+      calculation: calculationResult.calculation,
+      cargoDescription,
+      city: selectedCity.city ?? selectedCity.fullName ?? cdekPanelState.cityQuery,
+      cityCode: selectedCity.code,
+      cityUuid: selectedCity.cityUuid ?? undefined,
+      comment: draftOrder.delivery.comment?.trim() || undefined,
+      countryCode: selectedCity.countryCode ?? "RU",
+      currencyCode: "RUB",
+      declaredValueMinor,
+      deliveryMode,
+      deliveryPointAddress,
+      deliveryPointCode: selectedDeliveryPoint.code,
+      deliveryPointName: selectedDeliveryPoint.name ?? undefined,
+      deliveryPointType: selectedDeliveryPoint.type ?? undefined,
+      deliveryPointUuid: selectedDeliveryPoint.uuid ?? undefined,
+      deliverySumMinor: deliverySumMinor ?? undefined,
+      isDangerousCargo,
+      packages: packages.map((packagePayload) => ({
+        description: packagePayload.description,
+        heightCm: packagePayload.heightCm,
+        isDangerousCargo: packagePayload.isDangerousCargo,
+        lengthCm: packagePayload.lengthCm,
+        weightGrams: packagePayload.weightGrams,
+        widthCm: packagePayload.widthCm
+      })),
+      periodMax: calculationResult.calculation.periodMax ?? undefined,
+      periodMin: calculationResult.calculation.periodMin ?? undefined,
+      placesCount: packages.length,
+      priceMinor,
+      recipientEmail,
+      recipientName,
+      recipientPhone,
+      region: selectedCity.region ?? undefined,
+      senderCity:
+        selectedSenderCity.city ??
+        selectedSenderCity.fullName ??
+        cdekPanelState.senderCityQuery.trim() ??
+        undefined,
+      senderCityCode: selectedSenderCityCode,
+      senderCountryCode: selectedSenderCity.countryCode ?? undefined,
+      senderRegion: selectedSenderCity.region ?? undefined,
+      shipmentPointAddress:
+        selectedSenderDeliveryPoint.address ??
+        selectedSenderDeliveryPoint.addressFull ??
+        undefined,
+      shipmentPointCode,
+      shipmentPointName: selectedSenderDeliveryPoint.name ?? undefined,
+      shipmentPointType: selectedSenderDeliveryPoint.type ?? undefined,
+      shipmentPointUuid: selectedSenderDeliveryPoint.uuid ?? undefined,
+      tariffCode: calculationResult.calculation.tariffCode || tariffCode,
+      tariffName: cdekPanelState.selectedTariff?.tariffName ?? undefined,
+      totalSumMinor: totalSumMinor ?? undefined,
+      vatMinor: vatMinor ?? undefined
+    };
+
+    if (!draftOrder.serverOrderId) {
+      const providerPayload = buildLocalCdekDeliveryProviderPayload(cdekSavePayload);
+      const localDelivery: DraftOrderDelivery = {
+        ...draftOrder.delivery,
+        address: deliveryPointAddress,
+        contactName: recipientName,
+        currencyCode: "RUB",
+        mode: "cdek",
+        periodMax: calculationResult.calculation.periodMax ?? undefined,
+        periodMin: calculationResult.calculation.periodMin ?? undefined,
+        phone: recipientPhone,
+        priceMinor,
+        providerPayload,
+        tariffCode: calculationResult.calculation.tariffCode || tariffCode,
+        tariffName: cdekPanelState.selectedTariff?.tariffName ?? undefined
+      };
+      const localTotalPriceMinor = getDraftOrderGrandTotalMinor(
+        draftOrder.items,
+        localDelivery
+      );
+      const localResult: CdekSaveDeliveryResult = {
+        delivery: {
+          addressText: deliveryPointAddress,
+          currencyCode: "RUB",
+          deliveryMode: "cdek",
+          deliveryStatus: "selected",
+          priceMinor,
+          providerPayload,
+          recipientName: recipientName ?? null,
+          recipientPhone: recipientPhone ?? null
+        },
+        order: {
+          id: 0,
+          orderNumber: ""
+        },
+        payment: {
+          activePaymentsCanceled: false,
+          canceledPaymentIds: [],
+          deliveryNeedsReview: false,
+          financialChanged: false
+        },
+        saved: true,
+        totals: {
+          deliveryTotalMinor: priceMinor,
+          totalPriceMinor: localTotalPriceMinor
+        }
+      };
+      const savedAt = new Date().toISOString();
+
+      setDraftOrders((orders) =>
+        orders.map((currentDraftOrder) =>
+          currentDraftOrder.id === draftOrder.id
+            ? {
+                ...currentDraftOrder,
+                delivery: localDelivery,
+                totalPriceMinor: localTotalPriceMinor,
+                updatedAt: savedAt
+              }
+            : currentDraftOrder
+        )
+      );
+      setCdekPanelState((current) => ({
+        ...current,
+        isSaving: false,
+        message: "СДЭК-доставка сохранена в черновик заказа.",
+        saveResult: localResult
+      }));
+      return;
+    }
+
+    if (!authToken) {
+      setCdekPanelState((current) => ({
+        ...current,
+        message: "Войдите, чтобы сохранить СДЭК-доставку."
+      }));
+      return;
+    }
 
     setCdekPanelState((current) => ({
       ...current,
@@ -5537,61 +5859,7 @@ function App() {
     try {
       const result = await saveCdekDelivery(
         draftOrder.serverOrderId,
-        {
-          calculation: calculationResult.calculation,
-          cargoDescription,
-          city: selectedCity.city ?? selectedCity.fullName ?? cdekPanelState.cityQuery,
-          cityCode: selectedCity.code,
-          cityUuid: selectedCity.cityUuid ?? undefined,
-          comment: draftOrder.delivery.comment?.trim() || undefined,
-          countryCode: selectedCity.countryCode ?? "RU",
-          currencyCode: "RUB",
-          declaredValueMinor,
-          deliveryMode,
-          deliveryPointAddress,
-          deliveryPointCode: selectedDeliveryPoint.code,
-          deliveryPointName: selectedDeliveryPoint.name ?? undefined,
-          deliveryPointType: selectedDeliveryPoint.type ?? undefined,
-          deliveryPointUuid: selectedDeliveryPoint.uuid ?? undefined,
-          deliverySumMinor: deliverySumMinor ?? undefined,
-          isDangerousCargo,
-          packages: packages.map((packagePayload) => ({
-            description: packagePayload.description,
-            heightCm: packagePayload.heightCm,
-            isDangerousCargo: packagePayload.isDangerousCargo,
-            lengthCm: packagePayload.lengthCm,
-            weightGrams: packagePayload.weightGrams,
-            widthCm: packagePayload.widthCm
-          })),
-          periodMax: calculationResult.calculation.periodMax ?? undefined,
-          periodMin: calculationResult.calculation.periodMin ?? undefined,
-          placesCount: packages.length,
-          priceMinor,
-          recipientEmail,
-          recipientName,
-          recipientPhone,
-          region: selectedCity.region ?? undefined,
-          senderCity:
-            selectedSenderCity.city ??
-            selectedSenderCity.fullName ??
-            cdekPanelState.senderCityQuery.trim() ??
-            undefined,
-          senderCityCode: selectedSenderCityCode,
-          senderCountryCode: selectedSenderCity.countryCode ?? undefined,
-          senderRegion: selectedSenderCity.region ?? undefined,
-          shipmentPointAddress:
-            selectedSenderDeliveryPoint.address ??
-            selectedSenderDeliveryPoint.addressFull ??
-            undefined,
-          shipmentPointCode,
-          shipmentPointName: selectedSenderDeliveryPoint.name ?? undefined,
-          shipmentPointType: selectedSenderDeliveryPoint.type ?? undefined,
-          shipmentPointUuid: selectedSenderDeliveryPoint.uuid ?? undefined,
-          tariffCode: calculationResult.calculation.tariffCode || tariffCode,
-          tariffName: cdekPanelState.selectedTariff?.tariffName ?? undefined,
-          totalSumMinor: totalSumMinor ?? undefined,
-          vatMinor: vatMinor ?? undefined
-        },
+        cdekSavePayload,
         authToken
       );
       const savedAt = new Date().toISOString();
@@ -6731,21 +6999,68 @@ function App() {
     }));
 
     try {
-      const result = await createOrderFromDraft(draftOrder, authToken);
+      const cdekSaveRequest =
+        draftOrder.delivery.mode === "cdek"
+          ? getCdekSaveRequestFromDraftDelivery(draftOrder.delivery)
+          : null;
+      const createOrderPayload = cdekSaveRequest
+        ? {
+            ...draftOrder,
+            totalPriceMinor: getDraftOrderTotalMinor(draftOrder.items)
+          }
+        : draftOrder;
+      const result = await createOrderFromDraft(createOrderPayload, authToken);
+      let savedCdekResult: CdekSaveDeliveryResult | null = null;
+
+      if (cdekSaveRequest) {
+        setDraftOrderSaveStatusById((current) => ({
+          ...current,
+          [draftOrder.id]: "Сохраняем СДЭК-доставку..."
+        }));
+        savedCdekResult = await saveCdekDelivery(
+          result.id,
+          cdekSaveRequest,
+          authToken
+        );
+      }
+
       const savedAt = new Date().toISOString();
 
       updateDraftOrder(draftOrder.id, (currentDraftOrder) => ({
         ...currentDraftOrder,
+        delivery: savedCdekResult
+          ? {
+              ...currentDraftOrder.delivery,
+              address:
+                savedCdekResult.delivery.addressText ??
+                currentDraftOrder.delivery.address,
+              contactName:
+                savedCdekResult.delivery.recipientName ??
+                currentDraftOrder.delivery.contactName,
+              currencyCode: savedCdekResult.delivery.currencyCode,
+              mode: "cdek",
+              phone:
+                savedCdekResult.delivery.recipientPhone ??
+                currentDraftOrder.delivery.phone,
+              priceMinor: savedCdekResult.delivery.priceMinor,
+              providerPayload: savedCdekResult.delivery.providerPayload
+            }
+          : currentDraftOrder.delivery,
         serverOrderId: result.id,
         serverOrderNumber: result.orderNumber,
-        serverOrderSavedAt: savedAt
+        serverOrderSavedAt: savedAt,
+        totalPriceMinor:
+          savedCdekResult?.totals.totalPriceMinor ??
+          currentDraftOrder.totalPriceMinor
       }));
 
       setDraftOrderSaveStatusById((current) => ({
         ...current,
-        [draftOrder.id]: result.alreadyExists
-          ? `Заказ уже создан: ${result.orderNumber}`
-          : `Заказ создан: ${result.orderNumber}`
+        [draftOrder.id]: savedCdekResult
+          ? `Заказ создан: ${result.orderNumber}. СДЭК-доставка сохранена.`
+          : result.alreadyExists
+            ? `Заказ уже создан: ${result.orderNumber}`
+            : `Заказ создан: ${result.orderNumber}`
       }));
       void loadServerOrders(authToken);
     } catch (error) {
@@ -7841,19 +8156,22 @@ function App() {
                                   </span>
                                 </div>
                               </div>
-                              {isDraftOrderDeliveryNeedsReview(detailDraftOrder) ? (
-                                <p className="delivery-cdek-save-note delivery-cdek-save-note-warning">
-                                  Проверьте вес, габариты и подтвердите доставку.
-                                  Новая ссылка на оплату будет доступна после
-                                  подтверждения.
-                                </p>
-                              ) : (
-                                <p className="delivery-cdek-save-note">
-                                  Это предварительная доставка для расчёта суммы
-                                  заказа. Трек, документы и этикетки создаются
-                                  позже.
-                                </p>
-                              )}
+                              <p
+                                className={
+                                  isDraftOrderDeliveryNeedsReview(detailDraftOrder)
+                                    ? "delivery-cdek-save-note delivery-cdek-save-note-warning"
+                                    : "delivery-cdek-save-note"
+                                }
+                              >
+                                {getCdekFutureShipmentNotice(
+                                  detailDraftOrder,
+                                  detailDraftOrder.serverOrderId
+                                    ? orderPaymentsByOrderId[
+                                        detailDraftOrder.serverOrderId
+                                      ] ?? []
+                                    : []
+                                )}
+                              </p>
                               <dl className="delivery-cdek-summary-list">
                                 <div>
                                   <dt>Откуда</dt>
@@ -8893,26 +9211,6 @@ function App() {
                               <button
                                 className="primary-action-button"
                                 disabled={
-                                  cdekPanelState.isCalculating ||
-                                  (Boolean(cdekPanelState.saveResult) &&
-                                    !isDraftOrderDeliveryNeedsReview(
-                                      detailDraftOrder
-                                    )) ||
-                                  !canSaveCdekDeliveryMode(cdekPanelState) ||
-                                  !canCalculateCdekDelivery(cdekPanelState)
-                                }
-                                onClick={() =>
-                                  void handleCalculateCdekDelivery(detailDraftOrder)
-                                }
-                                type="button"
-                              >
-                                {cdekPanelState.isCalculating
-                                  ? "Считаем..."
-                                  : "Рассчитать СДЭК"}
-                              </button>
-                              <button
-                                className="secondary-action-button"
-                                disabled={
                                   cdekPanelState.isSaving ||
                                   (Boolean(cdekPanelState.saveResult) &&
                                     !isDraftOrderDeliveryNeedsReview(
@@ -8928,12 +9226,17 @@ function App() {
                               >
                                 {getCdekSaveButtonLabel(
                                   cdekPanelState,
-                                  detailDraftOrder,
                                   isDraftOrderDeliveryNeedsReview(detailDraftOrder)
                                 )}
                               </button>
                               <span>{getCdekSenderSummary(cdekPanelState)}</span>
                             </div>
+                            <p className="delivery-cdek-footer-note">
+                              {getCdekSaveActionNote(
+                                cdekPanelState,
+                                isDraftOrderDeliveryNeedsReview(detailDraftOrder)
+                              )}
+                            </p>
 
                             {!canSaveCdekDeliveryMode(cdekPanelState) ? (
                               <p className="delivery-cdek-footer-note">
@@ -9124,25 +9427,19 @@ function App() {
                         </div>
                       )}
 
-                      {draftOrderDeliveryForm.mode === "cdek" &&
-                      cdekPanelState.isEditingSavedDelivery ? (
-                        <p className="delivery-cdek-footer-note">
-                          Общая кнопка «Сохранить» не сохраняет изменения СДЭК.
-                          Используйте кнопку в блоке СДЭК.
-                        </p>
+                      {draftOrderDeliveryForm.mode !== "cdek" ? (
+                        <div className="draft-order-footer">
+                          <button
+                            className="primary-action-button"
+                            onClick={() =>
+                              handleSaveDraftOrderDelivery(detailDraftOrder.id)
+                            }
+                            type="button"
+                          >
+                            Сохранить
+                          </button>
+                        </div>
                       ) : null}
-
-                      <div className="draft-order-footer">
-                        <button
-                          className="primary-action-button"
-                          onClick={() =>
-                            handleSaveDraftOrderDelivery(detailDraftOrder.id)
-                          }
-                          type="button"
-                        >
-                          Сохранить
-                        </button>
-                      </div>
                     </section>
                   ) : (
                     <section className="draft-items-panel draft-items-panel-detail">
