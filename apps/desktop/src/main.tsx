@@ -330,6 +330,10 @@ type DraftOrderItem = {
 
 type DraftOrderStatus = "receiving" | "awaiting-details";
 
+type DraftOrderItemEditorSource =
+  | { draftOrderId: string | null; type: "new-order" }
+  | { draftOrderId: string; type: "order-detail" };
+
 type DraftOrderCustomer = {
   comment?: string;
   email?: string;
@@ -3061,6 +3065,819 @@ function getDraftOrderItemDisplayComment(
     : "";
 }
 
+type PositionBreakdownRow = {
+  label: string;
+  price?: string;
+  value: string;
+};
+
+type PositionBreakdownSection = {
+  rows: PositionBreakdownRow[];
+  title: string;
+};
+
+function getLightLetterBreakdownRecords(item: DraftOrderItem) {
+  return [
+    item.calculationSnapshot,
+    item.params,
+    getEditorParamsRecord(item.params),
+    getEditorParamsRecord(item.calculationSnapshot)
+  ].filter(isPlainRecord);
+}
+
+function getNestedRecordValue(record: Record<string, unknown>, path: string) {
+  return path.split(".").reduce<unknown>((currentValue, key) => {
+    if (!isPlainRecord(currentValue)) {
+      return undefined;
+    }
+
+    return currentValue[key];
+  }, record);
+}
+
+function getFirstNestedRecordValue(
+  records: Array<Record<string, unknown>>,
+  paths: string[]
+) {
+  for (const record of records) {
+    for (const path of paths) {
+      const value = getNestedRecordValue(record, path);
+
+      if (value !== undefined && value !== null && value !== "") {
+        return value;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function normalizeBreakdownNumber(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    const parsedValue = Number(value.replace(",", "."));
+
+    return Number.isFinite(parsedValue) ? parsedValue : null;
+  }
+
+  return null;
+}
+
+function normalizeBreakdownString(value: unknown) {
+  if (typeof value === "string" && value.trim()) {
+    return value.trim();
+  }
+
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return formatCompactNumber(value);
+  }
+
+  return "";
+}
+
+function formatBreakdownNumber(value: number, maximumFractionDigits = 2) {
+  return value.toLocaleString("ru-RU", {
+    maximumFractionDigits,
+    minimumFractionDigits: Number.isInteger(value) ? 0 : 1
+  });
+}
+
+function formatBreakdownMm(value: unknown) {
+  const numberValue = normalizeBreakdownNumber(value);
+
+  return numberValue === null ? "" : `${formatBreakdownNumber(numberValue)} мм`;
+}
+
+function formatBreakdownArea(value: unknown) {
+  const numberValue = normalizeBreakdownNumber(value);
+
+  return numberValue === null ? "" : `${formatBreakdownNumber(numberValue, 3)} м²`;
+}
+
+function formatBreakdownLength(value: unknown) {
+  const numberValue = normalizeBreakdownNumber(value);
+
+  return numberValue === null ? "" : `${formatBreakdownNumber(numberValue, 3)} м`;
+}
+
+function formatBreakdownCount(value: unknown) {
+  const numberValue = normalizeBreakdownNumber(value);
+
+  return numberValue === null
+    ? ""
+    : numberValue.toLocaleString("ru-RU", {
+        maximumFractionDigits: 0,
+        minimumFractionDigits: 0
+      });
+}
+
+function formatBreakdownMoneyMinor(value: unknown, currencyCode = "RUB") {
+  const numberValue = normalizeBreakdownNumber(value);
+
+  return numberValue === null ? "" : formatMinorPrice(numberValue, currencyCode);
+}
+
+function formatBreakdownMoneyRub(value: unknown) {
+  const numberValue = normalizeBreakdownNumber(value);
+
+  if (numberValue === null) {
+    return "";
+  }
+
+  return `${numberValue.toLocaleString("ru-RU", {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: Number.isInteger(numberValue) ? 0 : 2
+  })} RUB`;
+}
+
+function getBreakdownValue(
+  records: Array<Record<string, unknown>>,
+  paths: string[],
+  formatter: (value: unknown) => string = normalizeBreakdownString
+) {
+  return formatter(getFirstNestedRecordValue(records, paths));
+}
+
+function createBreakdownRow(
+  label: string,
+  value: string | null | undefined
+): PositionBreakdownRow | null {
+  const normalizedValue = value?.trim();
+
+  return normalizedValue ? { label, value: normalizedValue } : null;
+}
+
+function compactBreakdownRows(
+  rows: Array<PositionBreakdownRow | null>
+): PositionBreakdownRow[] {
+  return rows.filter((row): row is PositionBreakdownRow => row !== null);
+}
+
+function getLightLetterObjectCount(
+  item: DraftOrderItem,
+  records: Array<Record<string, unknown>>
+) {
+  const explicitValue =
+    normalizeBreakdownNumber(
+      getFirstNestedRecordValue(records, [
+        "objectCount",
+        "objectsCount",
+        "layoutObjectCount",
+        "textObjectCount",
+        "constructor.objectCount",
+        "geometry.objectCount",
+        "geometrySummary.objectCount"
+      ])
+    ) ??
+    normalizeBreakdownNumber(item.quantity);
+
+  if (explicitValue !== null) {
+    return formatBreakdownCount(explicitValue);
+  }
+
+  const objectsValue = getFirstNestedRecordValue(records, [
+    "objects",
+    "geometry.objects",
+    "geometrySummary.objects",
+    "layout.objects"
+  ]);
+
+  return Array.isArray(objectsValue) && objectsValue.length > 0
+    ? formatBreakdownCount(objectsValue.length)
+    : "";
+}
+
+function getLightLetterModeLabel(value: unknown) {
+  const normalizedValue = normalizeBreakdownString(value).toLowerCase();
+
+  if (!normalizedValue) {
+    return "";
+  }
+
+  if (
+    normalizedValue === "light" ||
+    normalizedValue === "illuminated" ||
+    normalizedValue === "true"
+  ) {
+    return "Световая";
+  }
+
+  if (
+    normalizedValue === "non-light" ||
+    normalizedValue === "non_light" ||
+    normalizedValue === "not_illuminated" ||
+    normalizedValue === "false"
+  ) {
+    return "Несветовая";
+  }
+
+  return normalizeBreakdownString(value);
+}
+
+function joinBreakdownParts(parts: Array<string | null | undefined>) {
+  return parts
+    .map((part) => part?.trim())
+    .filter((part): part is string => Boolean(part))
+    .join(" · ");
+}
+
+function createMaterialBreakdownRow(
+  label: string,
+  records: Array<Record<string, unknown>>,
+  options: {
+    amountFormatter?: (value: unknown) => string;
+    amountPaths?: string[];
+    costPaths?: string[];
+    fallbackParts?: Array<string | null | undefined>;
+    namePaths?: string[];
+    thicknessPaths?: string[];
+  }
+) {
+  const name = options.namePaths
+    ? getBreakdownValue(records, options.namePaths)
+    : "";
+  const thickness = options.thicknessPaths
+    ? getBreakdownValue(records, options.thicknessPaths, formatBreakdownMm)
+    : "";
+  const amount =
+    options.amountPaths && options.amountFormatter
+      ? getBreakdownValue(records, options.amountPaths, options.amountFormatter)
+      : "";
+  const cost = options.costPaths
+    ? getBreakdownValue(records, options.costPaths, formatBreakdownMoneyMinor)
+    : "";
+  const value = joinBreakdownParts([
+    name,
+    ...((options.fallbackParts ?? []).filter(Boolean) as string[]),
+    thickness,
+    amount,
+    cost
+  ]);
+
+  return createBreakdownRow(label, value);
+}
+
+function getLightLetterCalculationBreakdownRecord(
+  records: Array<Record<string, unknown>>
+) {
+  const value = getFirstNestedRecordValue(records, ["calculationBreakdown"]);
+
+  return isPlainRecord(value) ? value : null;
+}
+
+function getBreakdownRecordArray(value: unknown) {
+  return Array.isArray(value) ? value.filter(isPlainRecord) : [];
+}
+
+function getBreakdownLineQuantity(line: Record<string, unknown>) {
+  const quantity = normalizeBreakdownNumber(line.quantity);
+  const unit = normalizeBreakdownString(line.unit);
+
+  if (quantity === null) {
+    return unit;
+  }
+
+  return `${formatBreakdownNumber(quantity, 4)}${unit ? ` ${unit}` : ""}`;
+}
+
+function getBreakdownLineLabel(line: Record<string, unknown>) {
+  const label = normalizeBreakdownString(line.label);
+  const materialName = normalizeBreakdownString(line.materialName);
+
+  if (materialName && label && !label.includes(materialName)) {
+    return `${label}: ${materialName}`;
+  }
+
+  return label || materialName;
+}
+
+function createCalculationBreakdownRows(
+  lines: Array<Record<string, unknown>>,
+  currencyCode: string
+): PositionBreakdownRow[] {
+  return lines
+    .map((line): PositionBreakdownRow | null => {
+      const label = getBreakdownLineLabel(line);
+      const value = getBreakdownLineQuantity(line);
+      const price = formatBreakdownMoneyMinor(line.totalPriceMinor, currencyCode);
+
+      if (!label || (!value && !price)) {
+        return null;
+      }
+
+      return {
+        label,
+        price,
+        value
+      };
+    })
+    .filter((row): row is PositionBreakdownRow => row !== null);
+}
+
+function getLightLetterCalculationBreakdownSections(
+  breakdown: Record<string, unknown>,
+  currencyCode: string
+): PositionBreakdownSection[] {
+  const geometry = isPlainRecord(breakdown.geometry) ? breakdown.geometry : null;
+  const totals = isPlainRecord(breakdown.totals) ? breakdown.totals : null;
+  const lightingRows = createCalculationBreakdownRows(
+    getBreakdownRecordArray(breakdown.lighting),
+    currencyCode
+  );
+  const materialsRows = createCalculationBreakdownRows(
+    getBreakdownRecordArray(breakdown.materials),
+    currencyCode
+  );
+  const worksRows = createCalculationBreakdownRows(
+    getBreakdownRecordArray(breakdown.works),
+    currencyCode
+  );
+  const totalRows = totals
+    ? compactBreakdownRows([
+        createBreakdownRow(
+          "Материалы всего",
+          formatBreakdownMoneyMinor(totals.materialsTotalMinor, currencyCode)
+        ),
+        createBreakdownRow(
+          "Светотехника всего",
+          formatBreakdownMoneyMinor(totals.lightingTotalMinor, currencyCode)
+        ),
+        createBreakdownRow(
+          "Работы / производство всего",
+          formatBreakdownMoneyMinor(totals.worksTotalMinor, currencyCode)
+        ),
+        createBreakdownRow(
+          "Наценки / накладные",
+          formatBreakdownMoneyMinor(totals.markupMinor, currencyCode)
+        ),
+        createBreakdownRow(
+          "Итого позиции",
+          formatBreakdownMoneyMinor(totals.totalPriceMinor, currencyCode)
+        )
+      ])
+    : [];
+  const sections: PositionBreakdownSection[] = [
+    {
+      title: "Геометрия",
+      rows: geometry
+        ? compactBreakdownRows([
+            createBreakdownRow("Площадь лица", formatBreakdownArea(geometry.faceAreaM2)),
+            createBreakdownRow("Площадь задника", formatBreakdownArea(geometry.backAreaM2)),
+            createBreakdownRow("Периметр", formatBreakdownLength(geometry.perimeterM)),
+            createBreakdownRow(
+              "Длина бортовой ленты",
+              formatBreakdownLength(geometry.boardTapeLengthM)
+            ),
+            createBreakdownRow("LED-модули", formatBreakdownCount(geometry.ledCount))
+          ])
+        : []
+    },
+    {
+      title: "Светотехника",
+      rows: lightingRows
+    },
+    {
+      title: "Материалы",
+      rows: materialsRows
+    },
+    {
+      title: "Работы и наценки",
+      rows: worksRows
+    },
+    {
+      title: "Итог",
+      rows: totalRows
+    }
+  ];
+
+  return sections.filter((section) => section.rows.length > 0);
+}
+
+function getLightLetterPositionBreakdownSections(
+  item: DraftOrderItem,
+  draftOrder?: DraftOrder | null
+): PositionBreakdownSection[] {
+  if (item.serviceType !== "light-letter") {
+    return [];
+  }
+
+  const records = getLightLetterBreakdownRecords(item);
+  const currencyCode = item.currencyCode ?? "RUB";
+  const calculationBreakdown = getLightLetterCalculationBreakdownRecord(records);
+
+  if (calculationBreakdown) {
+    return getLightLetterCalculationBreakdownSections(
+      calculationBreakdown,
+      currencyCode
+    );
+  }
+
+  const activeHeight =
+    formatBreakdownMm(item.heightMm) ||
+    getBreakdownValue(records, [
+      "heightMm",
+      "activeObjectHeightMm",
+      "activeHeightMm",
+      "editorParams.heightMm"
+    ], formatBreakdownMm);
+  const activeWidth =
+    formatBreakdownMm(item.widthMm) ||
+    getBreakdownValue(records, [
+      "widthMm",
+      "activeObjectWidthMm",
+      "activeWidthMm",
+      "editorParams.widthMm"
+    ], formatBreakdownMm);
+  const lightMode =
+    getLightLetterModeLabel(item.lightingMode) ||
+    getLightLetterModeLabel(
+      getFirstNestedRecordValue(records, [
+        "lightingMode",
+        "mode",
+        "lightMode",
+        "isIlluminated",
+        "editorParams.lightingMode",
+        "editorParams.mode"
+      ])
+    );
+  const faceFilmLabel =
+    item.faceFilmLabel ||
+    getBreakdownValue(records, [
+      "faceFilmLabel",
+      "faceFilm.name",
+      "faceFilm.label",
+      "faceColor",
+      "faceFilmColorCode",
+      "editorParams.faceFilmLabel",
+      "editorParams.faceFilmColorCode"
+    ]);
+  const boardTapeColor =
+    item.boardTapeColorName ||
+    getBreakdownValue(records, [
+      "boardTapeColorName",
+      "boardTape.colorName",
+      "boardColor",
+      "editorParams.boardTapeColorName"
+    ]);
+  const boardWidth =
+    formatBreakdownMm(item.boardWidthMm) ||
+    getBreakdownValue(records, [
+      "boardWidthMm",
+      "boardTape.widthMm",
+      "editorParams.boardWidthMm"
+    ], formatBreakdownMm);
+  const boardThickness =
+    formatBreakdownMm(item.boardThicknessMm) ||
+    formatBreakdownMm(item.resolvedBoardTapeThicknessMm) ||
+    getBreakdownValue(records, [
+      "boardThicknessMm",
+      "boardTape.thicknessMm",
+      "resolvedBoardTapeThicknessMm",
+      "editorParams.boardThicknessMm"
+    ], formatBreakdownMm);
+  const ledCount =
+    formatBreakdownCount(item.ledCount) ||
+    getBreakdownValue(records, [
+      "ledCount",
+      "lighting.ledCount",
+      "lighting.ledByInnerAreaCount",
+      "ledModules.count",
+      "materialDebugSummary.ledCount"
+    ], formatBreakdownCount);
+  const itemTotal =
+    formatBreakdownMoneyMinor(item.totalPriceMinor ?? item.priceMinor, currencyCode) ||
+    getBreakdownValue(records, [
+      "totalPriceMinor",
+      "priceMinor",
+      "publicPriceMinor",
+      "totals.totalPriceMinor"
+    ], (value) => formatBreakdownMoneyMinor(value, currencyCode));
+
+  const sections: PositionBreakdownSection[] = [
+    {
+      title: "Основные параметры",
+      rows: compactBreakdownRows([
+        createBreakdownRow("Тип", "объёмные буквы"),
+        createBreakdownRow(
+          "Текст / макет",
+          item.text ||
+            getBreakdownValue(records, [
+              "text",
+              "title",
+              "layoutName",
+              "objectTitle",
+              "editorParams.text"
+            ]) ||
+            item.title
+        ),
+        createBreakdownRow("Количество объектов", getLightLetterObjectCount(item, records)),
+        createBreakdownRow("Высота активного объекта", activeHeight),
+        createBreakdownRow("Ширина активного объекта", activeWidth),
+        createBreakdownRow("Тип подсветки / режим", lightMode),
+        createBreakdownRow("Цвет лица / плёнка", faceFilmLabel),
+        createBreakdownRow("Цвет борта", boardTapeColor),
+        createBreakdownRow("Ширина борта", boardWidth),
+        createBreakdownRow("Толщина борта", boardThickness)
+      ])
+    },
+    {
+      title: "Геометрия",
+      rows: compactBreakdownRows([
+        createBreakdownRow(
+          "Площадь лица / акрила",
+          getBreakdownValue(records, [
+            "faceAreaM2",
+            "acrylicAreaM2",
+            "faceAcrylicAreaM2",
+            "materialAreaM2",
+            "geometry.faceAreaM2",
+            "geometry.acrylicAreaM2",
+            "geometry.materialAreaM2",
+            "activeObject.materialAreaM2"
+          ], formatBreakdownArea)
+        ),
+        createBreakdownRow(
+          "Площадь задника / ПВХ",
+          getBreakdownValue(records, [
+            "backAreaM2",
+            "backPvcAreaM2",
+            "pvcBackAreaM2",
+            "geometry.backAreaM2",
+            "geometry.backPvcAreaM2"
+          ], formatBreakdownArea)
+        ),
+        createBreakdownRow(
+          "Периметр / контур",
+          getBreakdownValue(records, [
+            "perimeterM",
+            "contourLengthM",
+            "geometry.perimeterM",
+            "geometry.contourLengthM",
+            "activeObject.perimeterM"
+          ], formatBreakdownLength)
+        ),
+        createBreakdownRow(
+          "Длина бортовой ленты",
+          getBreakdownValue(records, [
+            "boardTapeLengthM",
+            "sideTapeLengthM",
+            "geometry.boardTapeLengthM",
+            "materials.boardTape.lengthM",
+            "boardTape.lengthM"
+          ], formatBreakdownLength)
+        )
+      ])
+    },
+    {
+      title: "Светотехника",
+      rows: compactBreakdownRows([
+        createBreakdownRow(
+          "LED-модули",
+          lightMode === "Несветовая" ? "Не требуется" : ledCount
+        ),
+        createBreakdownRow(
+          "Стоимость LED-модулей",
+          lightMode === "Несветовая"
+            ? "Не требуется"
+            : getBreakdownValue(records, [
+                "ledCostMinor",
+                "lighting.ledCostMinor",
+                "lighting.ledModulesCostMinor",
+                "ledModules.costMinor"
+              ], (value) => formatBreakdownMoneyMinor(value, currencyCode))
+        ),
+        createBreakdownRow(
+          "Блок питания / светотехника",
+          lightMode === "Несветовая"
+            ? "Не требуется"
+            : getBreakdownValue(records, [
+                "powerSupplyCostMinor",
+                "lighting.powerSupplyCostMinor",
+                "lighting.powerCostMinor",
+                "lighting.finalLightingCostMinor"
+              ], (value) => formatBreakdownMoneyMinor(value, currencyCode))
+        ),
+        createBreakdownRow(
+          "Электротехническая наценка",
+          lightMode === "Несветовая"
+            ? "Не требуется"
+            : getBreakdownValue(records, [
+                "electricalOverheadMinor",
+                "lighting.electricalOverheadMinor",
+                "lighting.overheadMinor",
+                "lighting.electricalOverheadPercent"
+              ], (value) =>
+                normalizeBreakdownNumber(value) !== null &&
+                normalizeBreakdownNumber(value)! <= 100
+                  ? `${formatBreakdownNumber(normalizeBreakdownNumber(value)!)}%`
+                  : formatBreakdownMoneyMinor(value, currencyCode)
+              )
+        )
+      ])
+    },
+    {
+      title: "Материалы",
+      rows: compactBreakdownRows([
+        createMaterialBreakdownRow("Акрил / лицо", records, {
+          amountFormatter: formatBreakdownArea,
+          amountPaths: [
+            "faceAreaM2",
+            "acrylicAreaM2",
+            "materials.faceAcrylic.areaM2",
+            "faceAcrylic.areaM2"
+          ],
+          costPaths: [
+            "faceAcrylicCostMinor",
+            "acrylicCostMinor",
+            "materials.faceAcrylic.costMinor",
+            "faceAcrylic.costMinor"
+          ],
+          namePaths: [
+            "faceAcrylicMaterialName",
+            "materials.faceAcrylic.materialName",
+            "faceAcrylic.materialName",
+            "faceAcrylic.name"
+          ],
+          thicknessPaths: [
+            "faceAcrylicThicknessMm",
+            "materials.faceAcrylic.thicknessMm",
+            "faceAcrylic.thicknessMm"
+          ]
+        }),
+        createMaterialBreakdownRow("ПВХ задник", records, {
+          amountFormatter: formatBreakdownArea,
+          amountPaths: [
+            "backAreaM2",
+            "backPvcAreaM2",
+            "materials.backPvc.areaM2",
+            "backPvc.areaM2"
+          ],
+          costPaths: [
+            "backPvcCostMinor",
+            "pvcBackCostMinor",
+            "materials.backPvc.costMinor",
+            "backPvc.costMinor"
+          ],
+          namePaths: [
+            "backPvcMaterialName",
+            "materials.backPvc.materialName",
+            "backPvc.materialName",
+            "backPvc.name"
+          ],
+          thicknessPaths: [
+            "backPvcThicknessMm",
+            "materials.backPvc.thicknessMm",
+            "backPvc.thicknessMm"
+          ]
+        }),
+        createMaterialBreakdownRow("Бортовая лента", records, {
+          amountFormatter: formatBreakdownLength,
+          amountPaths: [
+            "boardTapeLengthM",
+            "sideTapeLengthM",
+            "materials.boardTape.lengthM",
+            "boardTape.lengthM"
+          ],
+          costPaths: [
+            "boardTapeCostMinor",
+            "sideTapeCostMinor",
+            "materials.boardTape.costMinor",
+            "boardTape.costMinor"
+          ],
+          fallbackParts: [boardTapeColor, boardWidth, boardThickness],
+          namePaths: [
+            "resolvedBoardTapeMaterialName",
+            "boardTape.materialName",
+            "materials.boardTape.materialName",
+            "boardTape.name"
+          ]
+        }),
+        createMaterialBreakdownRow("Лицевая плёнка", records, {
+          amountFormatter: formatBreakdownArea,
+          amountPaths: [
+            "faceFilmAreaM2",
+            "filmAreaM2",
+            "materials.faceFilm.areaM2",
+            "faceFilm.areaM2"
+          ],
+          costPaths: [
+            "faceFilmCostMinor",
+            "filmCostMinor",
+            "materials.faceFilm.costMinor",
+            "faceFilm.costMinor"
+          ],
+          fallbackParts: [faceFilmLabel],
+          namePaths: [
+            "faceFilm.materialName",
+            "materials.faceFilm.materialName",
+            "faceFilm.name"
+          ]
+        }),
+        createMaterialBreakdownRow("Клей / расходники / крепёж", records, {
+          costPaths: [
+            "consumablesCostMinor",
+            "glueCostMinor",
+            "fastenersCostMinor",
+            "materials.consumables.costMinor",
+            "materials.glue.costMinor",
+            "materials.fasteners.costMinor"
+          ],
+          namePaths: [
+            "consumablesLabel",
+            "glueLabel",
+            "fastenersLabel",
+            "materials.consumables.label"
+          ]
+        }),
+        createMaterialBreakdownRow("Отходы", records, {
+          costPaths: [
+            "wasteCostMinor",
+            "materials.waste.costMinor",
+            "waste.costMinor"
+          ],
+          namePaths: [
+            "wasteLabel",
+            "materials.waste.label",
+            "waste.label"
+          ]
+        })
+      ])
+    },
+    {
+      title: "Работы и наценки",
+      rows: compactBreakdownRows([
+        createBreakdownRow(
+          "Производство / работа",
+          getBreakdownValue(records, [
+            "productionCostMinor",
+            "workCostMinor",
+            "laborCostMinor",
+            "totalProductionCostMinor",
+            "production.totalProductionCostMinor"
+          ], (value) => formatBreakdownMoneyMinor(value, currencyCode))
+        ),
+        createBreakdownRow(
+          "Накладные",
+          getBreakdownValue(records, [
+            "overheadCostMinor",
+            "overheadMinor",
+            "production.overheadCostMinor"
+          ], (value) => formatBreakdownMoneyMinor(value, currencyCode))
+        ),
+        createBreakdownRow(
+          "Наценка",
+          getBreakdownValue(records, [
+            "markupCostMinor",
+            "markupMinor",
+            "markupRub",
+            "production.markupCostMinor"
+          ], (value) =>
+            normalizeBreakdownNumber(value) !== null &&
+            normalizeBreakdownNumber(value)! < 100000
+              ? formatBreakdownMoneyRub(value)
+              : formatBreakdownMoneyMinor(value, currencyCode)
+          )
+        ),
+        createBreakdownRow("Публичная цена", itemTotal)
+      ])
+    },
+    {
+      title: "Итог",
+      rows: compactBreakdownRows([
+        createBreakdownRow(
+          "Материалы всего",
+          getBreakdownValue(records, [
+            "totalMaterialsCostMinor",
+            "materials.totalCostMinor",
+            "materialsTotalMinor",
+            "costs.totalMaterialsCostMinor"
+          ], (value) => formatBreakdownMoneyMinor(value, currencyCode))
+        ),
+        createBreakdownRow(
+          "Работа / производство всего",
+          getBreakdownValue(records, [
+            "totalProductionCostMinor",
+            "production.totalProductionCostMinor",
+            "productionTotalMinor"
+          ], (value) => formatBreakdownMoneyMinor(value, currencyCode))
+        ),
+        createBreakdownRow("Итог позиции", itemTotal),
+        createBreakdownRow(
+          "Итог заказа",
+          draftOrder
+            ? formatMinorPrice(draftOrder.totalPriceMinor, currencyCode)
+            : ""
+        )
+      ])
+    }
+  ];
+
+  return sections.filter((section) => section.rows.length > 0);
+}
+
 function getDraftOrderFallbackComment(draftOrder: DraftOrder) {
   const comment = getDraftOrderDisplayRequestComment(draftOrder);
 
@@ -3837,6 +4654,8 @@ function App() {
   const [isNewOrderFormOpen, setIsNewOrderFormOpen] = useState(false);
   const [isDraftOrderDetailsOpen, setIsDraftOrderDetailsOpen] = useState(false);
   const [newOrderStep, setNewOrderStep] = useState<NewOrderStep>("calculation");
+  const [draftOrderItemEditorSource, setDraftOrderItemEditorSource] =
+    useState<DraftOrderItemEditorSource | null>(null);
   const [isConstructorPanelOpen, setIsConstructorPanelOpen] = useState(false);
   const [openColorPalette, setOpenColorPalette] = useState<
     "board" | "face" | null
@@ -4163,6 +4982,17 @@ function App() {
       draftOrders
         .flatMap((draftOrder) => draftOrder.items)
         .find((item) => item.id === editingDraftOrderItemId) ?? null
+    );
+  }, [draftOrders, editingDraftOrderItemId]);
+  const editingDraftOrder = useMemo(() => {
+    if (!editingDraftOrderItemId) {
+      return null;
+    }
+
+    return (
+      draftOrders.find((draftOrder) =>
+        draftOrder.items.some((item) => item.id === editingDraftOrderItemId)
+      ) ?? null
     );
   }, [draftOrders, editingDraftOrderItemId]);
   const detailDraftOrderAttachmentBuckets = useMemo(() => {
@@ -4898,6 +5728,7 @@ function App() {
     setNewOrderStep("start");
     setIsConstructorPanelOpen(false);
     setEditingDraftOrderItemId(null);
+    setDraftOrderItemEditorSource(null);
     setDtfPrintForm({
       heightCm: String(DTF_A3_HEIGHT_CM),
       quantity: "1",
@@ -5166,6 +5997,10 @@ function App() {
     setNewOrderStep("calculation");
     setIsConstructorPanelOpen(true);
     setEditingDraftOrderItemId(null);
+    setDraftOrderItemEditorSource({
+      draftOrderId: activeDraftOrderId,
+      type: "new-order"
+    });
     setConstructorFileActionStatus(null);
   }
 
@@ -5173,6 +6008,10 @@ function App() {
     setNewOrderStep("dtf-print");
     setIsConstructorPanelOpen(false);
     setEditingDraftOrderItemId(null);
+    setDraftOrderItemEditorSource({
+      draftOrderId: activeDraftOrderId,
+      type: "new-order"
+    });
   }
 
   function updateDraftOrderForm<Field extends keyof DraftOrderForm>(
@@ -5460,6 +6299,7 @@ function App() {
 
     addDraftOrderItem(acceptedItem);
     setEditingDraftOrderItemId(null);
+    setDraftOrderItemEditorSource(null);
     setNewOrderStep("details");
   }
 
@@ -5472,6 +6312,16 @@ function App() {
       draftOrders.find((draftOrder) =>
         draftOrder.items.some((draftItem) => draftItem.id === item.id)
       )?.id ?? null;
+    const editorSource: DraftOrderItemEditorSource =
+      isDraftOrderDetailsOpen && draftOrderId
+        ? {
+            draftOrderId,
+            type: "order-detail"
+          }
+        : {
+            draftOrderId,
+            type: "new-order"
+          };
 
     if (item.serviceType === "dtf-print") {
       setDtfPrintForm({
@@ -5484,6 +6334,7 @@ function App() {
       setManagerCommentEditorDraft(managerComment);
       setIsManagerCommentEditorOpen(false);
       setEditingDraftOrderItemId(item.id);
+      setDraftOrderItemEditorSource(editorSource);
       setActiveDraftOrderId(draftOrderId);
       setIsNewOrderFormOpen(true);
       setIsDraftOrderDetailsOpen(false);
@@ -5514,11 +6365,31 @@ function App() {
     setManagerCommentEditorDraft(managerComment);
     setIsManagerCommentEditorOpen(false);
     setEditingDraftOrderItemId(item.id);
+    setDraftOrderItemEditorSource(editorSource);
     setActiveDraftOrderId(draftOrderId);
     setIsNewOrderFormOpen(true);
     setIsDraftOrderDetailsOpen(false);
     setNewOrderStep("calculation");
     setIsConstructorPanelOpen(true);
+  }
+
+  function handleDraftOrderItemEditorBack() {
+    const source = draftOrderItemEditorSource;
+
+    setIsConstructorPanelOpen(false);
+    setEditingDraftOrderItemId(null);
+    setDraftOrderItemEditorSource(null);
+
+    if (source?.type === "order-detail") {
+      setActiveDraftOrderId(source.draftOrderId);
+      setSelectedDraftOrderId(source.draftOrderId);
+      setIsNewOrderFormOpen(false);
+      setIsDraftOrderDetailsOpen(true);
+      setDraftOrderPanelMode("details");
+      return;
+    }
+
+    setNewOrderStep("start");
   }
 
   function handleDuplicateDraftOrderItem(item: DraftOrderItem) {
@@ -6967,6 +7838,57 @@ function App() {
           </div>
         </div>
         <p>{normalizedComment}</p>
+      </section>
+    );
+  }
+
+  function renderLightLetterPositionBreakdownSection(
+    item: DraftOrderItem | null,
+    draftOrder: DraftOrder | null
+  ) {
+    if (!item || item.serviceType !== "light-letter") {
+      return null;
+    }
+
+    const records = getLightLetterBreakdownRecords(item);
+    const hasCalculationBreakdown =
+      getLightLetterCalculationBreakdownRecord(records) !== null;
+    const sections = getLightLetterPositionBreakdownSections(item, draftOrder);
+
+    return (
+      <section className="position-comment-section position-breakdown-section">
+        <div className="section-heading">
+          <div>
+            <h3>Детализация заказа</h3>
+          </div>
+        </div>
+        {sections.length > 0 ? (
+          <div className="position-breakdown-groups">
+            {!hasCalculationBreakdown ? (
+              <p className="position-breakdown-note">
+                Подробный breakdown не передан. Доступны только основные параметры.
+              </p>
+            ) : null}
+            {sections.map((section) => (
+              <article className="position-breakdown-group" key={section.title}>
+                <h4>{section.title}</h4>
+                <dl className="position-breakdown-list">
+                  {section.rows.map((row) => (
+                    <div key={`${section.title}-${row.label}`}>
+                      <dt>{row.label}</dt>
+                      <dd>
+                        <span>{row.value}</span>
+                        {row.price ? <strong>{row.price}</strong> : null}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <p>Нет данных расчёта</p>
+        )}
       </section>
     );
   }
@@ -10540,10 +11462,9 @@ function App() {
                           detailDraftOrderAttachmentBuckets?.attachmentsByItemId.get(
                             item.id
                           ) ?? [];
-                        const itemCommentText = getDraftOrderItemDisplayComment(
-                          detailDraftOrder,
-                          item
-                        ) || getDraftOrderItemManagerComment(item);
+                        const itemRealCommentText =
+                          getDraftOrderItemCommentText(item) ||
+                          getDraftOrderItemManagerComment(item);
 
                         return (
                         <li className="draft-item-row" key={item.id}>
@@ -10552,7 +11473,7 @@ function App() {
                               {index + 1}. {getDraftOrderItemServiceLabel(item)}
                             </strong>
                             <span>{getDraftOrderItemDescription(item)}</span>
-                            {itemAttachments.length > 0 || itemCommentText ? (
+                            {itemAttachments.length > 0 || itemRealCommentText ? (
                               <div className="draft-item-indicators">
                                 {itemAttachments.length > 0 ? (
                                   <span
@@ -10573,7 +11494,7 @@ function App() {
                                     ) : null}
                                   </span>
                                 ) : null}
-                                {itemCommentText ? (
+                                {itemRealCommentText ? (
                                   <span
                                     className="draft-item-indicator"
                                     title="Есть комментарий"
@@ -10852,11 +11773,7 @@ function App() {
                       </div>
                     ) : (
                       <InnerPageHeader
-                        onBack={() => {
-                          setNewOrderStep("start");
-                          setIsConstructorPanelOpen(false);
-                          setEditingDraftOrderItemId(null);
-                        }}
+                        onBack={handleDraftOrderItemEditorBack}
                         title={
                           newOrderStep === "dtf-print"
                             ? "DTF-ПЕЧАТЬ"
@@ -11272,8 +12189,14 @@ function App() {
                             </div>
                           </section>
 
+                          {renderLightLetterPositionBreakdownSection(
+                            editingDraftOrderItem,
+                            editingDraftOrder
+                          )}
                           {renderPositionCommentSection(
-                            editingDraftOrderItemComment
+                            editingDraftOrderItem
+                              ? getDraftOrderItemCommentText(editingDraftOrderItem)
+                              : ""
                           )}
                           {renderPositionManagerCommentDisplaySection()}
 

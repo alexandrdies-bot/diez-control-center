@@ -1031,6 +1031,8 @@ The screen contains:
 - price;
 - `Добавить позицию`.
 
+Imported constructor requests from the site can include `params.calculationBreakdown` / `calculationSnapshot.calculationBreakdown`. The desktop editor should show this as manager-facing production details: geometry, lighting, materials, work/markup, and totals. Customer contacts stay in the order customer block and must not be mixed into the calculation breakdown.
+
 ### Service navigation
 
 Inside a service screen the header format is:

@@ -100,6 +100,8 @@ Order endpoints `GET /orders`, `GET /orders/:id`, `POST /orders` и `DELETE /ord
 
 Импортированные заявки конструктора сайта с `serviceType='light_letters'` гидратируют редактор объёмных букв из `params.editorParams` / `calculationSnapshot.editorParams`: Desktop подставляет текст, размеры, режим, борт, плёнку и SVG-данные в light-letter editor без изменения API/БД.
 
+Desktop отображает подробный breakdown заявок конструктора из `params.calculationBreakdown` / `calculationSnapshot.calculationBreakdown`, а старые заказы без breakdown открываются через fallback основных параметров.
+
 Desktop UI получил MVP login/logout, раздел `Заказы` из общей базы и раздел `Черновики` только для незавершённых локальных черновиков. Первый администратор создаётся при настройке системы, а сотрудников администратор добавит позже в настройках. Создание и удаление заказов из desktop передают текущий Bearer token; material price update пока остаётся на существующем admin `x-api-key` flow.
 
 Добавлен order attachments MVP: API умеет загружать, получать список, скачивать и отдавать preview вложений заказа через Bearer manager/admin endpoints. Файлы не сохраняются во frontend/localStorage и не кладутся в PostgreSQL `bytea`: сервер хранит бинарные файлы в storage directory, а БД хранит metadata/path. Desktop показывает вложения карточками 3:5, preview открывается в реальном формате, download работает через authenticated fetch.

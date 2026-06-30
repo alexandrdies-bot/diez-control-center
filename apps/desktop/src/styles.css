@@ -3695,6 +3695,68 @@ tbody tr {
   white-space: pre-wrap;
 }
 
+.position-breakdown-groups {
+  display: grid;
+  gap: 12px;
+}
+
+.position-breakdown-group {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid rgba(159, 183, 255, 0.12);
+  border-radius: var(--radius-small);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.position-breakdown-group h4 {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.88);
+  font-size: var(--font-small);
+  letter-spacing: 0;
+}
+
+.position-breakdown-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+
+.position-breakdown-list div {
+  display: grid;
+  grid-template-columns: minmax(140px, 0.72fr) minmax(0, 1fr);
+  gap: 10px;
+  align-items: baseline;
+}
+
+.position-breakdown-list dt {
+  color: rgba(255, 255, 255, 0.52);
+  font-size: var(--font-small);
+}
+
+.position-breakdown-list dd {
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  margin: 0;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: var(--font-small);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.position-breakdown-list dd strong {
+  color: rgba(255, 255, 255, 0.92);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.position-breakdown-note {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.62);
+  font-size: var(--font-small);
+}
+
 .position-comment-heading {
   align-items: center;
 }
