@@ -306,6 +306,9 @@ type DraftOrderItem = {
   resolvedBoardTapeThicknessMm?: number;
   faceFilmColorCode?: string;
   faceFilmLabel?: string;
+  widthMm?: number;
+  svgMarkup?: string;
+  svgShapeIndexes?: number[];
   widthCm?: number;
   heightCm?: number;
   quantity?: number;
@@ -2304,6 +2307,88 @@ function getOptionalString(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
+function getOptionalStringOrNumber(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(value);
+  }
+
+  return getOptionalString(value);
+}
+
+function getOptionalNumberArray(value: unknown) {
+  return Array.isArray(value) &&
+    value.every((item) => typeof item === "number" && Number.isFinite(item))
+    ? value
+    : undefined;
+}
+
+function getEditorParamsRecord(value: unknown) {
+  const editorParams = getRecordValue(value, "editorParams");
+
+  return isPlainRecord(editorParams) ? editorParams : null;
+}
+
+function getLightLetterEditorRecords(item: OrderDetail["items"][number]) {
+  return [
+    getEditorParamsRecord(item.params),
+    getEditorParamsRecord(item.calculationSnapshot),
+    item.params,
+    item.calculationSnapshot
+  ].filter(isPlainRecord);
+}
+
+function getFirstRecordValue(
+  records: Array<Record<string, unknown>>,
+  key: string
+) {
+  for (const record of records) {
+    if (key in record) {
+      return record[key];
+    }
+  }
+
+  return undefined;
+}
+
+function getLightLetterEditorFields(
+  item: OrderDetail["items"][number]
+): Partial<DraftOrderItem> {
+  const records = getLightLetterEditorRecords(item);
+  const lightingModeValue = getFirstRecordValue(records, "lightingMode");
+  const lightingMode =
+    lightingModeValue === "light" || lightingModeValue === "non-light"
+      ? lightingModeValue
+      : undefined;
+
+  return {
+    boardTapeColorName: getOptionalString(
+      getFirstRecordValue(records, "boardTapeColorName")
+    ),
+    boardThicknessMm: getOptionalNumber(
+      getFirstRecordValue(records, "boardThicknessMm")
+    ),
+    boardWidthMm: getOptionalNumber(getFirstRecordValue(records, "boardWidthMm")),
+    faceFilmColorCode: getOptionalString(
+      getFirstRecordValue(records, "faceFilmColorCode")
+    ),
+    faceFilmLabel: getOptionalString(getFirstRecordValue(records, "faceFilmLabel")),
+    heightMm: getOptionalStringOrNumber(getFirstRecordValue(records, "heightMm")),
+    lightingMode,
+    resolvedBoardTapeMaterialName: getOptionalString(
+      getFirstRecordValue(records, "resolvedBoardTapeMaterialName")
+    ),
+    resolvedBoardTapeThicknessMm: getOptionalNumber(
+      getFirstRecordValue(records, "resolvedBoardTapeThicknessMm")
+    ),
+    svgMarkup: getOptionalString(getFirstRecordValue(records, "svgMarkup")),
+    svgShapeIndexes: getOptionalNumberArray(
+      getFirstRecordValue(records, "svgShapeIndexes")
+    ),
+    text: getOptionalString(getFirstRecordValue(records, "text")),
+    widthMm: getOptionalNumber(getFirstRecordValue(records, "widthMm"))
+  };
+}
+
 function getCdekDeliveryProviderSummary(providerPayload: unknown) {
   const tariff = getRecordValue(providerPayload, "tariff");
   const timing = getRecordValue(providerPayload, "timing");
@@ -2323,6 +2408,8 @@ function mapOrderDetailsToDraftOrder(
   const items = orderDetails.items.map((item, index) => {
     const serviceType = mapApiServiceTypeToDraftServiceType(item.serviceType);
     const priceMinor = Number(item.totalPriceMinor) || 0;
+    const lightLetterEditorFields =
+      serviceType === "light-letter" ? getLightLetterEditorFields(item) : {};
 
     return {
       baselineStatus: "из базы",
@@ -2338,6 +2425,7 @@ function mapOrderDetailsToDraftOrder(
         getOptionalString(
           getRecordValue(item.calculationSnapshot, "managerComment")
         ),
+      ...lightLetterEditorFields,
       params: item.params,
       priceMinor,
       quantity: Number(item.quantity) || 1,
