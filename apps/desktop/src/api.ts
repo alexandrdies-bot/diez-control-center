@@ -188,6 +188,7 @@ export type CreateOrderResult = {
 };
 
 export type DeleteOrderResult = {
+  cleanupWarnings?: string[];
   deleted: boolean;
   id: number;
 };
@@ -505,7 +506,7 @@ function getOrderMutationErrorMessage(responseBody: string) {
     };
 
     if (parsedResponse.error === "ORDER_HAS_OZON_PAYMENT") {
-      return "У заказа есть Ozon-оплата. Удаление запрещено. Сначала нужно разобраться с оплатой.";
+      return "Операция с заказом заблокирована из-за Ozon-оплаты.";
     }
 
     if (parsedResponse.error === "ORDER_HAS_ACTIVE_OZON_PAYMENT") {
@@ -515,13 +516,13 @@ function getOrderMutationErrorMessage(responseBody: string) {
     if (parsedResponse.error === "ORDER_HAS_FINAL_OZON_PAYMENT") {
       return typeof parsedResponse.message === "string"
         ? parsedResponse.message
-        : "Заказ уже имеет финальную оплату Ozon Pay. Удаление запрещено.";
+        : "Заказ уже имеет финальную оплату Ozon Pay. Операция заблокирована.";
     }
 
     if (parsedResponse.error === "OZON_CANCEL_ORDER_FAILED") {
       return typeof parsedResponse.message === "string"
         ? parsedResponse.message
-        : "Не удалось отменить активную Ozon-оплату. Заказ не удалён.";
+        : "Не удалось отменить активную Ozon-оплату. Операция не выполнена.";
     }
 
     if (

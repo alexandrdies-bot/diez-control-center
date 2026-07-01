@@ -3605,7 +3605,7 @@ async function getOrderAttachment(
 
 async function safeDeleteAttachmentFile(storagePath: string | null) {
   if (!storagePath) {
-    return;
+    return null;
   }
 
   const resolvedStoragePath = path.resolve(
@@ -3623,11 +3623,12 @@ async function safeDeleteAttachmentFile(storagePath: string | null) {
       },
       "Skipped deleting order attachment outside allowed directory"
     );
-    return;
+    return "Attachment file cleanup skipped: storage path is outside the allowed directory.";
   }
 
   try {
     await unlink(resolvedStoragePath);
+    return null;
   } catch (error) {
     if (
       typeof error === "object" &&
@@ -3635,7 +3636,7 @@ async function safeDeleteAttachmentFile(storagePath: string | null) {
       "code" in error &&
       error.code === "ENOENT"
     ) {
-      return;
+      return null;
     }
 
     app.log.warn(
@@ -3645,6 +3646,7 @@ async function safeDeleteAttachmentFile(storagePath: string | null) {
       },
       "Failed to delete order attachment file"
     );
+    return "Attachment file cleanup failed after order DB delete.";
   }
 }
 
@@ -8320,6 +8322,7 @@ app.delete<{ Params: { id: string } }>("/orders/:id", async (request, reply) => 
   }
 
   const result = await withDatabaseTransaction(async (client) => {
+    const cleanupWarnings: string[] = [];
     const existingOrder = await client.query<{ id: number }>(
       `
         select id
@@ -8346,16 +8349,6 @@ app.delete<{ Params: { id: string } }>("/orders/:id", async (request, reply) => 
       `,
       [orderId]
     );
-    const hasFinalOzonPayment = ozonPayments.rows.some((payment) =>
-      finalOzonPaymentStatuses.has(payment.status)
-    );
-
-    if (hasFinalOzonPayment) {
-      return {
-        status: "has_final_ozon_payment" as const
-      };
-    }
-
     const activeOzonPayments = ozonPayments.rows.filter((payment) =>
       activeOzonPaymentStatuses.has(payment.status)
     );
@@ -8364,90 +8357,142 @@ app.delete<{ Params: { id: string } }>("/orders/:id", async (request, reply) => 
       const config = getOzonAcquiringConfig();
 
       if (!config) {
-        return {
-          status: "ozon_cancel_failed" as const
-        };
-      }
-
-      for (const payment of activeOzonPayments) {
-        if (!payment.providerOrderId) {
-          return {
-            status: "ozon_cancel_failed" as const
-          };
-        }
-
-        const cancelResult = await requestOzonCancelOrder(
-          config,
-          payment.providerOrderId
+        cleanupWarnings.push(
+          "Active Ozon payment cancel skipped: Ozon acquiring is not configured."
         );
+        request.log.warn(
+          {
+            orderId,
+            paymentIds: activeOzonPayments.map((payment) => payment.id)
+          },
+          "Active Ozon payments were not canceled before hard-deleting local order because Ozon config is missing"
+        );
+      } else {
+        for (const payment of activeOzonPayments) {
+          if (!payment.providerOrderId) {
+            cleanupWarnings.push(
+              `Active Ozon payment ${payment.id} cancel skipped: provider order id is missing.`
+            );
+            request.log.warn(
+              {
+                orderId,
+                paymentId: payment.id
+              },
+              "Active Ozon payment was not canceled before hard-deleting local order because provider order id is missing"
+            );
+            continue;
+          }
 
-        if (!cancelResult.ok) {
-          request.log.warn(
-            {
-              endpoint: "/v1/cancelOrder",
-              ozonCode: cancelResult.diagnostic.ozonCode,
-              ozonDetails: cancelResult.diagnostic.ozonDetails,
-              ozonMessage: cancelResult.diagnostic.ozonMessage,
-              ozonStatus: cancelResult.diagnostic.ozonStatus,
-              paymentId: payment.id
-            },
-            "Ozon Pay Checkout cancelOrder failed before order delete"
+          const cancelResult = await requestOzonCancelOrder(
+            config,
+            payment.providerOrderId
           );
 
-          return {
-            status: "ozon_cancel_failed" as const
-          };
-        }
+          if (!cancelResult.ok) {
+            cleanupWarnings.push(
+              `Active Ozon payment ${payment.id} cancel failed before local hard delete.`
+            );
+            request.log.warn(
+              {
+                endpoint: "/v1/cancelOrder",
+                ozonCode: cancelResult.diagnostic.ozonCode,
+                ozonDetails: cancelResult.diagnostic.ozonDetails,
+                ozonMessage: cancelResult.diagnostic.ozonMessage,
+                ozonStatus: cancelResult.diagnostic.ozonStatus,
+                paymentId: payment.id
+              },
+              "Ozon Pay Checkout cancelOrder failed before local order hard delete; continuing with DB delete"
+            );
+            continue;
+          }
 
-        await client.query(
-          `
-            update app.order_payments
-            set
-              status = 'canceled',
-              ozon_status = 'STATUS_CANCELED',
-              canceled_at = now(),
-              last_error_code = null,
-              last_error_message = null,
-              status_response_json = $3::jsonb,
-              updated_at = now()
-            where id = $1
-              and order_id = $2
-              and provider = 'ozon_pay_checkout'
-          `,
-          [
-            payment.id,
-            orderId,
-            JSON.stringify(sanitizeOzonPayload(cancelResult.responseBody))
-          ]
-        );
-        await client.query(
-          `
-            insert into app.order_events (
-              order_id,
-              event_type,
-              actor_type,
-              actor_user_id,
-              actor_name,
-              payload_json
-            )
-            values ($1, 'payment_canceled', 'manager', $2, $3, $4::jsonb)
-          `,
-          [
-            orderId,
-            authSession.user.id,
-            authSession.user.displayName ?? authSession.user.login,
-            JSON.stringify({
-              newStatus: "canceled",
-              oldStatus: payment.status,
-              paymentId: Number(payment.id),
-              provider: "ozon_pay_checkout",
-              providerExtId: payment.providerExtId,
-              providerOrderId: payment.providerOrderId,
-              reason: "order_delete"
-            })
-          ]
-        );
+          await client.query(
+            `
+              update app.order_payments
+              set
+                status = 'canceled',
+                ozon_status = 'STATUS_CANCELED',
+                canceled_at = now(),
+                last_error_code = null,
+                last_error_message = null,
+                status_response_json = $3::jsonb,
+                updated_at = now()
+              where id = $1
+                and order_id = $2
+                and provider = 'ozon_pay_checkout'
+            `,
+            [
+              payment.id,
+              orderId,
+              JSON.stringify(sanitizeOzonPayload(cancelResult.responseBody))
+            ]
+          );
+          await client.query(
+            `
+              insert into app.order_events (
+                order_id,
+                event_type,
+                actor_type,
+                actor_user_id,
+                actor_name,
+                payload_json
+              )
+              values ($1, 'payment_canceled', 'manager', $2, $3, $4::jsonb)
+            `,
+            [
+              orderId,
+              authSession.user.id,
+              authSession.user.displayName ?? authSession.user.login,
+              JSON.stringify({
+                newStatus: "canceled",
+                oldStatus: payment.status,
+                paymentId: Number(payment.id),
+                provider: "ozon_pay_checkout",
+                providerExtId: payment.providerExtId,
+                providerOrderId: payment.providerOrderId,
+                reason: "order_delete"
+              })
+            ]
+          );
+        }
       }
+    }
+
+    if (ozonPayments.rows.some((payment) => finalOzonPaymentStatuses.has(payment.status))) {
+      cleanupWarnings.push(
+        "Final or financial Ozon payment rows were removed from the local database with the order."
+      );
+      request.log.warn(
+        {
+          orderId,
+          paymentIds: ozonPayments.rows
+            .filter((payment) => finalOzonPaymentStatuses.has(payment.status))
+            .map((payment) => payment.id)
+        },
+        "Final or financial Ozon payment rows are being removed by local order hard delete"
+      );
+    }
+
+    const shipmentRows = await client.query<{ id: number; status: string }>(
+      `
+        select id, status
+        from app.order_shipments
+        where order_id = $1
+      `,
+      [orderId]
+    );
+
+    if (shipmentRows.rows.length > 0) {
+      cleanupWarnings.push(
+        "Local shipment rows were removed with the order; external provider cleanup is not part of this delete flow."
+      );
+      request.log.warn(
+        {
+          orderId,
+          shipments: shipmentRows.rows
+        },
+        "Order hard delete is removing local shipment rows without external provider cleanup"
+      );
     }
 
     const attachmentPaths = await client.query<{ storage_path: string | null }>(
@@ -8478,6 +8523,7 @@ app.delete<{ Params: { id: string } }>("/orders/:id", async (request, reply) => 
     return {
       status: "deleted" as const,
       attachmentStoragePaths: attachmentPaths.rows.map((row) => row.storage_path),
+      cleanupWarnings,
       id: order.id
     };
   });
@@ -8488,27 +8534,21 @@ app.delete<{ Params: { id: string } }>("/orders/:id", async (request, reply) => 
     });
   }
 
-  if (result.status === "has_final_ozon_payment") {
-    return reply.code(409).send({
-      error: "ORDER_HAS_FINAL_OZON_PAYMENT",
-      message: "Заказ уже имеет финальную оплату Ozon Pay. Удаление запрещено."
-    });
-  }
-
-  if (result.status === "ozon_cancel_failed") {
-    return reply.code(502).send({
-      error: "OZON_CANCEL_ORDER_FAILED",
-      message: "Не удалось отменить активную Ozon-оплату. Заказ не удалён."
-    });
-  }
-
-  await Promise.all(
+  const fileCleanupWarnings = await Promise.all(
     result.attachmentStoragePaths.map((storagePath) =>
       safeDeleteAttachmentFile(storagePath)
     )
   );
+  const cleanupWarnings = [
+    ...result.cleanupWarnings,
+    ...fileCleanupWarnings.filter(
+      (warning): warning is NonNullable<(typeof fileCleanupWarnings)[number]> =>
+        Boolean(warning)
+    )
+  ];
 
   return {
+    cleanupWarnings,
     deleted: true,
     id: result.id
   };

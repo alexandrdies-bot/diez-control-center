@@ -409,6 +409,11 @@ type OfficeConstructorForm = {
   faceFilmColorCode: string;
 };
 
+type ConstructorSourceSvgPreview = {
+  markup: string;
+  svgShapeIndexes?: number[];
+};
+
 const DEFAULT_OFFICE_CONSTRUCTOR_BOARD_WIDTH_MM = 60;
 
 function createDefaultOfficeConstructorForm(): OfficeConstructorForm {
@@ -2354,10 +2359,134 @@ function getFirstRecordValue(
   return undefined;
 }
 
+function getConstructorSvgPreviewFromValue(
+  value: unknown,
+  seen = new Set<unknown>(),
+  depth = 0
+): ConstructorSourceSvgPreview | null {
+  if (depth > 12 || value === null || value === undefined) {
+    return null;
+  }
+
+  if (Array.isArray(value)) {
+    if (seen.has(value)) {
+      return null;
+    }
+
+    seen.add(value);
+
+    for (const item of value) {
+      const preview = getConstructorSvgPreviewFromValue(item, seen, depth + 1);
+
+      if (preview) {
+        return preview;
+      }
+    }
+
+    return null;
+  }
+
+  if (!isPlainRecord(value)) {
+    return null;
+  }
+
+  if (seen.has(value)) {
+    return null;
+  }
+
+  seen.add(value);
+
+  const markup = getOptionalString(value.svgMarkup);
+
+  if (markup) {
+    const svgShapeIndexes = getOptionalNumberArray(value.svgShapeIndexes);
+
+    return {
+      markup,
+      ...(svgShapeIndexes ? { svgShapeIndexes } : {})
+    };
+  }
+
+  for (const nestedValue of Object.values(value)) {
+    const preview = getConstructorSvgPreviewFromValue(
+      nestedValue,
+      seen,
+      depth + 1
+    );
+
+    if (preview) {
+      return preview;
+    }
+  }
+
+  return null;
+}
+
+function isSvgKonstruktorEditorRecord(record: Record<string, unknown>) {
+  const kind = getOptionalString(record.kind)?.toLowerCase();
+  const source = getOptionalString(record.source);
+  const svgMarkup = getOptionalString(record.svgMarkup);
+  const sourceFileName = getOptionalString(record.sourceFileName);
+  const originalFileName = getOptionalString(record.originalFileName);
+  const text = getOptionalString(record.text);
+  const objectBreakdowns = [
+    ...getBreakdownRecordArray(record.objectBreakdowns),
+    ...getBreakdownRecordArray(
+      isPlainRecord(record.calculationBreakdown)
+        ? record.calculationBreakdown.objectBreakdowns
+        : undefined
+    )
+  ];
+
+  return (
+    kind === "svg" ||
+    Boolean(svgMarkup) ||
+    Boolean(getConstructorSvgPreviewFromValue(record)) ||
+    Array.isArray(record.svgShapeIndexes) ||
+    Boolean(sourceFileName?.toLowerCase().endsWith(".svg")) ||
+    Boolean(originalFileName?.toLowerCase().endsWith(".svg")) ||
+    objectBreakdowns.some(
+      (objectBreakdown) =>
+        getOptionalString(objectBreakdown.kind)?.toLowerCase() === "svg"
+    ) ||
+    (source === "site_konstruktor_request" &&
+      Boolean(text?.toLowerCase().endsWith(".svg")))
+  );
+}
+
+function isSvgKonstruktorEditorSource(
+  records: Array<Record<string, unknown>>
+) {
+  return records.some(isSvgKonstruktorEditorRecord);
+}
+
+function getLightLetterEditorText(records: Array<Record<string, unknown>>) {
+  if (isSvgKonstruktorEditorSource(records)) {
+    return "SVG-макет из конструктора";
+  }
+
+  return getOptionalString(getFirstRecordValue(records, "text"));
+}
+
+function getLightLetterPreviewSvgFromRecords(
+  records: Array<Record<string, unknown>>
+): ConstructorSourceSvgPreview | null {
+  for (const record of records) {
+    const preview = getConstructorSvgPreviewFromValue(record);
+
+    if (preview) {
+      return preview;
+    }
+  }
+
+  return null;
+}
+
 function getLightLetterEditorFields(
   item: OrderDetail["items"][number]
 ): Partial<DraftOrderItem> {
   const records = getLightLetterEditorRecords(item);
+  const sourceSvgPreview = getLightLetterPreviewSvgFromRecords(records);
   const lightingModeValue = getFirstRecordValue(records, "lightingMode");
   const lightingMode =
     lightingModeValue === "light" || lightingModeValue === "non-light"
@@ -2384,11 +2513,9 @@ function getLightLetterEditorFields(
     resolvedBoardTapeThicknessMm: getOptionalNumber(
       getFirstRecordValue(records, "resolvedBoardTapeThicknessMm")
     ),
-    svgMarkup: getOptionalString(getFirstRecordValue(records, "svgMarkup")),
-    svgShapeIndexes: getOptionalNumberArray(
-      getFirstRecordValue(records, "svgShapeIndexes")
-    ),
-    text: getOptionalString(getFirstRecordValue(records, "text")),
+    svgMarkup: sourceSvgPreview?.markup,
+    svgShapeIndexes: sourceSvgPreview?.svgShapeIndexes,
+    text: getLightLetterEditorText(records),
     widthMm: getOptionalNumber(getFirstRecordValue(records, "widthMm"))
   };
 }
@@ -3066,6 +3193,7 @@ function getDraftOrderItemDisplayComment(
 }
 
 type PositionBreakdownRow = {
+  detail?: string;
   label: string;
   price?: string;
   value: string;
@@ -3074,6 +3202,20 @@ type PositionBreakdownRow = {
 type PositionBreakdownSection = {
   rows: PositionBreakdownRow[];
   title: string;
+};
+
+type PositionObjectBreakdownModel = {
+  geometryRows: PositionBreakdownRow[];
+  sections: PositionBreakdownSection[];
+  summaryParts: string[];
+  title: string;
+};
+
+type PositionBreakdownModel = {
+  hasCalculationBreakdown: boolean;
+  objectBreakdowns: PositionObjectBreakdownModel[];
+  sections: PositionBreakdownSection[];
+  summaryChips: string[];
 };
 
 function getLightLetterBreakdownRecords(item: DraftOrderItem) {
@@ -3332,7 +3474,50 @@ function getBreakdownRecordArray(value: unknown) {
   return Array.isArray(value) ? value.filter(isPlainRecord) : [];
 }
 
+function getBreakdownLineKey(line: Record<string, unknown>) {
+  return normalizeBreakdownString(line.key);
+}
+
+function normalizeMaterialLabelPart(value: string) {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function getMaterialMmLabels(materialName: string) {
+  const matches = materialName.match(/\d+(?:[.,]\d+)?\s*мм/gi) ?? [];
+
+  return Array.from(
+    new Set(matches.map((match) => normalizeMaterialLabelPart(match))),
+  );
+}
+
+function getMaterialRalLabel(materialName: string) {
+  const match = materialName.match(/RAL\s*\d{4}/i);
+
+  return match ? normalizeMaterialLabelPart(match[0]).toLocaleUpperCase("ru-RU") : "";
+}
+
+function joinBreakdownLabelParts(parts: Array<string | null | undefined>) {
+  return parts
+    .map((part) => part?.trim())
+    .filter((part): part is string => Boolean(part))
+    .join(" / ");
+}
+
 function getBreakdownLineQuantity(line: Record<string, unknown>) {
+  const key = getBreakdownLineKey(line);
+
+  if (key === "electrical_overhead") {
+    return "35%";
+  }
+
+  if (key === "waste") {
+    return "15%";
+  }
+
+  if (key === "labor" || key === "overhead") {
+    return "1 заказ";
+  }
+
   const quantity = normalizeBreakdownNumber(line.quantity);
   const unit = normalizeBreakdownString(line.unit);
 
@@ -3343,15 +3528,58 @@ function getBreakdownLineQuantity(line: Record<string, unknown>) {
   return `${formatBreakdownNumber(quantity, 4)}${unit ? ` ${unit}` : ""}`;
 }
 
-function getBreakdownLineLabel(line: Record<string, unknown>) {
+function getBreakdownLineTitle(line: Record<string, unknown>) {
+  const key = getBreakdownLineKey(line);
   const label = normalizeBreakdownString(line.label);
   const materialName = normalizeBreakdownString(line.materialName);
 
-  if (materialName && label && !label.includes(materialName)) {
-    return `${label}: ${materialName}`;
+  if (key === "led_modules") {
+    return "Светодиодные модули";
   }
 
-  return label || materialName;
+  if (key === "electrical_overhead") {
+    return "Светотехника / подключение";
+  }
+
+  if (key === "face_acrylic") {
+    return joinBreakdownLabelParts([
+      "Акрил / лицо",
+      getMaterialMmLabels(materialName)[0],
+    ]);
+  }
+
+  if (key === "back_pvc") {
+    return joinBreakdownLabelParts([
+      "ПВХ задник",
+      getMaterialMmLabels(materialName)[0],
+    ]);
+  }
+
+  if (key === "board_tape") {
+    return joinBreakdownLabelParts([
+      "Бортовая лента",
+      getMaterialRalLabel(materialName),
+      ...getMaterialMmLabels(materialName),
+    ]);
+  }
+
+  if (key === "face_film") {
+    return "Лицевая плёнка";
+  }
+
+  if (key === "waste") {
+    return "Отходы / 15%";
+  }
+
+  if (key === "labor") {
+    return "Работа / производство";
+  }
+
+  if (key === "overhead") {
+    return "Накладные";
+  }
+
+  return label || normalizeBreakdownString(line.materialName);
 }
 
 function createCalculationBreakdownRows(
@@ -3360,9 +3588,15 @@ function createCalculationBreakdownRows(
 ): PositionBreakdownRow[] {
   return lines
     .map((line): PositionBreakdownRow | null => {
-      const label = getBreakdownLineLabel(line);
+      const totalPriceMinor = normalizeBreakdownNumber(line.totalPriceMinor);
+
+      if (totalPriceMinor === null || totalPriceMinor <= 0) {
+        return null;
+      }
+
+      const label = getBreakdownLineTitle(line);
       const value = getBreakdownLineQuantity(line);
-      const price = formatBreakdownMoneyMinor(line.totalPriceMinor, currencyCode);
+      const price = formatBreakdownMoneyMinor(totalPriceMinor, currencyCode);
 
       if (!label || (!value && !price)) {
         return null;
@@ -3456,6 +3690,167 @@ function getLightLetterCalculationBreakdownSections(
   return sections.filter((section) => section.rows.length > 0);
 }
 
+function createPositiveMoneyBreakdownRow(
+  label: string,
+  value: unknown,
+  currencyCode: string
+) {
+  const numberValue = normalizeBreakdownNumber(value);
+
+  return numberValue !== null && numberValue > 0
+    ? createBreakdownRow(label, formatBreakdownMoneyMinor(numberValue, currencyCode))
+    : null;
+}
+
+function getCompactLightLetterCalculationBreakdownSections(
+  breakdown: Record<string, unknown>,
+  currencyCode: string
+): PositionBreakdownSection[] {
+  const geometry = isPlainRecord(breakdown.geometry) ? breakdown.geometry : null;
+  const totals = isPlainRecord(breakdown.totals) ? breakdown.totals : null;
+  const lightingRows = createCalculationBreakdownRows(
+    getBreakdownRecordArray(breakdown.lighting),
+    currencyCode
+  );
+  const materialsRows = createCalculationBreakdownRows(
+    getBreakdownRecordArray(breakdown.materials),
+    currencyCode
+  );
+  const worksRows = createCalculationBreakdownRows(
+    getBreakdownRecordArray(breakdown.works),
+    currencyCode
+  );
+  const totalRows = totals
+    ? compactBreakdownRows([
+        createPositiveMoneyBreakdownRow(
+          "Материалы",
+          totals.materialsTotalMinor,
+          currencyCode
+        ),
+        createPositiveMoneyBreakdownRow(
+          "Светотехника",
+          totals.lightingTotalMinor,
+          currencyCode
+        ),
+        createPositiveMoneyBreakdownRow(
+          "Работы и накладные",
+          totals.worksTotalMinor,
+          currencyCode
+        ),
+        createBreakdownRow(
+          "Итого позиции",
+          formatBreakdownMoneyMinor(totals.totalPriceMinor, currencyCode)
+        )
+      ])
+    : [];
+  const sections: PositionBreakdownSection[] = [
+    {
+      title: "Геометрия",
+      rows: geometry
+        ? compactBreakdownRows([
+            createBreakdownRow("Площадь лица", formatBreakdownArea(geometry.faceAreaM2)),
+            createBreakdownRow("Площадь задника", formatBreakdownArea(geometry.backAreaM2)),
+            createBreakdownRow("Периметр", formatBreakdownLength(geometry.perimeterM)),
+            createBreakdownRow(
+              "Длина бортовой ленты",
+              formatBreakdownLength(geometry.boardTapeLengthM)
+            )
+          ])
+        : []
+    },
+    {
+      title: "Светотехника",
+      rows:
+        lightingRows.length > 0
+          ? lightingRows
+          : [{ label: "Не требуется", value: "" }]
+    },
+    {
+      title: "Материалы",
+      rows: materialsRows
+    },
+    {
+      title: "Работы",
+      rows: worksRows
+    },
+    {
+      title: "Итог",
+      rows: totalRows
+    }
+  ];
+
+  return sections.filter((section) => section.rows.length > 0);
+}
+
+function getLightLetterBreakdownSummaryChips(
+  item: DraftOrderItem,
+  records: Array<Record<string, unknown>>
+) {
+  const height =
+    formatBreakdownMm(item.heightMm) ||
+    getBreakdownValue(records, [
+      "heightMm",
+      "activeObjectHeightMm",
+      "activeHeightMm",
+      "editorParams.heightMm"
+    ], formatBreakdownMm);
+  const width =
+    formatBreakdownMm(item.widthMm) ||
+    getBreakdownValue(records, [
+      "widthMm",
+      "activeObjectWidthMm",
+      "activeWidthMm",
+      "editorParams.widthMm"
+    ], formatBreakdownMm);
+  const mode =
+    getLightLetterModeLabel(item.lightingMode) ||
+    getLightLetterModeLabel(
+      getFirstNestedRecordValue(records, [
+        "lightingMode",
+        "mode",
+        "lightMode",
+        "isIlluminated",
+        "editorParams.lightingMode",
+        "editorParams.mode"
+      ])
+    );
+  const boardWidth =
+    formatBreakdownMm(item.boardWidthMm) ||
+    getBreakdownValue(records, [
+      "boardWidthMm",
+      "boardTape.widthMm",
+      "editorParams.boardWidthMm"
+    ], formatBreakdownMm);
+  const boardTapeColor =
+    item.boardTapeColorName ||
+    getBreakdownValue(records, [
+      "boardTapeColorName",
+      "boardTape.colorName",
+      "boardColor",
+      "editorParams.boardTapeColorName"
+    ]);
+  const faceFilm =
+    item.faceFilmLabel ||
+    getBreakdownValue(records, [
+      "faceFilmLabel",
+      "faceFilm.name",
+      "faceFilm.label",
+      "faceColor",
+      "faceFilmColorCode",
+      "editorParams.faceFilmLabel",
+      "editorParams.faceFilmColorCode"
+    ]);
+
+  return [
+    height,
+    width,
+    mode,
+    boardWidth ? `Борт ${boardWidth}` : "",
+    boardTapeColor,
+    faceFilm || "Без плёнки"
+  ].filter((chip): chip is string => Boolean(chip));
+}
+
 function getLightLetterPositionBreakdownSections(
   item: DraftOrderItem,
   draftOrder?: DraftOrder | null
@@ -3469,7 +3864,7 @@ function getLightLetterPositionBreakdownSections(
   const calculationBreakdown = getLightLetterCalculationBreakdownRecord(records);
 
   if (calculationBreakdown) {
-    return getLightLetterCalculationBreakdownSections(
+    return getCompactLightLetterCalculationBreakdownSections(
       calculationBreakdown,
       currencyCode
     );
@@ -3876,6 +4271,159 @@ function getLightLetterPositionBreakdownSections(
   ];
 
   return sections.filter((section) => section.rows.length > 0);
+}
+
+function getCompactLightLetterFallbackBreakdownSections(
+  item: DraftOrderItem,
+  records: Array<Record<string, unknown>>
+): PositionBreakdownSection[] {
+  return [
+    {
+      title: "Основные параметры",
+      rows: compactBreakdownRows([
+        createBreakdownRow("Тип", "объёмные буквы"),
+        createBreakdownRow(
+          "Текст / макет",
+          item.text ||
+            getBreakdownValue(records, [
+              "text",
+              "title",
+              "layoutName",
+              "objectTitle",
+              "editorParams.text"
+            ]) ||
+            item.title
+        ),
+        createBreakdownRow(
+          "Количество объектов",
+          getLightLetterObjectCount(item, records)
+        )
+      ])
+    }
+  ].filter((section) => section.rows.length > 0);
+}
+
+function getLightLetterObjectBreakdownRecords(
+  records: Array<Record<string, unknown>>
+) {
+  const value = getFirstNestedRecordValue(records, [
+    "objectBreakdowns",
+    "calculationBreakdown.objectBreakdowns"
+  ]);
+
+  return getBreakdownRecordArray(value);
+}
+
+function getObjectBreakdownTitle(
+  record: Record<string, unknown>,
+  index: number
+) {
+  const title =
+    normalizeBreakdownString(record.name) ||
+    normalizeBreakdownString(record.text) ||
+    normalizeBreakdownString(record.objectId);
+
+  return title ? `${index + 1}. ${title}` : `${index + 1}. Объект`;
+}
+
+function getObjectBreakdownSummaryParts(record: Record<string, unknown>) {
+  const lightingLabel =
+    normalizeBreakdownString(record.lighting) ||
+    getLightLetterModeLabel(record.lightingMode);
+  const boardWidth = formatBreakdownMm(record.boardWidthMm);
+  const boardTapeColor = normalizeBreakdownString(record.boardTapeColorName);
+  const faceFilmLabel =
+    normalizeBreakdownString(record.faceFilmLabel) ||
+    normalizeBreakdownString(record.faceFilmColorCode);
+
+  return [
+    formatBreakdownMm(record.heightMm),
+    formatBreakdownMm(record.widthMm),
+    lightingLabel,
+    boardWidth ? `Борт ${boardWidth}` : "",
+    boardTapeColor,
+    faceFilmLabel || "Без плёнки"
+  ].filter((part): part is string => Boolean(part));
+}
+
+function getObjectBreakdownGeometryRows(record: Record<string, unknown>) {
+  const geometry = isPlainRecord(record.geometry) ? record.geometry : null;
+
+  if (!geometry) {
+    return [];
+  }
+
+  return compactBreakdownRows([
+    createBreakdownRow("Площадь лица", formatBreakdownArea(geometry.faceAreaM2)),
+    createBreakdownRow("Площадь задника", formatBreakdownArea(geometry.backAreaM2)),
+    createBreakdownRow("Периметр", formatBreakdownLength(geometry.perimeterM)),
+    createBreakdownRow(
+      "Длина бортовой ленты",
+      formatBreakdownLength(geometry.boardTapeLengthM)
+    ),
+    createBreakdownRow("LED-модули", formatBreakdownCount(geometry.ledCount))
+  ]);
+}
+
+function getLightLetterObjectBreakdownModels(
+  records: Array<Record<string, unknown>>,
+  currencyCode: string
+): PositionObjectBreakdownModel[] {
+  return getLightLetterObjectBreakdownRecords(records).map((record, index) => {
+    const lightingRows = createCalculationBreakdownRows(
+      getBreakdownRecordArray(record.lighting),
+      currencyCode
+    );
+    const materialsRows = createCalculationBreakdownRows(
+      getBreakdownRecordArray(record.materials),
+      currencyCode
+    );
+    const worksRows = createCalculationBreakdownRows(
+      getBreakdownRecordArray(record.works),
+      currencyCode
+    );
+    const sections = [
+      {
+        rows: lightingRows,
+        title: "Светотехника"
+      },
+      {
+        rows: materialsRows,
+        title: "Материалы"
+      },
+      {
+        rows: worksRows,
+        title: "Работы"
+      }
+    ].filter((section) => section.rows.length > 0);
+
+    return {
+      geometryRows: getObjectBreakdownGeometryRows(record),
+      sections,
+      summaryParts: getObjectBreakdownSummaryParts(record),
+      title: getObjectBreakdownTitle(record, index)
+    };
+  });
+}
+
+function getLightLetterPositionBreakdownModel(
+  item: DraftOrderItem
+): PositionBreakdownModel {
+  const records = getLightLetterBreakdownRecords(item);
+  const calculationBreakdown = getLightLetterCalculationBreakdownRecord(records);
+  const currencyCode = item.currencyCode ?? "RUB";
+
+  return {
+    hasCalculationBreakdown: calculationBreakdown !== null,
+    objectBreakdowns: getLightLetterObjectBreakdownModels(records, currencyCode),
+    sections: calculationBreakdown
+      ? getCompactLightLetterCalculationBreakdownSections(
+          calculationBreakdown,
+          currencyCode
+        )
+      : getCompactLightLetterFallbackBreakdownSections(item, records),
+    summaryChips: getLightLetterBreakdownSummaryChips(item, records)
+  };
 }
 
 function getDraftOrderFallbackComment(draftOrder: DraftOrder) {
@@ -4572,6 +5120,82 @@ function fitKonstruktorPreviewMarkupToLayout(
     .replace("<svg ", '<svg width="100%" height="100%" ');
 }
 
+function sanitizeConstructorSvgPreviewMarkup(markup: string) {
+  const withoutDeclarations = markup
+    .replace(/<\?xml\b[\s\S]*?\?>/gi, "")
+    .replace(/<!doctype\b[\s\S]*?>/gi, "");
+  const svgStartIndex = withoutDeclarations.search(/<svg[\s>]/i);
+  const svgEndIndex = withoutDeclarations.toLowerCase().lastIndexOf("</svg>");
+  const svgOnlyMarkup =
+    svgStartIndex >= 0 && svgEndIndex > svgStartIndex
+      ? withoutDeclarations.slice(svgStartIndex, svgEndIndex + "</svg>".length)
+      : "";
+
+  return svgOnlyMarkup
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
+    .replace(/\son[a-z]+\s*=\s*"[^"]*"/gi, "")
+    .replace(/\son[a-z]+\s*=\s*'[^']*'/gi, "")
+    .replace(/\son[a-z]+\s*=\s*[^\s>]+/gi, "")
+    .replace(/javascript:/gi, "");
+}
+
+function ensureConstructorInlineSvgPreviewAttributes(markup: string) {
+  return markup.replace(/<svg\b([^>]*)>/i, (match, attributes: string) => {
+    const classMatch =
+      attributes.match(/\sclass\s*=\s*"([^"]*)"/i) ??
+      attributes.match(/\sclass\s*=\s*'([^']*)'/i);
+    const className = [
+      classMatch?.[1]?.trim(),
+      "constructor-source-svg-preview-root"
+    ]
+      .filter(Boolean)
+      .join(" ");
+    const styleMatch =
+      attributes.match(/\sstyle\s*=\s*"([^"]*)"/i) ??
+      attributes.match(/\sstyle\s*=\s*'([^']*)'/i);
+    const existingStyle = styleMatch?.[1]
+      ?.split(";")
+      .map((part) => part.trim())
+      .filter(
+        (part) =>
+          part &&
+          !/^(display|height|max-height|max-width|width)\s*:/i.test(part)
+      )
+      .join("; ");
+    const nextAttributes = attributes
+      .replace(/\swidth\s*=\s*"[^"]*"/gi, "")
+      .replace(/\swidth\s*=\s*'[^']*'/gi, "")
+      .replace(/\swidth\s*=\s*[^\s>]+/gi, "")
+      .replace(/\sheight\s*=\s*"[^"]*"/gi, "")
+      .replace(/\sheight\s*=\s*'[^']*'/gi, "")
+      .replace(/\sheight\s*=\s*[^\s>]+/gi, "")
+      .replace(/\spreserveAspectRatio\s*=\s*"[^"]*"/gi, "")
+      .replace(/\spreserveAspectRatio\s*=\s*'[^']*'/gi, "")
+      .replace(/\spreserveAspectRatio\s*=\s*[^\s>]+/gi, "")
+      .replace(/\sstyle\s*=\s*"[^"]*"/gi, "")
+      .replace(/\sstyle\s*=\s*'[^']*'/gi, "")
+      .replace(/\sclass\s*=\s*"[^"]*"/gi, "")
+      .replace(/\sclass\s*=\s*'[^']*'/gi, "")
+      .trim();
+    const sizingStyle =
+      "display: block; width: 100%; height: 100%; max-width: 100%; max-height: 100%";
+
+    return `<svg${
+      nextAttributes ? ` ${nextAttributes}` : ""
+    } class="${className}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" style="${
+      existingStyle ? `${existingStyle}; ${sizingStyle}` : sizingStyle
+    }">`;
+  });
+}
+
+function createConstructorInlineSvgPreviewMarkup(markup: string) {
+  const sanitizedMarkup = sanitizeConstructorSvgPreviewMarkup(markup).trim();
+
+  return sanitizedMarkup.toLowerCase().startsWith("<svg")
+    ? ensureConstructorInlineSvgPreviewAttributes(sanitizedMarkup)
+    : null;
+}
+
 function App() {
   const constructorLayoutFileInputRef = useRef<HTMLInputElement | null>(null);
   const authCodeInputRefs = useRef<Array<HTMLInputElement | null>>([]);
@@ -4694,6 +5318,8 @@ function App() {
   const [pendingDeleteOrderError, setPendingDeleteOrderError] = useState<
     string | null
   >(null);
+  const [pendingDeleteOrderIsFullDelete, setPendingDeleteOrderIsFullDelete] =
+    useState(false);
   const [isDeletingOrder, setIsDeletingOrder] = useState(false);
   const [draftOrderPanelMode, setDraftOrderPanelMode] =
     useState<DraftOrderPanelMode>("details");
@@ -4728,6 +5354,8 @@ function App() {
   const [isDraftJsonVisible, setIsDraftJsonVisible] = useState(false);
   const [officeConstructorForm, setOfficeConstructorForm] =
     useState<OfficeConstructorForm>(() => createDefaultOfficeConstructorForm());
+  const [constructorSourceSvgPreview, setConstructorSourceSvgPreview] =
+    useState<ConstructorSourceSvgPreview | null>(null);
   const [dtfPrintForm, setDtfPrintForm] = useState<DtfPrintForm>({
     heightCm: String(DTF_A3_HEIGHT_CM),
     quantity: "1",
@@ -4982,17 +5610,6 @@ function App() {
       draftOrders
         .flatMap((draftOrder) => draftOrder.items)
         .find((item) => item.id === editingDraftOrderItemId) ?? null
-    );
-  }, [draftOrders, editingDraftOrderItemId]);
-  const editingDraftOrder = useMemo(() => {
-    if (!editingDraftOrderItemId) {
-      return null;
-    }
-
-    return (
-      draftOrders.find((draftOrder) =>
-        draftOrder.items.some((item) => item.id === editingDraftOrderItemId)
-      ) ?? null
     );
   }, [draftOrders, editingDraftOrderItemId]);
   const detailDraftOrderAttachmentBuckets = useMemo(() => {
@@ -5487,7 +6104,15 @@ function App() {
   ]);
   const currentCalculationResult = officeCalculation.result;
   const currentCalculationError = officeCalculation.error;
-
+  const savedConstructorPriceLabel =
+    editingDraftOrderItem?.serviceType === "light-letter" &&
+    Number(editingDraftOrderItem.totalPriceMinor ?? editingDraftOrderItem.priceMinor) > 0
+      ? editingDraftOrderItem.formattedPrice ||
+        formatMinorPrice(
+          Number(editingDraftOrderItem.totalPriceMinor ?? editingDraftOrderItem.priceMinor),
+          editingDraftOrderItem.currencyCode ?? "RUB"
+        )
+      : "";
   const dtfPrintCalculation = useMemo<DtfPrintCalculationResult>(() => {
     const widthCm = parsePositiveNumber(dtfPrintForm.widthCm, DTF_A3_WIDTH_CM);
     const heightCm = parsePositiveNumber(dtfPrintForm.heightCm, DTF_A3_HEIGHT_CM);
@@ -5540,6 +6165,19 @@ function App() {
     if (!isConstructorPanelOpen) {
       setConstructorPreviewMarkup(null);
       setConstructorPreviewError(null);
+      setConstructorLayout(null);
+      return;
+    }
+
+    if (constructorSourceSvgPreview?.markup) {
+      const inlineMarkup = createConstructorInlineSvgPreviewMarkup(
+        constructorSourceSvgPreview.markup
+      );
+
+      setConstructorPreviewMarkup(inlineMarkup);
+      setConstructorPreviewError(
+        inlineMarkup ? null : "SVG preview не удалось отобразить"
+      );
       setConstructorLayout(null);
       return;
     }
@@ -5615,6 +6253,7 @@ function App() {
       isCurrent = false;
     };
   }, [
+    constructorSourceSvgPreview,
     isConstructorPanelOpen,
     officeConstructorForm.heightMm,
     officeConstructorForm.text,
@@ -5994,6 +6633,7 @@ function App() {
 
   function handleStartVolumeLettersCalculation() {
     setOfficeConstructorForm(createDefaultOfficeConstructorForm());
+    setConstructorSourceSvgPreview(null);
     setNewOrderStep("calculation");
     setIsConstructorPanelOpen(true);
     setEditingDraftOrderItemId(null);
@@ -6028,6 +6668,10 @@ function App() {
     field: Field,
     value: OfficeConstructorForm[Field]
   ) {
+    if (field === "text") {
+      setConstructorSourceSvgPreview(null);
+    }
+
     setOfficeConstructorForm((current) => ({
       ...current,
       [field]: value
@@ -6347,6 +6991,16 @@ function App() {
       return;
     }
 
+    const sourceSvgPreview =
+      item.svgMarkup
+        ? {
+            markup: item.svgMarkup,
+            ...(item.svgShapeIndexes
+              ? { svgShapeIndexes: item.svgShapeIndexes }
+              : {})
+          }
+        : getLightLetterPreviewSvgFromRecords(getLightLetterBreakdownRecords(item));
+
     setOfficeConstructorForm({
       boardTapeColorName:
         item.boardTapeColorName ?? DEFAULT_BOARD_TAPE_OPTION.colorName,
@@ -6360,6 +7014,7 @@ function App() {
       mode: item.lightingMode ?? "light",
       text: item.text ?? ""
     });
+    setConstructorSourceSvgPreview(sourceSvgPreview);
     const managerComment = getDraftOrderItemManagerComment(item);
     setManagerCommentDraft(managerComment);
     setManagerCommentEditorDraft(managerComment);
@@ -7843,17 +8498,19 @@ function App() {
   }
 
   function renderLightLetterPositionBreakdownSection(
-    item: DraftOrderItem | null,
-    draftOrder: DraftOrder | null
+    item: DraftOrderItem | null
   ) {
     if (!item || item.serviceType !== "light-letter") {
       return null;
     }
 
-    const records = getLightLetterBreakdownRecords(item);
-    const hasCalculationBreakdown =
-      getLightLetterCalculationBreakdownRecord(records) !== null;
-    const sections = getLightLetterPositionBreakdownSections(item, draftOrder);
+    const breakdownModel = getLightLetterPositionBreakdownModel(item);
+    const totalSection = breakdownModel.sections.find(
+      (section) => section.title === "Итог"
+    );
+    const estimateSections = breakdownModel.sections.filter(
+      (section) => section.title !== "Геометрия" && section.title !== "Итог"
+    );
 
     return (
       <section className="position-comment-section position-breakdown-section">
@@ -7862,29 +8519,113 @@ function App() {
             <h3>Детализация заказа</h3>
           </div>
         </div>
-        {sections.length > 0 ? (
+        {breakdownModel.sections.length > 0 ? (
           <div className="position-breakdown-groups">
-            {!hasCalculationBreakdown ? (
+            {!breakdownModel.hasCalculationBreakdown ? (
               <p className="position-breakdown-note">
                 Подробный breakdown не передан. Доступны только основные параметры.
               </p>
             ) : null}
-            {sections.map((section) => (
-              <article className="position-breakdown-group" key={section.title}>
-                <h4>{section.title}</h4>
-                <dl className="position-breakdown-list">
-                  {section.rows.map((row) => (
-                    <div key={`${section.title}-${row.label}`}>
-                      <dt>{row.label}</dt>
-                      <dd>
-                        <span>{row.value}</span>
-                        {row.price ? <strong>{row.price}</strong> : null}
-                      </dd>
+            {estimateSections.length > 0 ? (
+              <div className="position-breakdown-table">
+                <div className="position-breakdown-table-head">
+                  <span>Раздел</span>
+                  <span>Позиция</span>
+                  <span>Расход</span>
+                  <span>Сумма в расчёте</span>
+                </div>
+                {estimateSections.flatMap((section) =>
+                  section.rows.map((row) => (
+                    <div
+                      className="position-breakdown-table-row"
+                      key={`${section.title}-${row.label}`}
+                    >
+                      <span className="position-breakdown-section-label">
+                        {section.title}
+                      </span>
+                      <span className="position-breakdown-item-label">
+                        <span>{row.label}</span>
+                      </span>
+                      <span className="position-breakdown-quantity">
+                        {row.value}
+                      </span>
+                      <strong className="position-breakdown-price">
+                        {row.price ?? ""}
+                      </strong>
                     </div>
-                  ))}
-                </dl>
-              </article>
-            ))}
+                  ))
+                )}
+              </div>
+            ) : null}
+            {totalSection && totalSection.rows.length > 0 ? (
+              <div className="position-breakdown-total-line">
+                {totalSection.rows.map((row) => (
+                  <span
+                    className={
+                      row.label === "Итого позиции"
+                        ? "position-breakdown-total-main"
+                        : undefined
+                    }
+                    key={row.label}
+                  >
+                    <span>{row.label}</span>
+                    <strong>{row.value}</strong>
+                  </span>
+                ))}
+              </div>
+            ) : null}
+            {breakdownModel.objectBreakdowns.length > 1 ? (
+              <p className="position-breakdown-note">
+                В заказе несколько объектов. Детализация по слоям ниже.
+                Редактирование всех слоёв будет отдельным этапом.
+              </p>
+            ) : null}
+            {breakdownModel.objectBreakdowns.length > 0 ? (
+              <div className="position-breakdown-objects">
+                <h4>Объекты / слои</h4>
+                {breakdownModel.objectBreakdowns.map((objectBreakdown, objectIndex) => (
+                  <article
+                    className="position-breakdown-object"
+                    key={`${objectBreakdown.title}-${objectIndex}`}
+                  >
+                    <div className="position-breakdown-object-head">
+                      <strong>{objectBreakdown.title}</strong>
+                      {objectBreakdown.summaryParts.length > 0 ? (
+                        <span>{objectBreakdown.summaryParts.join(" · ")}</span>
+                      ) : null}
+                    </div>
+                    {objectBreakdown.sections.length > 0 ? (
+                      <div className="position-breakdown-object-table">
+                        {objectBreakdown.sections.flatMap((section) =>
+                          section.rows.map((row) => (
+                            <div
+                              className="position-breakdown-object-row"
+                              key={`${objectBreakdown.title}-${objectIndex}-${section.title}-${row.label}`}
+                            >
+                              <span>{section.title}</span>
+                              <span>{row.label}</span>
+                              <span>{row.value}</span>
+                              <strong>{row.price ?? ""}</strong>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    ) : (
+                      <div className="position-breakdown-object-geometry">
+                        {objectBreakdown.geometryRows.map((row) => (
+                          <span key={`${objectBreakdown.title}-${objectIndex}-${row.label}`}>
+                            {row.label}: {row.value}
+                          </span>
+                        ))}
+                        <strong>
+                          Стоимость рассчитана в общем итоге заказа
+                        </strong>
+                      </div>
+                    )}
+                  </article>
+                ))}
+              </div>
+            ) : null}
           </div>
         ) : (
           <p>Нет данных расчёта</p>
@@ -8237,9 +8978,10 @@ function App() {
 
     setPendingDeleteOrderId(draftOrder.id);
     setPendingDeleteOrderTitle(orderTitle);
+    setPendingDeleteOrderIsFullDelete(hasServerOrder);
     setPendingDeleteOrderDescription(
       hasServerOrder
-        ? `Заказ ${draftOrder.serverOrderNumber ?? ""} будет удалён из базы данных.`.trim()
+        ? "Заказ, позиции, доставка, оплаты, вложения и история заказа будут удалены из базы данных. Карточка клиента не удаляется. Действие нельзя отменить."
         : "Черновик будет удалён."
     );
     setPendingDeleteOrderError(null);
@@ -8248,8 +8990,9 @@ function App() {
   function openDeleteOrderModal(order: OrderSummary) {
     setPendingDeleteOrderId(`server-order:${order.id}`);
     setPendingDeleteOrderTitle(order.orderNumber);
+    setPendingDeleteOrderIsFullDelete(true);
     setPendingDeleteOrderDescription(
-      `Заказ ${order.orderNumber} будет удалён из базы данных.`
+      "Заказ, позиции, доставка, оплаты, вложения и история заказа будут удалены из базы данных. Карточка клиента не удаляется. Действие нельзя отменить."
     );
     setPendingDeleteOrderError(null);
   }
@@ -8293,7 +9036,13 @@ function App() {
       }
 
       try {
-        await deleteOrder(draftOrder.serverOrderId, authToken);
+        const result = await deleteOrder(draftOrder.serverOrderId, authToken);
+        if (result.cleanupWarnings?.length) {
+          console.warn("Order deleted with cleanup warnings", {
+            cleanupWarnings: result.cleanupWarnings,
+            orderId: draftOrder.serverOrderId
+          });
+        }
         await loadServerOrders(authToken);
       } catch (error) {
         setDraftOrderSaveStatusById((current) => ({
@@ -8329,7 +9078,13 @@ function App() {
     setServerOrdersStatus("Удаляем...");
 
     try {
-      await deleteOrder(orderId, authToken);
+      const result = await deleteOrder(orderId, authToken);
+      if (result.cleanupWarnings?.length) {
+        console.warn("Order deleted with cleanup warnings", {
+          cleanupWarnings: result.cleanupWarnings,
+          orderId
+        });
+      }
       setDraftOrders((current) =>
         current.filter((draftOrder) => draftOrder.serverOrderId !== orderId)
       );
@@ -8347,7 +9102,7 @@ function App() {
 
         return currentDraftOrder?.serverOrderId === orderId ? null : current;
       });
-      setOrderDetailStatus("Заказ удалён");
+      setOrderDetailStatus("Заказ удалён полностью");
       await loadServerOrders(authToken);
       returnToHomeAfterOrderDelete();
     } catch (error) {
@@ -8383,6 +9138,7 @@ function App() {
       setPendingDeleteOrderId(null);
       setPendingDeleteOrderTitle(null);
       setPendingDeleteOrderDescription(null);
+      setPendingDeleteOrderIsFullDelete(false);
     } catch (error) {
       setPendingDeleteOrderError(
         error instanceof Error ? error.message : "Не удалось удалить заказ"
@@ -8947,7 +9703,11 @@ function App() {
           <section className="app-modal">
             <div>
               <p className="eyebrow">{pendingDeleteOrderTitle}</p>
-              <h2>Удалить заказ?</h2>
+              <h2>
+                {pendingDeleteOrderIsFullDelete
+                  ? "Удалить заказ полностью?"
+                  : "Удалить заказ?"}
+              </h2>
               <p>{pendingDeleteOrderDescription}</p>
             </div>
 
@@ -8964,6 +9724,7 @@ function App() {
                   setPendingDeleteOrderTitle(null);
                   setPendingDeleteOrderDescription(null);
                   setPendingDeleteOrderError(null);
+                  setPendingDeleteOrderIsFullDelete(false);
                 }}
                 type="button"
               >
@@ -8975,7 +9736,11 @@ function App() {
                 onClick={() => void confirmPendingDeleteOrder()}
                 type="button"
               >
-                {isDeletingOrder ? "Удаляем..." : "Удалить"}
+                {isDeletingOrder
+                  ? "Удаляем..."
+                  : pendingDeleteOrderIsFullDelete
+                    ? "Удалить полностью"
+                    : "Удалить"}
               </button>
             </div>
           </section>
@@ -12159,6 +12924,16 @@ function App() {
                                       : "Добавить позицию"}
                                 </button>
                               </div>
+                            ) : savedConstructorPriceLabel ? (
+                              <div className="constructor-result-card constructor-result-card-compact">
+                                <div className="constructor-result-header">
+                                  <div>
+                                    <span>Цена</span>
+                                    <strong>{savedConstructorPriceLabel}</strong>
+                                    <small>по заявке</small>
+                                  </div>
+                                </div>
+                              </div>
                             ) : (
                               <div className="constructor-result-card constructor-result-card-compact">
                                 <p className="constructor-result-muted">
@@ -12174,7 +12949,11 @@ function App() {
                             <div className="constructor-svg-preview-canvas">
                               {constructorPreviewMarkup ? (
                                 <div
-                                  className="constructor-svg-preview-markup"
+                                  className={
+                                    constructorSourceSvgPreview?.markup
+                                      ? "constructor-svg-preview-markup constructor-svg-preview-markup-source"
+                                      : "constructor-svg-preview-markup"
+                                  }
                                   dangerouslySetInnerHTML={{
                                     __html: constructorPreviewMarkup
                                   }}
@@ -12190,8 +12969,7 @@ function App() {
                           </section>
 
                           {renderLightLetterPositionBreakdownSection(
-                            editingDraftOrderItem,
-                            editingDraftOrder
+                            editingDraftOrderItem
                           )}
                           {renderPositionCommentSection(
                             editingDraftOrderItem
