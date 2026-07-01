@@ -8323,9 +8323,16 @@ app.delete<{ Params: { id: string } }>("/orders/:id", async (request, reply) => 
 
   const result = await withDatabaseTransaction(async (client) => {
     const cleanupWarnings: string[] = [];
-    const existingOrder = await client.query<{ id: number }>(
+    const existingOrder = await client.query<{
+      customer_account_id: number | null;
+      customer_id: number | null;
+      id: number;
+    }>(
       `
-        select id
+        select
+          id,
+          customer_id,
+          customer_account_id
         from app.orders
         where id = $1
         limit 1
@@ -8495,6 +8502,9 @@ app.delete<{ Params: { id: string } }>("/orders/:id", async (request, reply) => 
       );
     }
 
+    const orderCustomerId = existingOrder.rows[0].customer_id;
+    const orderCustomerAccountId = existingOrder.rows[0].customer_account_id;
+
     const attachmentPaths = await client.query<{ storage_path: string | null }>(
       `
         select storage_path
@@ -8520,10 +8530,115 @@ app.delete<{ Params: { id: string } }>("/orders/:id", async (request, reply) => 
       };
     }
 
+    let deletedCustomerAccountId: number | null = null;
+    let deletedCustomerId: number | null = null;
+
+    if (orderCustomerAccountId) {
+      const remainingOrdersForAccount = await client.query<{ exists: boolean }>(
+        `
+          select exists(
+            select 1
+            from app.orders
+            where customer_account_id = $1
+            limit 1
+          ) as exists
+        `,
+        [orderCustomerAccountId]
+      );
+
+      if (remainingOrdersForAccount.rows[0]?.exists) {
+        cleanupWarnings.push("CUSTOMER_ACCOUNT_STILL_USED_BY_OTHER_ORDERS");
+      } else {
+        await client.query("savepoint customer_account_cleanup");
+        try {
+          const deletedAccount = await client.query<{ id: number }>(
+            `
+              delete from app.customer_accounts
+              where id = $1
+              returning id
+            `,
+            [orderCustomerAccountId]
+          );
+          await client.query("release savepoint customer_account_cleanup");
+          deletedCustomerAccountId = deletedAccount.rows[0]?.id ?? null;
+        } catch (error) {
+          await client.query("rollback to savepoint customer_account_cleanup");
+          cleanupWarnings.push("CUSTOMER_ACCOUNT_DELETE_SKIPPED_BY_CONSTRAINT");
+          request.log.warn(
+            {
+              customerAccountId: orderCustomerAccountId,
+              error
+            },
+            "Customer account cleanup after order hard delete was skipped"
+          );
+        }
+      }
+    }
+
+    if (orderCustomerId) {
+      const remainingOrdersForCustomer = await client.query<{ exists: boolean }>(
+        `
+          select exists(
+            select 1
+            from app.orders
+            where customer_id = $1
+            limit 1
+          ) as exists
+        `,
+        [orderCustomerId]
+      );
+
+      if (remainingOrdersForCustomer.rows[0]?.exists) {
+        cleanupWarnings.push("CUSTOMER_STILL_USED_BY_OTHER_ORDERS");
+      } else {
+        const remainingCustomerAccounts = await client.query<{ exists: boolean }>(
+          `
+            select exists(
+              select 1
+              from app.customer_accounts
+              where customer_id = $1
+              limit 1
+            ) as exists
+          `,
+          [orderCustomerId]
+        );
+
+        if (remainingCustomerAccounts.rows[0]?.exists) {
+          cleanupWarnings.push("CUSTOMER_DELETE_SKIPPED_REMAINING_ACCOUNTS");
+        } else {
+          await client.query("savepoint customer_cleanup");
+          try {
+            const deletedCustomer = await client.query<{ id: number }>(
+              `
+                delete from app.customers
+                where id = $1
+                returning id
+              `,
+              [orderCustomerId]
+            );
+            await client.query("release savepoint customer_cleanup");
+            deletedCustomerId = deletedCustomer.rows[0]?.id ?? null;
+          } catch (error) {
+            await client.query("rollback to savepoint customer_cleanup");
+            cleanupWarnings.push("CUSTOMER_DELETE_SKIPPED_BY_CONSTRAINT");
+            request.log.warn(
+              {
+                customerId: orderCustomerId,
+                error
+              },
+              "Customer cleanup after order hard delete was skipped"
+            );
+          }
+        }
+      }
+    }
+
     return {
       status: "deleted" as const,
       attachmentStoragePaths: attachmentPaths.rows.map((row) => row.storage_path),
       cleanupWarnings,
+      deletedCustomerAccountId,
+      deletedCustomerId,
       id: order.id
     };
   });
@@ -8550,6 +8665,12 @@ app.delete<{ Params: { id: string } }>("/orders/:id", async (request, reply) => 
   return {
     cleanupWarnings,
     deleted: true,
+    ...(result.deletedCustomerAccountId
+      ? { deletedCustomerAccountId: result.deletedCustomerAccountId }
+      : {}),
+    ...(result.deletedCustomerId
+      ? { deletedCustomerId: result.deletedCustomerId }
+      : {}),
     id: result.id
   };
 });

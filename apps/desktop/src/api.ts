@@ -190,6 +190,8 @@ export type CreateOrderResult = {
 export type DeleteOrderResult = {
   cleanupWarnings?: string[];
   deleted: boolean;
+  deletedCustomerAccountId?: number;
+  deletedCustomerId?: number;
   id: number;
 };
 
