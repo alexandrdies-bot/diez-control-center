@@ -4,6 +4,7 @@
 
 ### Added
 
+* Локальная структура экосистемы перенесена в `D:\_ProjectHome\Eco_System_Diez`; документация путей обновлена.
 * Зафиксирован первый успешный server launch: VPS, PostgreSQL, миграции, минимальные seeds, nginx, SSL, systemd, сайт и API.
 * Зафиксирован временный private-access режим: сайт и API закрыты Basic Auth на nginx до завершения настройки и production-hardening.
 * Зафиксирована процедура временного SSH deploy-доступа через отдельный development key без сохранения секретов в репозитории.

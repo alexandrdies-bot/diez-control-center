@@ -1,4 +1,4 @@
-﻿# Project Version
+# Project Version
 
 ## diez-control-center
 
@@ -297,14 +297,14 @@ Desktop-приложение не должно хранить пароль Postg
 PostgreSQL Docker пока запускать отдельно:
 
 ```powershell
-cd D:\_ProjectHome\diez-data-core
+cd D:\_ProjectHome\Eco_System_Diez\diez-data-core
 docker compose up -d postgres
 ```
 
 После запуска базы приложение можно запускать одной командой:
 
 ```powershell
-cd D:\_ProjectHome\diez-control-center
+cd D:\_ProjectHome\Eco_System_Diez\diez-control-center
 pnpm.cmd dev:all
 ```
 
@@ -381,7 +381,7 @@ diez-site -> API -> diez-data-core -> diez-control-center
 
 Нужно описывать бизнес-цель, причины, затронутые проекты, ожидаемые данные, ограничения, вопросы для проверки и желаемый результат. `Data Base 02` анализирует `diez-data-core` и формирует отдельное корректное задание для Codex.
 
-Все задачи по заказам, клиентам, доставке, оплатам, товарам, материалам, ценам, миграциям, seed-данным и структуре БД сначала проходят через `Data Base 02`. Главный проект базы — `D:\_ProjectHome\diez-data-core`; отдельную независимую базу под desktop, сайт или модуль не создавать без отдельного решения.
+Все задачи по заказам, клиентам, доставке, оплатам, товарам, материалам, ценам, миграциям, seed-данным и структуре БД сначала проходят через `Data Base 02`. Главный проект базы — `D:\_ProjectHome\Eco_System_Diez\diez-data-core`; отдельную независимую базу под desktop, сайт или модуль не создавать без отдельного решения.
 
 ## Future orders model summary
 
@@ -478,7 +478,7 @@ Ozon учитывать как будущий канал, но первый MVP 
 В экосистеме создан отдельный общий проект:
 
 ```text
-D:\_ProjectHome\diez-shared-core
+D:\_ProjectHome\Eco_System_Diez\diez-shared-core
 ```
 
 Назначение: общий shared-код экосистемы, будущие общие расчёты, общие контракты, future API contracts и общие типы заказов, клиентов и Ozon.
