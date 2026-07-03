@@ -149,6 +149,27 @@ textarea {
   align-items: center;
 }
 
+.delete-order-modal {
+  width: min(360px, 100%);
+  gap: 16px;
+  padding: 20px;
+}
+
+.delete-order-modal h2 {
+  font-size: 24px;
+  line-height: 1.16;
+  white-space: nowrap;
+}
+
+.delete-order-modal .app-modal-actions {
+  gap: 8px;
+}
+
+.delete-order-modal .danger-action-button,
+.delete-order-modal .secondary-action-button {
+  min-width: 92px;
+}
+
 .manager-comment-content {
   width: min(520px, 100%);
 }

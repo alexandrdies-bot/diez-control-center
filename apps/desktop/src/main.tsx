@@ -8981,7 +8981,7 @@ function App() {
     setPendingDeleteOrderIsFullDelete(hasServerOrder);
     setPendingDeleteOrderDescription(
       hasServerOrder
-        ? "Заказ, позиции, доставка, оплаты, вложения и история заказа будут удалены из базы данных. Связанная карточка клиента тоже будет удалена, если она не используется другими заказами. Действие нельзя отменить."
+        ? "Заказ будет удалён без возможности восстановления."
         : "Черновик будет удалён."
     );
     setPendingDeleteOrderError(null);
@@ -8992,7 +8992,7 @@ function App() {
     setPendingDeleteOrderTitle(order.orderNumber);
     setPendingDeleteOrderIsFullDelete(true);
     setPendingDeleteOrderDescription(
-      "Заказ, позиции, доставка, оплаты, вложения и история заказа будут удалены из базы данных. Связанная карточка клиента тоже будет удалена, если она не используется другими заказами. Действие нельзя отменить."
+      "Заказ будет удалён без возможности восстановления."
     );
     setPendingDeleteOrderError(null);
   }
@@ -9700,14 +9700,10 @@ function App() {
           className="app-modal-backdrop"
           role="dialog"
         >
-          <section className="app-modal">
+          <section className="app-modal delete-order-modal">
             <div>
               <p className="eyebrow">{pendingDeleteOrderTitle}</p>
-              <h2>
-                {pendingDeleteOrderIsFullDelete
-                  ? "Удалить заказ полностью?"
-                  : "Удалить заказ?"}
-              </h2>
+              <h2>Удалить заказ?</h2>
               <p>{pendingDeleteOrderDescription}</p>
             </div>
 
@@ -9738,9 +9734,7 @@ function App() {
               >
                 {isDeletingOrder
                   ? "Удаляем..."
-                  : pendingDeleteOrderIsFullDelete
-                    ? "Удалить полностью"
-                    : "Удалить"}
+                  : "Удалить"}
               </button>
             </div>
           </section>
