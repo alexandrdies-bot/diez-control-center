@@ -22,6 +22,13 @@ Date: 2026-05-29
 
 Выполнен первый server launch на VPS: DNS, nginx, SSL, PostgreSQL, API и сайт подняты.
 
+## Light-letter and SVG runtime state
+
+- Desktop light-letter pricing uses `@diez/calculation-core/light-letter`; there is no separate Desktop pricing formula.
+- Imported SVG preview prefers layer-addressable `previewSvgMarkup` / `layeredPreviewSvgMarkup` when present; grouped layers are colored display-only from `data-face-color-code` / object breakdown data and source SVG is not mutated.
+- Single-layer imported SVG can still use the current shared face color. Multi-layer imported SVG positions remain editable in the simplified shared-form flow, but old merged-only SVG previews are shown neutral/source-safe instead of guessing one color for all layers.
+- Full separate per-layer editing and SVG live-geometry update guards remain separate future patches.
+
 API и сайт переведены на `systemd` автозапуск.
 
 После reboot подтверждено: `diez-api` и `diez-site` active (running), `https://diezimg.ru` и `https://api.diezimg.ru/health` отвечают.
@@ -36,11 +43,15 @@ MVP-1 API read-only endpoints готовы.
 
 Для online-mode desktop/API интеграции desktop по умолчанию смотрит на `https://api.diezimg.ru`, выполняет вход через API auth/session по телефону и 4-значному коду и загружает заказы из общей базы через `GET /orders` с Bearer token. Локально остаются только незавершённые черновики, которые ещё не были завершены как заказ.
 
+Основной запуск `D:\_ProjectHome\Eco_System_Diez\START_DIEZ_CONTROL_CENTER.bat` закреплён как рабочий режим: `VITE_API_BASE_URL=https://api.diezimg.ru`, без запуска local API, с реальными заявками сайта. Local/dev режим вынесен в `D:\_ProjectHome\Eco_System_Diez\START_DIEZ_CONTROL_CENTER_LOCAL.bat`: `VITE_API_BASE_URL=http://127.0.0.1:3001`, local API и локальная Docker DB. Local/dev DB не использовать для проверки production-заказов и текущих заявок сайта.
+
 Удаление заказа в ПК-программе является полным удалением заказа из БД. Связанные карточка клиента и customer account удаляются автоматически, если после удаления заказа они больше не используются другими заказами. Файлы заказа удаляются после удаления DB-записей, ошибки file cleanup логируются отдельно.
 
 На текущем этапе повторное использование карточек клиентов не включено в UI, поэтому hard-delete заказа очищает и связанную карточку клиента, когда она не привязана к другим заказам.
 
 Добавлен MVP-режим `Запомнить это устройство`: desktop может сохранить session token, безопасные public user fields, срок действия и телефон в `localStorage`, проверить сессию через `GET /auth/me` при запуске и открыть приложение без повторного ввода кода. 4-значный код, Basic Auth пароль, `DATABASE_URL` и PostgreSQL секреты не сохраняются; позже это хранение нужно заменить на Windows Credential Manager / Tauri secure storage.
+
+Auth flow now separates login failure stages: invalid phone/code, API request failure, successful login without token, `/auth/me` failure, remembered-session storage failure, and orders loading failure. Remembered-session save/clear errors do not cancel successful login. Redacted auth diagnostics are behind `localStorage` flag `diez-control-center:auth-debug=1`, off by default, and must not log full phone, code, token, Authorization header, password hash, database URL, or secrets.
 
 Desktop UI convention: все будущие toast/уведомления должны появляться в верхнем правом углу окна с безопасным отступом от `+ Новый заказ`, cloud/status и настроек. Success-сообщения короткие и auto-hide через 2–3 секунды; warning/error могут жить дольше или требовать ручного закрытия; стиль остаётся в тёмной теме Desktop UI.
 
@@ -105,6 +116,12 @@ Order endpoints `GET /orders`, `GET /orders/:id`, `POST /orders` и `DELETE /ord
 Импортированные заявки конструктора сайта с `serviceType='light_letters'` гидратируют редактор объёмных букв из `params.editorParams` / `calculationSnapshot.editorParams`: Desktop подставляет текст, размеры, режим, борт, плёнку и SVG-данные в light-letter editor без изменения API/БД.
 
 Desktop отображает подробный breakdown заявок конструктора из `params.calculationBreakdown` / `calculationSnapshot.calculationBreakdown`, а старые заказы без breakdown открываются через fallback основных параметров.
+
+Imported light-letter positions from the site hydrate the editor from saved editor params and can show saved calculation breakdown when present. SVG live-geometry update guards remain a separate future patch.
+
+Desktop light-letter pricing now comes from the shared `@diez/calculation-core/light-letter` flow. The desktop editor keeps only input/output adapters, material selection adapters and manager-facing breakdown rendering; it must not keep an independent pricing formula.
+
+Imported SVG preview face-color rendering is display-only. Desktop prefers layer-addressable `previewSvgMarkup` for new multi-layer requests and colors grouped layers from their face film data; old merged-only SVG previews are not recolored per layer by guessing. Separate per-layer editing and SVG live-geometry safe update remain follow-up patches.
 
 Desktop UI получил MVP login/logout, раздел `Заказы` из общей базы и раздел `Черновики` только для незавершённых локальных черновиков. Первый администратор создаётся при настройке системы, а сотрудников администратор добавит позже в настройках. Создание и удаление заказов из desktop передают текущий Bearer token; material price update пока остаётся на существующем admin `x-api-key` flow.
 

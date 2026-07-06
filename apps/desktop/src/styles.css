@@ -2225,13 +2225,19 @@ tbody tr {
   opacity: 1 !important;
 }
 
-.constructor-source-svg-preview-root path:not([fill="none" i]),
-.constructor-source-svg-preview-root polygon:not([fill="none" i]),
-.constructor-source-svg-preview-root rect:not([fill="none" i]),
-.constructor-source-svg-preview-root circle:not([fill="none" i]),
-.constructor-source-svg-preview-root ellipse:not([fill="none" i]),
-.constructor-source-svg-preview-root text:not([fill="none" i]) {
-  fill: #f4f4f1 !important;
+.constructor-svg-preview-markup-source-colorized .constructor-source-svg-preview-root path:not([fill="none" i]),
+.constructor-svg-preview-markup-source-colorized .constructor-source-svg-preview-root polygon:not([fill="none" i]),
+.constructor-svg-preview-markup-source-colorized .constructor-source-svg-preview-root rect:not([fill="none" i]),
+.constructor-svg-preview-markup-source-colorized .constructor-source-svg-preview-root circle:not([fill="none" i]),
+.constructor-svg-preview-markup-source-colorized .constructor-source-svg-preview-root ellipse:not([fill="none" i]),
+.constructor-svg-preview-markup-source-colorized .constructor-source-svg-preview-root text:not([fill="none" i]),
+.constructor-svg-preview-markup-source-neutral .constructor-source-svg-preview-root path:not([fill="none" i]),
+.constructor-svg-preview-markup-source-neutral .constructor-source-svg-preview-root polygon:not([fill="none" i]),
+.constructor-svg-preview-markup-source-neutral .constructor-source-svg-preview-root rect:not([fill="none" i]),
+.constructor-svg-preview-markup-source-neutral .constructor-source-svg-preview-root circle:not([fill="none" i]),
+.constructor-svg-preview-markup-source-neutral .constructor-source-svg-preview-root ellipse:not([fill="none" i]),
+.constructor-svg-preview-markup-source-neutral .constructor-source-svg-preview-root text:not([fill="none" i]) {
+  fill: var(--constructor-svg-preview-fill, #f4f4f1) !important;
 }
 
 .constructor-source-svg-preview-root path[fill="none" i],
@@ -2243,14 +2249,21 @@ tbody tr {
   fill: none !important;
 }
 
-.constructor-source-svg-preview-root line,
-.constructor-source-svg-preview-root polyline,
-.constructor-source-svg-preview-root path[fill="none" i],
-.constructor-source-svg-preview-root polygon[fill="none" i],
-.constructor-source-svg-preview-root rect[fill="none" i],
-.constructor-source-svg-preview-root circle[fill="none" i],
-.constructor-source-svg-preview-root ellipse[fill="none" i] {
-  stroke: #f4f4f1 !important;
+.constructor-svg-preview-markup-source-colorized .constructor-source-svg-preview-root line,
+.constructor-svg-preview-markup-source-colorized .constructor-source-svg-preview-root polyline,
+.constructor-svg-preview-markup-source-colorized .constructor-source-svg-preview-root path[fill="none" i],
+.constructor-svg-preview-markup-source-colorized .constructor-source-svg-preview-root polygon[fill="none" i],
+.constructor-svg-preview-markup-source-colorized .constructor-source-svg-preview-root rect[fill="none" i],
+.constructor-svg-preview-markup-source-colorized .constructor-source-svg-preview-root circle[fill="none" i],
+.constructor-svg-preview-markup-source-colorized .constructor-source-svg-preview-root ellipse[fill="none" i],
+.constructor-svg-preview-markup-source-neutral .constructor-source-svg-preview-root line,
+.constructor-svg-preview-markup-source-neutral .constructor-source-svg-preview-root polyline,
+.constructor-svg-preview-markup-source-neutral .constructor-source-svg-preview-root path[fill="none" i],
+.constructor-svg-preview-markup-source-neutral .constructor-source-svg-preview-root polygon[fill="none" i],
+.constructor-svg-preview-markup-source-neutral .constructor-source-svg-preview-root rect[fill="none" i],
+.constructor-svg-preview-markup-source-neutral .constructor-source-svg-preview-root circle[fill="none" i],
+.constructor-svg-preview-markup-source-neutral .constructor-source-svg-preview-root ellipse[fill="none" i] {
+  stroke: var(--constructor-svg-preview-fill, #f4f4f1) !important;
 }
 
 .constructor-preset-grid {

@@ -466,7 +466,7 @@ export type CdekSaveDeliveryResult = {
   };
 };
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "https://api.diezimg.ru";
+export const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "https://api.diezimg.ru";
 const apiWriteKey = import.meta.env.VITE_API_WRITE_KEY?.trim();
 const adminApiKey = import.meta.env.VITE_ADMIN_API_KEY?.trim();
 
@@ -782,10 +782,7 @@ export async function login(
   });
 
   if (!response.ok) {
-    const responseBody = await response.text();
-    throw new Error(
-      `/auth/login ${response.status}${responseBody ? ` ${responseBody}` : ""}`
-    );
+    await throwApiResponseError(response, "/auth/login");
   }
 
   return response.json() as Promise<AuthLoginResult>;
@@ -813,10 +810,7 @@ export async function getCurrentUser(token: string): Promise<AuthMeResult> {
   });
 
   if (!response.ok) {
-    const responseBody = await response.text();
-    throw new Error(
-      `/auth/me ${response.status}${responseBody ? ` ${responseBody}` : ""}`
-    );
+    await throwApiResponseError(response, "/auth/me");
   }
 
   return response.json() as Promise<AuthMeResult>;

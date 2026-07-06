@@ -41,6 +41,7 @@ import {
   uploadOrderAttachment,
   updateOrderFromDraft,
   ApiResponseError,
+  apiBaseUrl,
   type ApiHealth,
   type AuthUser,
   type CdekCity,
@@ -410,11 +411,21 @@ type OfficeConstructorForm = {
 };
 
 type ConstructorSourceSvgPreview = {
+  isLayerAddressable?: boolean;
+  layerColorRules?: ConstructorSvgPreviewLayerColorRule[];
   markup: string;
+  objectCount?: number | undefined;
   svgShapeIndexes?: number[];
 };
 
+type ConstructorSvgPreviewLayerColorRule = {
+  faceFilmColorCode: string;
+  objectId?: string | undefined;
+  objectIndex?: number | undefined;
+};
+
 const DEFAULT_OFFICE_CONSTRUCTOR_BOARD_WIDTH_MM = 60;
+const DEFAULT_CONSTRUCTOR_SOURCE_SVG_PREVIEW_FILL = "#f4f4f1";
 
 function createDefaultOfficeConstructorForm(): OfficeConstructorForm {
   return {
@@ -2331,6 +2342,27 @@ function getOptionalNumberArray(value: unknown) {
     : undefined;
 }
 
+function hasConstructorLayerAddressableSvgAttributes(markup: string) {
+  return /\sdata-object-(?:id|index)\s*=/i.test(markup);
+}
+
+function getConstructorPreviewMarkupValue(value: Record<string, unknown>) {
+  const previewMarkup =
+    getOptionalString(value.previewSvgMarkup) ??
+    getOptionalString(value.layeredPreviewSvgMarkup);
+
+  if (previewMarkup) {
+    return {
+      isLayerAddressable: hasConstructorLayerAddressableSvgAttributes(previewMarkup),
+      markup: previewMarkup
+    };
+  }
+
+  const markup = getOptionalString(value.svgMarkup);
+
+  return markup ? { isLayerAddressable: false, markup } : null;
+}
+
 function getEditorParamsRecord(value: unknown) {
   const editorParams = getRecordValue(value, "editorParams");
 
@@ -2396,13 +2428,18 @@ function getConstructorSvgPreviewFromValue(
 
   seen.add(value);
 
-  const markup = getOptionalString(value.svgMarkup);
+  const previewMarkup = getConstructorPreviewMarkupValue(value);
 
-  if (markup) {
+  if (previewMarkup) {
     const svgShapeIndexes = getOptionalNumberArray(value.svgShapeIndexes);
+    const objectCount = getConstructorSvgPreviewObjectCountFromRecords([value], {
+      ...(svgShapeIndexes ? { svgShapeIndexes } : {})
+    });
 
     return {
-      markup,
+      isLayerAddressable: previewMarkup.isLayerAddressable,
+      markup: previewMarkup.markup,
+      ...(objectCount !== null ? { objectCount } : {}),
       ...(svgShapeIndexes ? { svgShapeIndexes } : {})
     };
   }
@@ -2471,12 +2508,90 @@ function getLightLetterEditorText(records: Array<Record<string, unknown>>) {
 function getLightLetterPreviewSvgFromRecords(
   records: Array<Record<string, unknown>>
 ): ConstructorSourceSvgPreview | null {
+  const recordObjectCount = getConstructorSvgPreviewObjectCountFromRecords(records);
+  const layerColorRules = getConstructorSvgPreviewLayerColorRules(records);
+
   for (const record of records) {
     const preview = getConstructorSvgPreviewFromValue(record);
 
     if (preview) {
-      return preview;
+      return {
+        ...preview,
+        ...(layerColorRules.length > 0 ? { layerColorRules } : {}),
+        ...(recordObjectCount !== null ? { objectCount: recordObjectCount } : {})
+      };
     }
+  }
+
+  return null;
+}
+
+function getConstructorSvgPreviewLayerColorRules(
+  records: Array<Record<string, unknown>>
+): ConstructorSvgPreviewLayerColorRule[] {
+  return getLightLetterObjectBreakdownRecords(records).flatMap(
+    (record, objectIndex) => {
+      const faceFilmColorCode = normalizeBreakdownString(record.faceFilmColorCode);
+
+      if (!faceFilmColorCode) {
+        return [];
+      }
+
+      const objectId =
+        normalizeBreakdownString(record.objectId) ||
+        normalizeBreakdownString(record.id) ||
+        normalizeBreakdownString(record.layerId);
+
+      return [
+        {
+          faceFilmColorCode,
+          ...(objectId ? { objectId } : {}),
+          objectIndex
+        }
+      ];
+    }
+  );
+}
+
+function getConstructorSvgPreviewObjectCountFromRecords(
+  records: Array<Record<string, unknown>>,
+  preview?: Pick<ConstructorSourceSvgPreview, "svgShapeIndexes">
+) {
+  const objectBreakdownRecords = getLightLetterObjectBreakdownRecords(records);
+
+  if (objectBreakdownRecords.length > 0) {
+    return objectBreakdownRecords.length;
+  }
+
+  const explicitValue = getOptionalNumber(
+    getFirstNestedRecordValue(records, [
+      "objectCount",
+      "objectsCount",
+      "layoutObjectCount",
+      "textObjectCount",
+      "constructor.objectCount",
+      "geometry.objectCount",
+      "geometrySummary.objectCount"
+    ])
+  );
+
+  if (explicitValue && explicitValue > 0) {
+    return explicitValue;
+  }
+
+  const objectsValue = getFirstNestedRecordValue(records, [
+    "objects",
+    "geometry.objects",
+    "geometrySummary.objects",
+    "layout.objects"
+  ]);
+
+  if (Array.isArray(objectsValue) && objectsValue.length > 0) {
+    return objectsValue.length;
+  }
+
+  if (preview?.svgShapeIndexes && preview.svgShapeIndexes.length > 0) {
+    return new Set(preview.svgShapeIndexes).size;
   }
 
   return null;
@@ -2663,6 +2778,49 @@ function normalizeAuthPhoneLogin(value: string) {
 
 function normalizeAuthCode(value: string) {
   return value.replace(/\D/g, "").slice(0, 4);
+}
+
+const AUTH_DEBUG_LOCAL_STORAGE_KEY = "diez-control-center:auth-debug";
+
+function maskAuthPhoneForDebug(value: string | null) {
+  if (!value) {
+    return "<invalid>";
+  }
+
+  return value.length >= 2 ? `**${value.slice(-2)}` : "**";
+}
+
+function getAuthDebugStatus(error: unknown) {
+  return error instanceof ApiResponseError ? error.status : null;
+}
+
+function getAuthDebugErrorCode(error: unknown) {
+  return error instanceof ApiResponseError
+    ? error.details.error ?? error.details.code ?? null
+    : null;
+}
+
+function isAuthDebugEnabled() {
+  try {
+    return localStorage.getItem(AUTH_DEBUG_LOCAL_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function logAuthDebugRedacted(
+  stage: string,
+  details: Record<string, string | number | boolean | null>
+) {
+  if (!isAuthDebugEnabled()) {
+    return;
+  }
+
+  console.warn("[auth-debug-redacted]", {
+    apiBase: apiBaseUrl,
+    stage,
+    ...details
+  });
 }
 
 type RememberedAuthSession = {
@@ -3209,6 +3367,7 @@ type PositionObjectBreakdownModel = {
   sections: PositionBreakdownSection[];
   summaryParts: string[];
   title: string;
+  totalLabel?: string;
 };
 
 type PositionBreakdownModel = {
@@ -4346,6 +4505,22 @@ function getObjectBreakdownSummaryParts(record: Record<string, unknown>) {
   ].filter((part): part is string => Boolean(part));
 }
 
+function getObjectBreakdownTotalLabel(
+  record: Record<string, unknown>,
+  currencyCode: string
+) {
+  return getBreakdownValue(
+    [record],
+    [
+      "totalPriceMinor",
+      "priceMinor",
+      "publicPriceMinor",
+      "totals.totalPriceMinor"
+    ],
+    (value) => formatBreakdownMoneyMinor(value, currencyCode)
+  );
+}
+
 function getObjectBreakdownGeometryRows(record: Record<string, unknown>) {
   const geometry = isPlainRecord(record.geometry) ? record.geometry : null;
 
@@ -4401,7 +4576,8 @@ function getLightLetterObjectBreakdownModels(
       geometryRows: getObjectBreakdownGeometryRows(record),
       sections,
       summaryParts: getObjectBreakdownSummaryParts(record),
-      title: getObjectBreakdownTitle(record, index)
+      title: getObjectBreakdownTitle(record, index),
+      totalLabel: getObjectBreakdownTotalLabel(record, currencyCode)
     };
   });
 }
@@ -5196,6 +5372,65 @@ function createConstructorInlineSvgPreviewMarkup(markup: string) {
     : null;
 }
 
+function getConstructorPreviewFillColor(colorCode: string) {
+  return colorCode === NO_FACE_FILM_COLOR_CODE
+    ? DEFAULT_CONSTRUCTOR_SOURCE_SVG_PREVIEW_FILL
+    : getFaceFilmColorHex(colorCode);
+}
+
+function applyConstructorLayerPreviewColors(
+  markup: string,
+  layerColorRules: ConstructorSvgPreviewLayerColorRule[] = []
+) {
+  if (
+    typeof DOMParser === "undefined" ||
+    typeof XMLSerializer === "undefined" ||
+    !hasConstructorLayerAddressableSvgAttributes(markup)
+  ) {
+    return markup;
+  }
+
+  const document = new DOMParser().parseFromString(markup, "image/svg+xml");
+
+  if (document.querySelector("parsererror")) {
+    return markup;
+  }
+
+  const rulesByObjectId = new Map(
+    layerColorRules
+      .filter((rule) => rule.objectId)
+      .map((rule) => [rule.objectId as string, rule])
+  );
+  const rulesByObjectIndex = new Map(
+    layerColorRules
+      .filter((rule) => rule.objectIndex !== undefined)
+      .map((rule) => [String(rule.objectIndex), rule])
+  );
+
+  document
+    .querySelectorAll<SVGGElement>(
+      "[data-object-id], [data-object-index], [data-face-color-code]"
+    )
+    .forEach((element) => {
+      const objectId = element.getAttribute("data-object-id");
+      const objectIndex = element.getAttribute("data-object-index");
+      const rule =
+        (objectId ? rulesByObjectId.get(objectId) : undefined) ??
+        (objectIndex ? rulesByObjectIndex.get(objectIndex) : undefined);
+      const colorCode =
+        element.getAttribute("data-face-color-code") ??
+        rule?.faceFilmColorCode;
+
+      if (!colorCode || element.getAttribute("fill")?.toLowerCase() === "none") {
+        return;
+      }
+
+      element.setAttribute("fill", getConstructorPreviewFillColor(colorCode));
+    });
+
+  return new XMLSerializer().serializeToString(document.documentElement);
+}
+
 function App() {
   const constructorLayoutFileInputRef = useRef<HTMLInputElement | null>(null);
   const authCodeInputRefs = useRef<Array<HTMLInputElement | null>>([]);
@@ -5986,7 +6221,26 @@ function App() {
       DEFAULT_FACE_FILM_OPTION
     );
   }, [officeConstructorForm.faceFilmColorCode]);
+  const constructorSourceSvgPreviewFill = useMemo(() => {
+    if (!constructorSourceSvgPreview?.markup) {
+      return null;
+    }
 
+    if (
+      constructorSourceSvgPreview.isLayerAddressable ||
+      (constructorSourceSvgPreview.objectCount !== undefined &&
+        constructorSourceSvgPreview.objectCount > 1)
+    ) {
+      return null;
+    }
+
+    return getConstructorPreviewFillColor(selectedFaceFilmOption.colorCode);
+  }, [constructorSourceSvgPreview, selectedFaceFilmOption]);
+  const constructorSourceSvgPreviewStyle = constructorSourceSvgPreviewFill
+    ? ({
+        "--constructor-svg-preview-fill": constructorSourceSvgPreviewFill
+      } as React.CSSProperties)
+    : undefined;
   useEffect(() => {
     if (
       boardTapeWidthOptions.length > 0 &&
@@ -6170,8 +6424,14 @@ function App() {
     }
 
     if (constructorSourceSvgPreview?.markup) {
+      const sourceMarkup = constructorSourceSvgPreview.isLayerAddressable
+        ? applyConstructorLayerPreviewColors(
+            constructorSourceSvgPreview.markup,
+            constructorSourceSvgPreview.layerColorRules
+          )
+        : constructorSourceSvgPreview.markup;
       const inlineMarkup = createConstructorInlineSvgPreviewMarkup(
-        constructorSourceSvgPreview.markup
+        sourceMarkup
       );
 
       setConstructorPreviewMarkup(inlineMarkup);
@@ -6992,14 +7252,27 @@ function App() {
     }
 
     const sourceSvgPreview =
-      item.svgMarkup
+      getLightLetterPreviewSvgFromRecords(getLightLetterBreakdownRecords(item)) ??
+      (item.svgMarkup
         ? {
+            isLayerAddressable: hasConstructorLayerAddressableSvgAttributes(
+              item.svgMarkup
+            ),
             markup: item.svgMarkup,
+            objectCount:
+              getConstructorSvgPreviewObjectCountFromRecords(
+                getLightLetterBreakdownRecords(item),
+                {
+                  ...(item.svgShapeIndexes
+                    ? { svgShapeIndexes: item.svgShapeIndexes }
+                    : {})
+                }
+              ) ?? undefined,
             ...(item.svgShapeIndexes
               ? { svgShapeIndexes: item.svgShapeIndexes }
               : {})
           }
-        : getLightLetterPreviewSvgFromRecords(getLightLetterBreakdownRecords(item));
+        : null);
 
     setOfficeConstructorForm({
       boardTapeColorName:
@@ -8577,7 +8850,6 @@ function App() {
             {breakdownModel.objectBreakdowns.length > 1 ? (
               <p className="position-breakdown-note">
                 В заказе несколько объектов. Детализация по слоям ниже.
-                Редактирование всех слоёв будет отдельным этапом.
               </p>
             ) : null}
             {breakdownModel.objectBreakdowns.length > 0 ? (
@@ -8932,32 +9204,134 @@ function App() {
     setIsAuthLoading(true);
     setAuthStatus("Входим...");
 
-    try {
-      const result = await loginToApi(normalizedPhone, normalizedCode);
-      const currentUser = await getCurrentUser(result.token);
+    logAuthDebugRedacted("login-request", {
+      clientNamePresent: true,
+      codeLength: normalizedCode.length,
+      phoneMasked: maskAuthPhoneForDebug(normalizedPhone),
+      rememberDevice
+    });
 
-      setAuthToken(result.token);
-      setAuthUser(currentUser.user);
-      setAuthCode("");
-      setAuthStatus("Вход выполнен");
-      if (rememberDevice) {
+    let result: Awaited<ReturnType<typeof loginToApi>>;
+
+    try {
+      result = await loginToApi(normalizedPhone, normalizedCode);
+    } catch (error) {
+      logAuthDebugRedacted("login-response", {
+        errorCode: getAuthDebugErrorCode(error),
+        phoneMasked: maskAuthPhoneForDebug(normalizedPhone),
+        status: getAuthDebugStatus(error),
+        tokenReceived: false
+      });
+      setAuthToken(null);
+      setAuthUser(null);
+      setServerOrders([]);
+      setServerOrdersStatus(null);
+      setServerConnectionState("disconnected");
+      setAuthStatus(
+        error instanceof ApiResponseError &&
+          error.status === 401 &&
+          error.details.error === "INVALID_LOGIN_OR_PASSWORD"
+          ? "Не удалось войти. Проверьте телефон и код."
+          : "Не удалось выполнить запрос входа. Проверьте подключение к API."
+      );
+      setIsAuthLoading(false);
+      return;
+    }
+
+    logAuthDebugRedacted("login-response", {
+      phoneMasked: maskAuthPhoneForDebug(normalizedPhone),
+      status: 200,
+      tokenReceived: Boolean(result.token)
+    });
+
+    if (!result.token) {
+      setAuthStatus("Вход выполнен, но API не вернул токен сессии.");
+      setIsAuthLoading(false);
+      return;
+    }
+
+    logAuthDebugRedacted("me-request", {
+      phoneMasked: maskAuthPhoneForDebug(normalizedPhone),
+      tokenReceived: true
+    });
+
+    let currentUser: Awaited<ReturnType<typeof getCurrentUser>>;
+
+    try {
+      currentUser = await getCurrentUser(result.token);
+    } catch (error) {
+      logAuthDebugRedacted("me-response", {
+        errorCode: getAuthDebugErrorCode(error),
+        phoneMasked: maskAuthPhoneForDebug(normalizedPhone),
+        status: getAuthDebugStatus(error),
+        userReceived: false
+      });
+      setAuthToken(null);
+      setAuthUser(null);
+      setServerOrders([]);
+      setServerOrdersStatus(null);
+      setServerConnectionState("disconnected");
+      setAuthStatus("Вход выполнен, но не удалось получить профиль пользователя.");
+      setIsAuthLoading(false);
+      return;
+    }
+
+    logAuthDebugRedacted("me-response", {
+      phoneMasked: maskAuthPhoneForDebug(normalizedPhone),
+      status: 200,
+      userReceived: Boolean(currentUser.user)
+    });
+
+    if (!currentUser.user) {
+      setAuthStatus("Вход выполнен, но не удалось получить профиль пользователя.");
+      setIsAuthLoading(false);
+      return;
+    }
+
+    setAuthToken(result.token);
+    setAuthUser(currentUser.user);
+    setAuthCode("");
+    setAuthStatus("Вход выполнен");
+
+    logAuthDebugRedacted("save-session", {
+      phoneMasked: maskAuthPhoneForDebug(normalizedPhone),
+      rememberDevice
+    });
+
+    if (rememberDevice) {
+      try {
         saveRememberedAuth({
           expiresAt: result.expiresAt,
           phone: normalizedPhone,
           token: result.token,
           user: currentUser.user
         });
-      } else {
-        clearRememberedAuth();
+      } catch {
+        logAuthDebugRedacted("save-session", {
+          phoneMasked: maskAuthPhoneForDebug(normalizedPhone),
+          rememberDevice,
+          status: "failed"
+        });
       }
+    } else {
+      try {
+        clearRememberedAuth();
+      } catch {
+        logAuthDebugRedacted("save-session", {
+          phoneMasked: maskAuthPhoneForDebug(normalizedPhone),
+          rememberDevice,
+          status: "clear-failed"
+        });
+      }
+    }
+
+    logAuthDebugRedacted("orders-load", {
+      phoneMasked: maskAuthPhoneForDebug(normalizedPhone),
+      tokenReceived: true
+    });
+
+    try {
       await loadServerOrders(result.token);
-    } catch {
-        setAuthToken(null);
-        setAuthUser(null);
-        setServerOrders([]);
-        setServerOrdersStatus(null);
-        setServerConnectionState("disconnected");
-        setAuthStatus("Не удалось войти. Проверьте телефон и код.");
     } finally {
       setIsAuthLoading(false);
     }
@@ -12945,8 +13319,19 @@ function App() {
                                 <div
                                   className={
                                     constructorSourceSvgPreview?.markup
-                                      ? "constructor-svg-preview-markup constructor-svg-preview-markup-source"
+                                      ? `constructor-svg-preview-markup constructor-svg-preview-markup-source${
+                                          constructorSourceSvgPreview.isLayerAddressable
+                                            ? " constructor-svg-preview-markup-source-layered"
+                                            : constructorSourceSvgPreviewFill
+                                            ? " constructor-svg-preview-markup-source-colorized"
+                                            : " constructor-svg-preview-markup-source-neutral"
+                                        }`
                                       : "constructor-svg-preview-markup"
+                                  }
+                                  style={
+                                    constructorSourceSvgPreview?.markup
+                                      ? constructorSourceSvgPreviewStyle
+                                      : undefined
                                   }
                                   dangerouslySetInnerHTML={{
                                     __html: constructorPreviewMarkup

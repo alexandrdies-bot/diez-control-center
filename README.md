@@ -67,6 +67,12 @@ Order item files/comments UI: customer comments and customer files are shown ins
 
 DTF item editing preserves the saved `unitPriceMinor` for an existing position. Opening the editor or saving without changes must not recalculate the item through a default price; quantity-only changes keep the saved unit price when the format has not changed.
 
+Light-letter pricing in Desktop uses the shared `@diez/calculation-core/light-letter` flow. Desktop code must not add a separate price formula; it only prepares geometry/material inputs and renders the shared result.
+
+Imported SVG preview in Desktop prefers layer-addressable `previewSvgMarkup` / `layeredPreviewSvgMarkup` when present. New grouped SVG previews are colored display-only from `data-face-color-code` / object breakdown data, `NO_FILM` keeps the light acrylic fallback, the original `svgMarkup` is not changed, and pricing remains in the shared `@diez/calculation-core/light-letter` flow.
+
+Multi-layer imported SVG positions open in the current simplified editable Desktop flow. The shared parameter form and `Обновить позицию` stay available, but Desktop does not guess layer colors for old merged-only SVG payloads; those previews remain neutral/source-safe until a layer-addressable `previewSvgMarkup` is available. Full separate per-layer editing and SVG live-geometry update guards remain future workflow patches.
+
 Attachment cards use a fixed 3:5 preview card ratio. Thumbnail cards and preview modal use the authenticated blob/preview flow, with image detection by MIME type and common image extensions, while download/open behavior remains unchanged.
 
 Текущий экран "Материалы" — временный технический MVP-экран только для проверки связки:
@@ -363,6 +369,14 @@ The password must not be written in chat, committed, stored in `.env`, saved in 
 
 Desktop online mode uses `https://api.diezimg.ru` by default and can still be overridden with `VITE_API_BASE_URL` for explicit dev/testing tasks.
 
+### Desktop launch modes
+
+`D:\_ProjectHome\Eco_System_Diez\START_DIEZ_CONTROL_CENTER.bat` is the normal working launch for managers. It sets `VITE_API_BASE_URL=https://api.diezimg.ru`, does not start local `pnpm dev:api`, and must show real site orders from the working API.
+
+`D:\_ProjectHome\Eco_System_Diez\START_DIEZ_CONTROL_CENTER_LOCAL.bat` is only for local/dev diagnostics. It sets `VITE_API_BASE_URL=http://127.0.0.1:3001`, starts local `pnpm dev:api`, and reads the local Docker DB through the local API.
+
+Do not use the local/dev launch to verify production site orders: local DB can contain old test orders such as `ORD-20260607`, while current site requests must be checked through the working API and current `ORD-20260704-*` orders.
+
 `GET /orders` и `GET /orders/:id` загружают настоящие заказы из общей базы через production API и требуют bearer session token пользователя с ролью `manager` или `admin`. Desktop после входа вызывает `GET /orders` с Bearer token и показывает эти заказы в разделе `Заказы`; локально остаются только незавершённые `Черновики`, которые ещё не были завершены как заказ.
 
 Order attachments MVP:
@@ -378,6 +392,10 @@ Desktop auth API client:
 
 - desktop API client has `login(login, password)`, `logout(token)`, and `getCurrentUser(token)` for the API auth/session layer;
 - desktop has an MVP login screen that asks for phone number and 4-digit code, normalizes the phone before `POST /auth/login`, and keeps the backend compatible with the old `login/password` payload shape;
+- login UI separates auth stages: invalid phone/code, API request failure, missing session token, `/auth/me` failure, remembered-session storage failure, and order loading failure;
+- remembered-session save/clear failures must not cancel a successful login;
+- order loading failure after successful auth must be shown as an application data-loading problem, not as "wrong phone/code";
+- redacted auth diagnostics are off by default and can be enabled only manually with `localStorage.setItem("diez-control-center:auth-debug", "1")`; diagnostics must not log full phone, code, token, Authorization header, password hash, database URL, or secrets;
 - the first administrator is created during system setup, and employees will be added later by the administrator in settings;
 - `getOrders(token?)`, `getOrder(orderId, token?)`, `createOrderFromDraft(draftOrder, token?)`, and `deleteOrder(orderId, token?)` can send a bearer token;
 - order create/delete from the desktop UI now pass the current bearer token instead of using a local DB path;
@@ -1032,6 +1050,12 @@ The screen contains:
 - `Добавить позицию`.
 
 Imported constructor requests from the site can include `params.calculationBreakdown` / `calculationSnapshot.calculationBreakdown`. The desktop editor should show this as manager-facing production details: geometry, lighting, materials, work/markup, and totals. Customer contacts stay in the order customer block and must not be mixed into the calculation breakdown.
+
+Imported constructor requests from the site can hydrate the light-letter editor from saved `params.editorParams` / `calculationSnapshot.editorParams` and can show saved breakdown data when it is present.
+
+Desktop light-letter pricing uses the shared `@diez/calculation-core/light-letter` flow. The desktop editor may adapt saved geometry and selected materials, then render manager-facing breakdown rows, but it must not keep a separate light-letter pricing formula from the site.
+
+Imported SVG preview coloring is display-only and does not mutate source `svgMarkup`. Desktop prefers `previewSvgMarkup` for imported SVG preview; if grouped layer attributes are present, layers are colored from their face film data. Multi-layer imported SVG remains editable in the simplified shared-form mode, update is not blocked, and old merged-only SVG previews are not recolored by guessing. Full separate per-layer editing and SVG live-geometry update guards are separate future patches.
 
 ### Service navigation
 

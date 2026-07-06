@@ -4,6 +4,11 @@
 
 ### Added
 
+* Desktop login flow now separates auth failure stages: invalid phone/code, API request failure, missing session token, `/auth/me` failure, remembered-session storage failure, and orders loading failure no longer collapse into one generic login error.
+* Redacted auth diagnostics are kept behind the explicit localStorage flag `diez-control-center:auth-debug=1`; they are off by default and must not log full phone, code, token, Authorization header, password hash, database URL, or secrets.
+* Imported SVG preview in Desktop now prefers layer-addressable `previewSvgMarkup` / `layeredPreviewSvgMarkup` when present and colors those grouped SVG layers from `data-face-color-code` / object breakdown data without mutating the saved SVG.
+* Single-layer imported SVG can still use the current shared face color for display-only preview. Multi-layer positions without layer-addressable preview SVG are shown as neutral/source-safe preview instead of guessing one color for all layers.
+* Разделены BAT-запуски Control Center: `START_DIEZ_CONTROL_CENTER.bat` закреплён за рабочим API `https://api.diezimg.ru` и реальными заявками сайта, а `START_DIEZ_CONTROL_CENTER_LOCAL.bat` создан отдельно для local/dev API `http://127.0.0.1:3001` и локальной Docker DB.
 * Локальная структура экосистемы перенесена в `D:\_ProjectHome\Eco_System_Diez`; документация путей обновлена.
 * Зафиксирован первый успешный server launch: VPS, PostgreSQL, миграции, минимальные seeds, nginx, SSL, systemd, сайт и API.
 * Зафиксирован временный private-access режим: сайт и API закрыты Basic Auth на nginx до завершения настройки и production-hardening.
@@ -36,6 +41,7 @@
 * Добавлен публичный site checkout endpoint `POST /checkout/orders`: checkout-заказы сайта сохраняются в общую базу с `source='checkout'` и событием `actor_type='site'`, без использования desktop `POST /orders`.
 * Desktop order import теперь гидратирует редактор объёмных букв из `params.editorParams` / `calculationSnapshot.editorParams` для заявок конструктора сайта: текст, размеры, режим, борт, плёнка и SVG-данные подставляются в light-letter editor без изменения API/БД.
 * В редакторе объёмных букв добавлена подробная детализация заказа из `calculationBreakdown`: геометрия, светотехника, материалы, работы/наценки и итоговые суммы; контакты заказчика не смешиваются с детализацией.
+* Desktop light-letter editor now uses the shared `@diez/calculation-core/light-letter` pricing flow; desktop keeps geometry/material adapters and breakdown rendering, but no separate light-letter pricing formula.
 * Добавлен MVP order attachments: API endpoints для upload/list/download/preview вложений заказа через Bearer manager/admin auth и desktop UI с карточками 3:5, authenticated preview и download.
 * Ручной блок `Работа менеджера` убран из desktop UI, чтобы не усложнять работу менеджеров; текущий экран заказа оставляет заявку, контакты, позиции, сумму, файлы и кнопку добавления позиции. API статусов и комментариев (`PATCH /orders/:id/status`, `POST /orders/:id/comments`) остаётся техническим заделом, а статусы позже должны частично автоматизироваться по реальным действиям. DB schema/migrations не менялись.
 * Добавлен desktop-помощник `Подготовить оплату`: он формирует текст для клиента по сумме заказа и вариантам `счёт`, `QR-код`, `ссылка на оплату`, `оплата при получении`. Помощник ничего автоматически не отправляет, не сохраняет данные в DB, не использует SMS; основной ручной канал отправки остаётся MAX, резервный — email.
