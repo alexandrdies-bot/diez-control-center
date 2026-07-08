@@ -3741,6 +3741,39 @@ function getBreakdownLineTitle(line: Record<string, unknown>) {
   return label || normalizeBreakdownString(line.materialName);
 }
 
+function getBreakdownLineMaterialSelectionDetail(
+  line: Record<string, unknown>
+) {
+  const key = getBreakdownLineKey(line);
+
+  if (key !== "face_acrylic" && key !== "back_pvc") {
+    return "";
+  }
+
+  const materialSelectionHeight = normalizeBreakdownNumber(
+    line.materialSelectionHeightMm
+  );
+
+  if (materialSelectionHeight === null || materialSelectionHeight <= 0) {
+    return "";
+  }
+
+  const materialSelectionSource = normalizeBreakdownString(
+    line.materialSelectionSource
+  );
+  const formattedHeight = formatBreakdownNumber(materialSelectionHeight, 3);
+
+  if (materialSelectionSource === "elementHeightsMm:max") {
+    return `по элементам: max ${formattedHeight} мм`;
+  }
+
+  if (materialSelectionSource === "object.heightMm:fallback") {
+    return `по высоте слоя: ${formattedHeight} мм`;
+  }
+
+  return `высота выбора материала: ${formattedHeight} мм`;
+}
+
 function createCalculationBreakdownRows(
   lines: Array<Record<string, unknown>>,
   currencyCode: string
@@ -3762,6 +3795,7 @@ function createCalculationBreakdownRows(
       }
 
       return {
+        detail: getBreakdownLineMaterialSelectionDetail(line),
         label,
         price,
         value
@@ -4485,6 +4519,25 @@ function getObjectBreakdownTitle(
   return title ? `${index + 1}. ${title}` : `${index + 1}. Объект`;
 }
 
+function getObjectBreakdownMaterialSummaryPart(
+  materials: Array<Record<string, unknown>>,
+  key: string,
+  label: string
+) {
+  const materialLine = materials.find((line) => getBreakdownLineKey(line) === key);
+
+  if (!materialLine) {
+    return "";
+  }
+
+  const materialName = normalizeBreakdownString(materialLine.materialName);
+  const thickness =
+    formatBreakdownMm(materialLine.materialThicknessMm) ||
+    getMaterialMmLabels(materialName)[0];
+
+  return thickness ? `${label} ${thickness}` : label;
+}
+
 function getObjectBreakdownSummaryParts(record: Record<string, unknown>) {
   const lightingLabel =
     normalizeBreakdownString(record.lighting) ||
@@ -4494,6 +4547,17 @@ function getObjectBreakdownSummaryParts(record: Record<string, unknown>) {
   const faceFilmLabel =
     normalizeBreakdownString(record.faceFilmLabel) ||
     normalizeBreakdownString(record.faceFilmColorCode);
+  const materials = getBreakdownRecordArray(record.materials);
+  const faceMaterial = getObjectBreakdownMaterialSummaryPart(
+    materials,
+    "face_acrylic",
+    "лицо"
+  );
+  const backMaterial = getObjectBreakdownMaterialSummaryPart(
+    materials,
+    "back_pvc",
+    "задник"
+  );
 
   return [
     formatBreakdownMm(record.heightMm),
@@ -4501,6 +4565,8 @@ function getObjectBreakdownSummaryParts(record: Record<string, unknown>) {
     lightingLabel,
     boardWidth ? `Борт ${boardWidth}` : "",
     boardTapeColor,
+    faceMaterial,
+    backMaterial,
     faceFilmLabel || "Без плёнки"
   ].filter((part): part is string => Boolean(part));
 }
@@ -8818,6 +8884,7 @@ function App() {
                       </span>
                       <span className="position-breakdown-item-label">
                         <span>{row.label}</span>
+                        {row.detail ? <small>{row.detail}</small> : null}
                       </span>
                       <span className="position-breakdown-quantity">
                         {row.value}
@@ -8862,6 +8929,9 @@ function App() {
                   >
                     <div className="position-breakdown-object-head">
                       <strong>{objectBreakdown.title}</strong>
+                      {objectBreakdown.totalLabel ? (
+                        <em>{objectBreakdown.totalLabel}</em>
+                      ) : null}
                       {objectBreakdown.summaryParts.length > 0 ? (
                         <span>{objectBreakdown.summaryParts.join(" · ")}</span>
                       ) : null}
@@ -8875,7 +8945,10 @@ function App() {
                               key={`${objectBreakdown.title}-${objectIndex}-${section.title}-${row.label}`}
                             >
                               <span>{section.title}</span>
-                              <span>{row.label}</span>
+                              <span className="position-breakdown-object-label">
+                                <span>{row.label}</span>
+                                {row.detail ? <small>{row.detail}</small> : null}
+                              </span>
                               <span>{row.value}</span>
                               <strong>{row.price ?? ""}</strong>
                             </div>

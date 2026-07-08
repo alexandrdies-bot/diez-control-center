@@ -69,6 +69,8 @@ DTF item editing preserves the saved `unitPriceMinor` for an existing position. 
 
 Light-letter pricing in Desktop uses the shared `@diez/calculation-core/light-letter` flow. Desktop code must not add a separate price formula; it only prepares geometry/material inputs and renders the shared result.
 
+Light-letter breakdown rendering shows material selection reasons when the shared payload provides them: acrylic/PVC rows can explain whether thickness was selected by `max(elementHeightsMm)` or by fallback layer height. Multi-layer object cards also surface material thickness and layer totals for easier manager review.
+
 Imported SVG preview in Desktop prefers layer-addressable `previewSvgMarkup` / `layeredPreviewSvgMarkup` when present. New grouped SVG previews are colored display-only from `data-face-color-code` / object breakdown data, `NO_FILM` keeps the light acrylic fallback, the original `svgMarkup` is not changed, and pricing remains in the shared `@diez/calculation-core/light-letter` flow.
 
 Multi-layer imported SVG positions open in the current simplified editable Desktop flow. The shared parameter form and `Обновить позицию` stay available, but Desktop does not guess layer colors for old merged-only SVG payloads; those previews remain neutral/source-safe until a layer-addressable `previewSvgMarkup` is available. Full separate per-layer editing and SVG live-geometry update guards remain future workflow patches.

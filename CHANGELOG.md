@@ -8,6 +8,7 @@
 * Redacted auth diagnostics are kept behind the explicit localStorage flag `diez-control-center:auth-debug=1`; they are off by default and must not log full phone, code, token, Authorization header, password hash, database URL, or secrets.
 * Imported SVG preview in Desktop now prefers layer-addressable `previewSvgMarkup` / `layeredPreviewSvgMarkup` when present and colors those grouped SVG layers from `data-face-color-code` / object breakdown data without mutating the saved SVG.
 * Single-layer imported SVG can still use the current shared face color for display-only preview. Multi-layer positions without layer-addressable preview SVG are shown as neutral/source-safe preview instead of guessing one color for all layers.
+* Light-letter breakdown rows now show material selection reasons from shared-core when available, and multi-layer object cards include selected sheet materials and layer totals for easier review.
 * Разделены BAT-запуски Control Center: `START_DIEZ_CONTROL_CENTER.bat` закреплён за рабочим API `https://api.diezimg.ru` и реальными заявками сайта, а `START_DIEZ_CONTROL_CENTER_LOCAL.bat` создан отдельно для local/dev API `http://127.0.0.1:3001` и локальной Docker DB.
 * Локальная структура экосистемы перенесена в `D:\_ProjectHome\Eco_System_Diez`; документация путей обновлена.
 * Зафиксирован первый успешный server launch: VPS, PostgreSQL, миграции, минимальные seeds, nginx, SSL, systemd, сайт и API.

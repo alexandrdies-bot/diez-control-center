@@ -25,6 +25,7 @@ Date: 2026-05-29
 ## Light-letter and SVG runtime state
 
 - Desktop light-letter pricing uses `@diez/calculation-core/light-letter`; there is no separate Desktop pricing formula.
+- Desktop light-letter breakdowns show material selection reasons from the shared payload when available, including `max(elementHeightsMm)` versus fallback layer height for acrylic/PVC thickness.
 - Imported SVG preview prefers layer-addressable `previewSvgMarkup` / `layeredPreviewSvgMarkup` when present; grouped layers are colored display-only from `data-face-color-code` / object breakdown data and source SVG is not mutated.
 - Single-layer imported SVG can still use the current shared face color. Multi-layer imported SVG positions remain editable in the simplified shared-form flow, but old merged-only SVG previews are shown neutral/source-safe instead of guessing one color for all layers.
 - Full separate per-layer editing and SVG live-geometry update guards remain separate future patches.
